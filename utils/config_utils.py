@@ -75,6 +75,8 @@ def load_openai_config(config_path: str | None = None) -> dict:
 
     # API credentials
     api_key = os.environ.get("OPENAI_API_KEY", "") or openai_cfg.get("api_key", "")
+    # Preserve environment-variable override: environment variables take
+    # precedence over the value in `config.yaml` for `base_url`.
     base_url = os.environ.get("OPENAI_BASE_URL", "") or openai_cfg.get("base_url", "")
 
     # Model choices

@@ -1,10 +1,11 @@
 # OpenAI API Configuration
 openai:
   # API key: will read from OPENAI_API_KEY environment variable if not set here
-  # api_key: ""  # Uncomment and set if not using environment variable
+  api_key: "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" # Uncomment and set if not using environment variable
 
   # Base URL: will read from OPENAI_BASE_URL environment variable if not set here
-  # base_url: ""  # Uncomment to override
+  # Default OpenAI API base URL. Leave empty to rely on environment override.
+  base_url: "https://api.openai.com/v1"
 
   # Model choices
   chunk_model: "gpt-5.5"

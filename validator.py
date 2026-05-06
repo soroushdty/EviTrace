@@ -3,7 +3,9 @@ import json
 import re
 from typing import Any
 
-from config import ALLOWED_CONFIDENCE, REQUIRED_KEYS
+# Validation constants
+ALLOWED_CONFIDENCE = {"h", "m", "l", "nr"}
+REQUIRED_KEYS = {"i", "v", "e", "c"}
 
 
 class ValidationError(Exception):

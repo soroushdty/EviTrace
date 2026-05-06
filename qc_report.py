@@ -3,7 +3,7 @@ import csv
 from collections import defaultdict
 from pathlib import Path
 
-from config import OUTPUT_DIR, QC_REPORT_FILE
+from utils.path_utils import OUTPUT_DIR, QC_REPORT_FILE
 from utils.logging_utils import get_logger
 
 logger = get_logger(__name__)

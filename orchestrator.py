@@ -20,19 +20,19 @@ import json
 from pathlib import Path
 from typing import Optional
 
-from config import (
-    CHUNK_MODEL,
-    DOMAIN_TO_CHUNK,
-    ENABLE_CACHE_PREWARM,
-    EXTRACTION_MAP,
-    GLOBAL_API_LIMIT,
-    MANIFEST_FILE,
-    NUM_CHUNKS,
-    OUTPUT_DIR,
-    PDF_CONCURRENCY,
-    PREWARM_SYNTHESIS_IF_MODEL_DIFF,
-    SYNTHESIS_MODEL,
-)
+from utils.config_utils import load_openai_config
+from utils.path_utils import EXTRACTION_MAP, MANIFEST_FILE, OUTPUT_DIR
+
+_openai_config = load_openai_config()
+
+CHUNK_MODEL: str = _openai_config["chunk_model"]
+DOMAIN_TO_CHUNK: dict[int, int] = _openai_config["domain_to_chunk"]
+ENABLE_CACHE_PREWARM: bool = _openai_config["enable_cache_prewarm"]
+GLOBAL_API_LIMIT: int = _openai_config["global_api_limit"]
+NUM_CHUNKS: int = _openai_config["num_chunks"]
+PDF_CONCURRENCY: int = _openai_config["pdf_concurrency"]
+PREWARM_SYNTHESIS_IF_MODEL_DIFF: bool = _openai_config["prewarm_synthesis_if_model_diff"]
+SYNTHESIS_MODEL: str = _openai_config["synthesis_model"]
 from api_client import extract_chunk, warm_pdf_cache
 from pdf_extractor import extract_pdf_text
 from validator import reconstruct_fields

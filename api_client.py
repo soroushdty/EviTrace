@@ -6,19 +6,21 @@ from typing import Any, Optional
 
 from openai import APIConnectionError, APIStatusError, APITimeoutError, AsyncOpenAI, RateLimitError
 
-from config import (
-    CACHE_WARMUP_MAX_TOKENS,
-    CHUNK_MAX_TOKENS,
-    CHUNK_MODEL,
-    MAX_RETRIES,
-    OPENAI_API_KEY,
-    OPENAI_BASE_URL,
-    PROMPT_CACHE_KEY_PREFIX,
-    PROMPT_CACHE_RETENTION,
-    RETRY_BASE_DELAY,
-    SYNTHESIS_MODEL,
-    TEMPERATURE,
-)
+from utils.config_utils import load_openai_config
+
+_openai_config = load_openai_config()
+
+CACHE_WARMUP_MAX_TOKENS: int = _openai_config["cache_warmup_max_tokens"]
+CHUNK_MAX_TOKENS: dict[int, int] = _openai_config["chunk_max_tokens"]
+CHUNK_MODEL: str = _openai_config["chunk_model"]
+MAX_RETRIES: int = _openai_config["max_retries"]
+OPENAI_API_KEY: str = _openai_config["api_key"]
+OPENAI_BASE_URL: str | None = _openai_config["base_url"]
+PROMPT_CACHE_KEY_PREFIX: str = _openai_config["prompt_cache_key_prefix"]
+PROMPT_CACHE_RETENTION: str = _openai_config["prompt_cache_retention"]
+RETRY_BASE_DELAY: int = _openai_config["retry_base_delay"]
+SYNTHESIS_MODEL: str = _openai_config["synthesis_model"]
+TEMPERATURE: float | None = _openai_config["temperature"]
 from prompts import SYSTEM_PROMPT, build_cache_warmup_message, build_user_message
 from validator import ValidationError, validate_chunk_output
 from utils.logging_utils import get_logger, log_cache_usage
