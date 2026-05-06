@@ -30,15 +30,35 @@ ENABLE_CACHE_PREWARM = os.environ.get("OPENAI_ENABLE_CACHE_PREWARM", "1").lower(
 CACHE_WARMUP_MAX_TOKENS = int(os.environ.get("OPENAI_CACHE_WARMUP_MAX_TOKENS", "32"))
 
 # If chunk and synthesis models differ, start a second tiny warmup for the
-# synthesis model while chunks 1-4 are running. This usually avoids extra wall
-# time and improves chunk-5 cache eligibility.
+# synthesis model while prior chunks are running. This usually avoids extra wall
+# time and improves final chunk cache eligibility.
 PREWARM_SYNTHESIS_IF_MODEL_DIFF = os.environ.get(
     "OPENAI_PREWARM_SYNTHESIS_IF_MODEL_DIFF", "1"
 ).lower() not in {"0", "false", "no"}
 
+# -- Chunk configuration -----------------------------------------------------
+# Number of extraction chunks. The last chunk is synthesis/review and receives
+# prior context from all preceding chunks. Default is 3:
+#   Chunk 1: domains 1-5
+#   Chunk 2: domains 6-12
+#   Chunk 3: domain 13 (synthesis/review)
+# Override with environment variable: export OPENAI_NUM_CHUNKS=5
+NUM_CHUNKS = int(os.environ.get("OPENAI_NUM_CHUNKS", "3"))
+
 # Max output tokens per chunk. These caps are intentionally generous for about
 # 30 words each in extracted_value and evidence while avoiding truncation/retry.
-CHUNK_MAX_TOKENS = {1: 3500, 2: 3000, 3: 5000, 4: 3500, 5: 2500}
+def _get_chunk_max_tokens() -> dict[int, int]:
+    """Generate appropriate max tokens per chunk based on NUM_CHUNKS."""
+    if NUM_CHUNKS == 5:
+        return {1: 3500, 2: 3000, 3: 5000, 4: 3500, 5: 2500}
+    elif NUM_CHUNKS == 3:
+        return {1: 3500, 2: 5000, 3: 2500}
+    else:
+        # For other values, distribute tokens evenly
+        base_tokens = 3500
+        return {i: base_tokens for i in range(1, NUM_CHUNKS + 1)}
+
+CHUNK_MAX_TOKENS = _get_chunk_max_tokens()
 
 # -- Concurrency -------------------------------------------------------------
 PDF_CONCURRENCY = 3       # PDFs processed in parallel
@@ -48,19 +68,61 @@ GLOBAL_API_LIMIT = 15     # max concurrent OpenAI API calls across all PDFs
 MAX_RETRIES = 3
 RETRY_BASE_DELAY = 5      # seconds; actual delay = base * 2^(attempt - 1)
 
-# -- Chunk -> field_index ranges (inclusive) ---------------------------------
-# Chunk 1: domains 1-3   Study ID, clinical context, cohort
-# Chunk 2: domains 4-5   Prediction task, data inputs and modalities
-# Chunk 3: domains 6-9   Graph topology and temporal representation
-# Chunk 4: domains 10-12 Model architecture, evaluation, interpretability
-# Chunk 5: domain 13     Reviewer synthesis (receives prior context)
-CHUNK_FIELD_RANGES = {
-    1: (1, 15),
-    2: (16, 25),
-    3: (26, 44),
-    4: (45, 56),
-    5: (57, 62),
-}
+def _get_domain_to_chunk() -> dict[int, int]:
+    """Generate domain-to-chunk mapping based on NUM_CHUNKS.
+
+    Domains are distributed to chunks with the last chunk reserved for synthesis/review.
+    """
+    if NUM_CHUNKS == 5:
+        return {
+            1: 1,   # 1. Study identification
+            2: 1,   # 2. Clinical and study-design context
+            3: 1,   # 3. Cohort and data source
+            4: 2,   # 4. Prediction task
+            5: 2,   # 5. Data inputs and modalities
+            6: 3,   # 6. Graph structure and topology
+            7: 3,   # 7. Node specification
+            8: 3,   # 8. Edge specification
+            9: 3,   # 9. Temporal representation
+            10: 4,  # 10. Model architecture
+            11: 4,  # 11. Evaluation and generalizability
+            12: 4,  # 12. Interpretability and representation
+            13: 5,  # 13. Reviewer assessment and critique (synthesis)
+        }
+    elif NUM_CHUNKS == 3:
+        return {
+            1: 1,   # 1. Study identification
+            2: 1,   # 2. Clinical and study-design context
+            3: 1,   # 3. Cohort and data source
+            4: 1,   # 4. Prediction task
+            5: 1,   # 5. Data inputs and modalities
+            6: 2,   # 6. Graph structure and topology
+            7: 2,   # 7. Node specification
+            8: 2,   # 8. Edge specification
+            9: 2,   # 9. Temporal representation
+            10: 2,  # 10. Model architecture
+            11: 2,  # 11. Evaluation and generalizability
+            12: 2,  # 12. Interpretability and representation
+            13: 3,  # 13. Reviewer assessment and critique (synthesis)
+        }
+    else:
+        # For other values, distribute domains evenly across NUM_CHUNKS-1 extraction chunks,
+        # with the last chunk reserved for synthesis.
+        mapping = {}
+        chunks_for_extraction = NUM_CHUNKS - 1
+        domains_per_chunk = 12 // chunks_for_extraction  # Domains 1-12
+        remainder = 12 % chunks_for_extraction
+
+        domain = 1
+        for chunk_num in range(1, chunks_for_extraction + 1):
+            domains_in_this_chunk = domains_per_chunk + (1 if chunk_num <= remainder else 0)
+            for _ in range(domains_in_this_chunk):
+                mapping[domain] = chunk_num
+                domain += 1
+        mapping[13] = NUM_CHUNKS  # Synthesis chunk
+        return mapping
+
+DOMAIN_TO_CHUNK = _get_domain_to_chunk()
 
 # -- Validation --------------------------------------------------------------
 ALLOWED_CONFIDENCE = {"h", "m", "l", "nr"}

@@ -5,12 +5,13 @@ Per PDF:
 1. Check manifest skip status.
 2. Extract PDF text once locally.
 3. If enabled, run a tiny chunk-model cache warmup for the shared PDF prefix.
-4. Run chunks 1-4 in parallel with the OpenAI chunk model.
-5. If the synthesis model differs, run its warmup while chunks 1-4 are running.
-6. Validate all four extraction chunks; abort this PDF on failure.
-7. Combine chunks 1-4 and pass them as context to chunk 5.
-8. Merge all 62 fields, sort by field_index, save JSON, update manifest.
+4. Run extraction chunks 1 to (NUM_CHUNKS-1) in parallel with the OpenAI chunk model.
+5. If the synthesis model differs, run its warmup while extraction chunks are running.
+6. Validate all extraction chunks; abort this PDF on failure.
+7. Combine extraction chunk outputs and pass them as context to the final synthesis chunk.
+8. Merge all extracted fields, sort by field_index, save JSON, update manifest.
 
+Field ranges are inferred dynamically from extraction_map.json and NUM_CHUNKS.
 PDF-level concurrency is controlled by pdf_semaphore (default 3).
 API-level concurrency is controlled by api_semaphore (default 15).
 """
@@ -21,12 +22,13 @@ from pathlib import Path
 from typing import Optional
 
 from config import (
-    CHUNK_FIELD_RANGES,
     CHUNK_MODEL,
+    DOMAIN_TO_CHUNK,
     ENABLE_CACHE_PREWARM,
     EXTRACTION_MAP,
     GLOBAL_API_LIMIT,
     MANIFEST_FILE,
+    NUM_CHUNKS,
     OUTPUT_DIR,
     PDF_CONCURRENCY,
     PREWARM_SYNTHESIS_IF_MODEL_DIFF,
@@ -41,13 +43,49 @@ logger = logging.getLogger(__name__)
 
 # -- Extraction map helpers --------------------------------------------------
 
-def load_chunk_fields() -> dict[int, list[dict]]:
-    """Load extraction_map.json and split into per-chunk field lists."""
+def _infer_chunk_field_ranges() -> dict[int, tuple[int, int]]:
+    """Infer chunk field index ranges from extraction_map.json and domain-to-chunk mapping.
+
+    Returns:
+        A dict mapping chunk_num to (min_field_index, max_field_index).
+    """
     with open(EXTRACTION_MAP, encoding="utf-8") as f:
         all_fields: list[dict] = json.load(f)
 
+    # Group fields by chunk number
+    chunk_to_fields: dict[int, list[int]] = {}
+    for field in all_fields:
+        domain_prefix = int(field["domain_group"].split(".")[0])
+        chunk_num = DOMAIN_TO_CHUNK.get(domain_prefix)
+        if chunk_num is None:
+            raise ValueError(
+                f"Domain {domain_prefix} from '{field['domain_group']}' "
+                f"not found in DOMAIN_TO_CHUNK mapping"
+            )
+        if chunk_num not in chunk_to_fields:
+            chunk_to_fields[chunk_num] = []
+        chunk_to_fields[chunk_num].append(field["field_index"])
+
+    # Build ranges from grouped fields
+    result: dict[int, tuple[int, int]] = {}
+    for chunk_num, field_indices in chunk_to_fields.items():
+        result[chunk_num] = (min(field_indices), max(field_indices))
+
+    return result
+
+
+def load_chunk_fields() -> dict[int, list[dict]]:
+    """Load extraction_map.json and split into per-chunk field lists.
+
+    Field assignments are inferred from extraction_map.json domain groups and
+    the DOMAIN_TO_CHUNK configuration.
+    """
+    with open(EXTRACTION_MAP, encoding="utf-8") as f:
+        all_fields: list[dict] = json.load(f)
+
+    chunk_field_ranges = _infer_chunk_field_ranges()
     result: dict[int, list[dict]] = {}
-    for chunk_num, (lo, hi) in CHUNK_FIELD_RANGES.items():
+    for chunk_num, (lo, hi) in chunk_field_ranges.items():
         result[chunk_num] = [
             field for field in all_fields
             if lo <= field["field_index"] <= hi
@@ -99,7 +137,7 @@ async def _process_pdf(
 ) -> Optional[list[dict]]:
     """
     Process one PDF end-to-end.
-    Returns the 62-field list on success, None on failure.
+    Returns the extracted field list on success, None on failure.
     """
     pdf_name = pdf_path.stem
 
@@ -130,11 +168,12 @@ async def _process_pdf(
     if ENABLE_CACHE_PREWARM:
         await warm_pdf_cache(pdf_text, api_semaphore, pdf_name=pdf_name, model=CHUNK_MODEL)
 
-    # Step 3: chunks 1-4 in parallel. If synthesis uses a different model, warm
-    # its cache concurrently so chunk 5 can reuse the same PDF prefix later.
+    # Step 3: Run extraction chunks 1 to (NUM_CHUNKS-1) in parallel.
+    # If synthesis uses a different model, warm its cache concurrently to improve efficiency.
+    extraction_chunks = list(range(1, NUM_CHUNKS))
     chunk_tasks = [
         extract_chunk(i, pdf_text, chunk_fields[i], api_semaphore, pdf_name=pdf_name)
-        for i in range(1, 5)
+        for i in extraction_chunks
     ]
 
     synthesis_warmup_task: asyncio.Task[bool] | None = None
@@ -153,7 +192,7 @@ async def _process_pdf(
         # Warmup failure should not fail extraction; warm_pdf_cache already logs it.
         await synthesis_warmup_task
 
-    failed = {i + 1: err for i, err in enumerate(raw_results) if isinstance(err, Exception)}
+    failed = {extraction_chunks[i]: err for i, err in enumerate(raw_results) if isinstance(err, Exception)}
     if failed:
         for chunk_num, err in failed.items():
             logger.error(f"FAIL  {pdf_name} -- chunk {chunk_num}: {err}")
@@ -171,22 +210,23 @@ async def _process_pdf(
         prior_context.extend(reconstruct_fields(chunk_result, field_lookup))  # type: ignore[arg-type]
     prior_context.sort(key=lambda x: x["field_index"])
 
-    # Step 5: chunk 5 synthesis. Its prompt keeps PDF text before prior outputs.
+    # Step 5: Final chunk (synthesis). Its prompt keeps PDF text before prior outputs.
     try:
-        chunk5_compact = await extract_chunk(
-            5, pdf_text, chunk_fields[5], api_semaphore,
+        synthesis_chunk = NUM_CHUNKS
+        final_compact = await extract_chunk(
+            synthesis_chunk, pdf_text, chunk_fields[synthesis_chunk], api_semaphore,
             prior_context=prior_context, pdf_name=pdf_name,
         )
-        chunk5 = reconstruct_fields(chunk5_compact, field_lookup)
+        final_fields = reconstruct_fields(final_compact, field_lookup)
     except Exception as exc:
-        logger.error(f"FAIL  {pdf_name} -- chunk 5 (synthesis): {exc}")
+        logger.error(f"FAIL  {pdf_name} -- chunk {NUM_CHUNKS} (synthesis): {exc}")
         async with manifest_lock:
-            manifest[pdf_name] = {"status": "failed_chunk_5", "error": str(exc)}
+            manifest[pdf_name] = {"status": f"failed_chunk_{NUM_CHUNKS}", "error": str(exc)}
             _save_manifest(manifest)
         return None
 
     # Step 6: merge, sort, save.
-    all_fields = prior_context + chunk5
+    all_fields = prior_context + final_fields
     all_fields.sort(key=lambda x: x["field_index"])
 
     _save_pdf_output(pdf_name, all_fields)

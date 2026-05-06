@@ -9,7 +9,6 @@ from openai import APIConnectionError, APIStatusError, APITimeoutError, AsyncOpe
 
 from config import (
     CACHE_WARMUP_MAX_TOKENS,
-    CHUNK_FIELD_RANGES,
     CHUNK_MAX_TOKENS,
     CHUNK_MODEL,
     MAX_RETRIES,
@@ -33,9 +32,9 @@ if OPENAI_BASE_URL:
 _client = AsyncOpenAI(**_client_kwargs)
 
 
-def _expected_indices(chunk_num: int) -> list[int]:
-    lo, hi = CHUNK_FIELD_RANGES[chunk_num]
-    return list(range(lo, hi + 1))
+def _expected_indices(chunk_fields: list[dict]) -> list[int]:
+    """Extract expected field indices from chunk_fields list."""
+    return sorted([field["field_index"] for field in chunk_fields])
 
 
 def _json_schema_format() -> dict[str, Any]:
@@ -223,11 +222,11 @@ async def extract_chunk(
     Call OpenAI for a single chunk with up to MAX_RETRIES attempts.
 
     Args:
-        chunk_num:     1-5.
+        chunk_num:     Chunk number from 1 to NUM_CHUNKS.
         pdf_text:      Full paper text extracted once upstream.
         chunk_fields:  Extraction-map objects scoped to this chunk.
         semaphore:     Global API concurrency gate.
-        prior_context: Chunk 5 only: combined output of chunks 1-4.
+        prior_context: For the final synthesis chunk: combined output of prior chunks.
         pdf_name:      Used in log messages only.
 
     Returns:
@@ -235,7 +234,7 @@ async def extract_chunk(
     """
     model = SYNTHESIS_MODEL if chunk_num == 5 else CHUNK_MODEL
     max_tokens = CHUNK_MAX_TOKENS[chunk_num]
-    expected_idx = _expected_indices(chunk_num)
+    expected_idx = _expected_indices(chunk_fields)
     user_msg = build_user_message(pdf_text, chunk_fields, prior_context)
     tag = f"[{pdf_name} | chunk {chunk_num} | {model}]"
 
