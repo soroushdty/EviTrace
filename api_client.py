@@ -64,7 +64,7 @@ def _json_schema_format() -> dict[str, Any]:
                             "e": {"type": "string"},
                             "c": {
                                 "type": "string",
-                                "enum": ["high", "medium", "low", "not reported"],
+                                "enum": ["h", "m", "l", "nr"],
                             },
                         },
                         "required": ["i", "v", "e", "c"],

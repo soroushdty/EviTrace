@@ -63,7 +63,7 @@ CHUNK_FIELD_RANGES = {
 }
 
 # -- Validation --------------------------------------------------------------
-ALLOWED_CONFIDENCE = {"high", "medium", "low", "not reported"}
+ALLOWED_CONFIDENCE = {"h", "m", "l", "nr"}
 REQUIRED_KEYS = {"i", "v", "e", "c"}
 
 # -- Paths -------------------------------------------------------------------

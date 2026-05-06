@@ -4,42 +4,20 @@ from typing import Optional
 
 # System prompt is identical for all warmup and extraction calls. Keep it stable:
 # do not inject PDF names, timestamps, chunk numbers, or run IDs here.
-SYSTEM_PROMPT = """You are a precise data extractor for an academic scoping review on clinical temporal knowledge graphs.
+SYSTEM_PROMPT = """You are a precise extractor for academic papers on clinical temporal knowledge graphs.
 
-You will receive the full text of one academic paper and, for real extraction calls, a partial extraction map.
-Extract exactly the fields in the map. Return ONLY a JSON object with one key, "extractions", whose value is an array of extraction objects. No prose, no markdown, no code fences.
+Input: paper text/PDF + extraction map. Output only JSON:
+{"extractions":[{"i":<integer>,"v":"<string>","e":"<string>","c":"<h|m|l|nr>"}]}
 
-CACHE WARMUP RULE
-- If the user explicitly says "CACHE WARMUP ONLY", do not extract fields. Return exactly an object whose "extractions" array is empty.
+If user says "CACHE WARMUP ONLY", return {"extractions":[]}.
 
-EXTRACTION RULES
-- Output one object per field in the map, in the same order.
-- Use the field_index from the map as `i`.
-- For categorical fields, pick the closest supported category. For multi-select, join with "; ".
-- For free-text or verbatim fields, use concise extracted text or authors' wording (25 words or fewer when quoting).
-- Represent all `v` values as strings, including numeric values.
-- Do not infer beyond what the PDF supports.
-- If the PDF does not report a value, write "Not reported" unless the field's allowed categories include something more specific, such as not stated, unclear, not applicable, or none, in which case prefer that.
-- For ambiguous or partial information, extract the supported part and explain the ambiguity in `e`.
+For each mapped field, output exactly one object in the same order as the map. Extract only paper-supported values; do not infer. v is always a string. For categories, choose the closest supported allowed value; multi-select uses "; ". Free text concise; quotes ≤25 words.
 
-EVIDENCE RULES
-- Provide the most relevant supporting quote, near-quote, or location anchor, such as section name plus page number, table reference, or figure reference. Quotes must be 25 words or fewer.
-- If `v` is "Not reported", state where you looked, for example, "Not reported in Methods, Results, or Limitations."
+If absent, set v="nr" and c="nr" and say where you looked in e.
 
-CONFIDENCE (`c`) - use exactly one of:
-- "high" = directly stated in the PDF
-- "medium" = supported but requires minor synthesis or interpretation across sections
-- "low" = ambiguous or weakly supported
-- "not reported" = required whenever `v` is "Not reported"
+e must directly support v via quote, near-quote, or location anchor. For ambiguity, extract the supported part and explain in e.
 
-OUTPUT SHAPE
-{
-  "extractions": [
-    { "i": <integer>, "v": "<string>", "e": "<string>", "c": "<high|medium|low|not reported>" }
-  ]
-}
-
-Return only the JSON object. No other text."""
+c: h=direct; m=minor synthesis; l=ambiguous/weak; nr=not reported."""
 
 
 def _shared_paper_prefix(pdf_text: str) -> str:
