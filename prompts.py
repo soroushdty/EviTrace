@@ -86,20 +86,24 @@ def build_user_message(
     """
     Build the user message for a chunk API call.
 
-    The full PDF text appears before the chunk-specific extraction map and
-    before prior chunk outputs. This maximizes the repeated prefix that can be
-    reused by prompt caching for all calls for the same PDF.
+    Order: shared PDF prefix → extraction map → prior chunk outputs (chunk 5 only).
+
+    The extraction map is placed immediately after the shared PDF prefix so the
+    cached prefix for chunk 5 extends as far as it does for chunks 1–4. Prior
+    chunk outputs are a trailing suffix — strictly after the full PDF text and
+    never interleaved between the PDF and the extraction task.
     """
     parts: list[str] = [_shared_paper_prefix(pdf_text)]
+
+    parts.append(f"EXTRACTION MAP ({len(chunk_fields)} fields to extract):")
+    parts.append(json.dumps(chunk_fields, indent=2, ensure_ascii=False))
+    parts.append("")
 
     if prior_context is not None:
         parts.append("PRIOR EXTRACTION RESULTS from chunks 1-4. Treat these as read-only context for synthesis:")
         parts.append(json.dumps(prior_context, indent=2, ensure_ascii=False))
         parts.append("")
 
-    parts.append(f"EXTRACTION MAP ({len(chunk_fields)} fields to extract):")
-    parts.append(json.dumps(chunk_fields, indent=2, ensure_ascii=False))
-    parts.append("")
     parts.append("Return the JSON object now.")
 
     return "\n".join(parts)
