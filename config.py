@@ -25,7 +25,7 @@ TEMPERATURE = float(_TEMP_RAW) if _TEMP_RAW else None
 # a per-paper prompt_cache_key derived from the extracted PDF text. Do not use a
 # single global cache key for all PDFs.
 PROMPT_CACHE_KEY_PREFIX = os.environ.get("OPENAI_PROMPT_CACHE_KEY_PREFIX", "scoping-review-v1")
-PROMPT_CACHE_RETENTION = os.environ.get("OPENAI_PROMPT_CACHE_RETENTION", "")  # e.g. "24h"
+PROMPT_CACHE_RETENTION = os.environ.get("OPENAI_PROMPT_CACHE_RETENTION", "in_memory")  # e.g. "24h", "in_memory"
 ENABLE_CACHE_PREWARM = os.environ.get("OPENAI_ENABLE_CACHE_PREWARM", "1").lower() not in {"0", "false", "no"}
 CACHE_WARMUP_MAX_TOKENS = int(os.environ.get("OPENAI_CACHE_WARMUP_MAX_TOKENS", "32"))
 
