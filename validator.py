@@ -84,28 +84,28 @@ def validate_chunk_output(raw: str, expected_indices: list[int]) -> list[dict]:
         if extra:
             raise ValidationError(f"Item {i} has unexpected keys: {extra}")
 
-        conf = obj.get("confidence", "")
+        conf = obj.get("c", "")
         if conf not in ALLOWED_CONFIDENCE:
             raise ValidationError(
                 f"Item {i} has invalid confidence value '{conf}'. "
                 f"Allowed: {sorted(ALLOWED_CONFIDENCE)}"
             )
 
-        if not isinstance(obj["field_index"], int):
+        if not isinstance(obj["i"], int):
             raise ValidationError(
-                f"Item {i}: field_index must be an integer, got {obj['field_index']!r}"
+                f"Item {i}: i must be an integer, got {obj['i']!r}"
             )
 
         # Structured Outputs asks for a string. This cleanup keeps downstream CSV
         # and JSON consistent if a compatible/non-strict model emits a number.
-        if not isinstance(obj["extracted_value"], str):
-            obj["extracted_value"] = str(obj["extracted_value"])
+        if not isinstance(obj["v"], str):
+            obj["v"] = str(obj["v"])
 
-        for key in ("domain_group", "field_name", "evidence"):
+        for key in ("v", "e", "c"):
             if not isinstance(obj[key], str):
                 raise ValidationError(f"Item {i}: {key} must be a string, got {obj[key]!r}")
 
-        actual_indices.append(obj["field_index"])
+        actual_indices.append(obj["i"])
 
     # -- Index match ----------------------------------------------------------
     if sorted(actual_indices) != sorted(expected_indices):
@@ -116,3 +116,21 @@ def validate_chunk_output(raw: str, expected_indices: list[int]) -> list[dict]:
         )
 
     return data
+
+
+def reconstruct_fields(
+    compact: list[dict],
+    field_lookup: dict[int, dict],
+) -> list[dict]:
+    """Expand compact model output to full extraction dicts using extraction_map metadata."""
+    return [
+        {
+            "field_index":     item["i"],
+            "domain_group":    field_lookup[item["i"]]["domain_group"],
+            "field_name":      field_lookup[item["i"]]["field_name"],
+            "extracted_value": item["v"],
+            "evidence":        item["e"],
+            "confidence":      item["c"],
+        }
+        for item in compact
+    ]

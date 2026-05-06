@@ -34,6 +34,7 @@ from config import (
 )
 from api_client import extract_chunk, warm_pdf_cache
 from pdf_extractor import extract_pdf_text
+from validator import reconstruct_fields
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,16 @@ def load_chunk_fields() -> dict[int, list[dict]]:
             if lo <= field["field_index"] <= hi
         ]
     return result
+
+
+def _build_field_lookup() -> dict[int, dict]:
+    """Build a field_index → {domain_group, field_name} lookup from extraction_map.json."""
+    with open(EXTRACTION_MAP, encoding="utf-8") as f:
+        all_fields: list[dict] = json.load(f)
+    return {
+        f["field_index"]: {"domain_group": f["domain_group"], "field_name": f["field_name"]}
+        for f in all_fields
+    }
 
 
 # -- Manifest helpers --------------------------------------------------------
@@ -81,6 +92,7 @@ def _save_pdf_output(pdf_name: str, fields: list[dict]) -> None:
 async def _process_pdf(
     pdf_path: Path,
     chunk_fields: dict[int, list[dict]],
+    field_lookup: dict[int, dict],
     api_semaphore: asyncio.Semaphore,
     manifest: dict,
     manifest_lock: asyncio.Lock,
@@ -153,18 +165,19 @@ async def _process_pdf(
             _save_manifest(manifest)
         return None
 
-    # Step 4: combine chunks 1-4 as prior context.
+    # Step 4: reconstruct compact results and combine as prior context.
     prior_context: list[dict] = []
     for chunk_result in raw_results:
-        prior_context.extend(chunk_result)          # type: ignore[arg-type]
+        prior_context.extend(reconstruct_fields(chunk_result, field_lookup))  # type: ignore[arg-type]
     prior_context.sort(key=lambda x: x["field_index"])
 
     # Step 5: chunk 5 synthesis. Its prompt keeps PDF text before prior outputs.
     try:
-        chunk5 = await extract_chunk(
+        chunk5_compact = await extract_chunk(
             5, pdf_text, chunk_fields[5], api_semaphore,
             prior_context=prior_context, pdf_name=pdf_name,
         )
+        chunk5 = reconstruct_fields(chunk5_compact, field_lookup)
     except Exception as exc:
         logger.error(f"FAIL  {pdf_name} -- chunk 5 (synthesis): {exc}")
         async with manifest_lock:
@@ -196,6 +209,7 @@ async def run_pipeline(pdf_paths: list[Path]) -> list[dict]:
         List of {"pdf": filename, "fields": [...]} for every successful paper.
     """
     chunk_fields = load_chunk_fields()
+    field_lookup = _build_field_lookup()
     manifest = load_manifest()
     manifest_lock = asyncio.Lock()
     api_semaphore = asyncio.Semaphore(GLOBAL_API_LIMIT)
@@ -204,7 +218,7 @@ async def run_pipeline(pdf_paths: list[Path]) -> list[dict]:
     async def _bounded(pdf_path: Path):
         async with pdf_semaphore:
             return await _process_pdf(
-                pdf_path, chunk_fields, api_semaphore, manifest, manifest_lock
+                pdf_path, chunk_fields, field_lookup, api_semaphore, manifest, manifest_lock
             )
 
     results = await asyncio.gather(

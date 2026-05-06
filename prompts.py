@@ -14,35 +14,28 @@ CACHE WARMUP RULE
 
 EXTRACTION RULES
 - Output one object per field in the map, in the same order.
-- Copy field_index, domain_group, and field_name verbatim from the map.
+- Use the field_index from the map as `i`.
 - For categorical fields, pick the closest supported category. For multi-select, join with "; ".
 - For free-text or verbatim fields, use concise extracted text or authors' wording (25 words or fewer when quoting).
-- Represent all extracted_value values as strings, including numeric values.
+- Represent all `v` values as strings, including numeric values.
 - Do not infer beyond what the PDF supports.
 - If the PDF does not report a value, write "Not reported" unless the field's allowed categories include something more specific, such as not stated, unclear, not applicable, or none, in which case prefer that.
-- For ambiguous or partial information, extract the supported part and explain the ambiguity in the evidence field.
+- For ambiguous or partial information, extract the supported part and explain the ambiguity in `e`.
 
 EVIDENCE RULES
 - Provide the most relevant supporting quote, near-quote, or location anchor, such as section name plus page number, table reference, or figure reference. Quotes must be 25 words or fewer.
-- If extracted_value is "Not reported", state where you looked, for example, "Not reported in Methods, Results, or Limitations."
+- If `v` is "Not reported", state where you looked, for example, "Not reported in Methods, Results, or Limitations."
 
-CONFIDENCE - use exactly one of:
+CONFIDENCE (`c`) - use exactly one of:
 - "high" = directly stated in the PDF
 - "medium" = supported but requires minor synthesis or interpretation across sections
 - "low" = ambiguous or weakly supported
-- "not reported" = required whenever extracted_value is "Not reported"
+- "not reported" = required whenever `v` is "Not reported"
 
 OUTPUT SHAPE
 {
   "extractions": [
-    {
-      "field_index": <integer>,
-      "domain_group": "<string>",
-      "field_name": "<string>",
-      "extracted_value": "<string>",
-      "evidence": "<string>",
-      "confidence": "<high|medium|low|not reported>"
-    }
+    { "i": <integer>, "v": "<string>", "e": "<string>", "c": "<high|medium|low|not reported>" }
   ]
 }
 

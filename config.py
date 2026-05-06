@@ -64,10 +64,7 @@ CHUNK_FIELD_RANGES = {
 
 # -- Validation --------------------------------------------------------------
 ALLOWED_CONFIDENCE = {"high", "medium", "low", "not reported"}
-REQUIRED_KEYS = {
-    "field_index", "domain_group", "field_name",
-    "extracted_value", "evidence", "confidence",
-}
+REQUIRED_KEYS = {"i", "v", "e", "c"}
 
 # -- Paths -------------------------------------------------------------------
 BASE_DIR = Path(__file__).parent
