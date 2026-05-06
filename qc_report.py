@@ -1,11 +1,10 @@
-"""Generate QC report and master output after the pipeline completes."""
+"""Generate QC report after the pipeline completes."""
 import csv
-import json
 import logging
 from collections import defaultdict
 from pathlib import Path
 
-from config import MASTER_OUTPUT, OUTPUT_DIR, QC_REPORT_FILE
+from config import OUTPUT_DIR, QC_REPORT_FILE
 
 logger = logging.getLogger(__name__)
 
@@ -14,9 +13,6 @@ def generate_qc_report(results: list[dict]) -> None:
     """
     Write two files:
 
-    outputs/all_extractions.json
-        Master JSON — list of {pdf, fields} for every processed paper.
-
     outputs/qc_report.csv
         Every field with confidence "low" or "not reported", flagged for
         manual review. Sorted by field_index then PDF name.
@@ -24,11 +20,6 @@ def generate_qc_report(results: list[dict]) -> None:
     Also prints a summary to stdout including top-10 not-reported fields.
     """
     OUTPUT_DIR.mkdir(exist_ok=True)
-
-    # ── Master JSON ───────────────────────────────────────────────────────
-    with open(MASTER_OUTPUT, "w", encoding="utf-8") as f:
-        json.dump(results, f, indent=2)
-    logger.info(f"Master output → {MASTER_OUTPUT.name}")
 
     # ── Aggregate stats ───────────────────────────────────────────────────
     total_pdfs    = len(results)
@@ -81,7 +72,6 @@ def generate_qc_report(results: list[dict]) -> None:
     print(f"  PDFs processed        : {total_pdfs}")
     print(f"  Total fields extracted: {total_fields}")
     print(f"  Flagged for review    : {len(flagged_rows)}")
-    print(f"  Master output         : {MASTER_OUTPUT}")
     print(f"  QC report             : {QC_REPORT_FILE}")
     print(sep)
 

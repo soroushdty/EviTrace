@@ -91,7 +91,6 @@ chunk 5: cached should be high if same model, or if synthesis warmup succeeded
 | File                             | Description                                                       |
 | -------------------------------- | ----------------------------------------------------------------- |
 | `outputs/{paper}.extracted.json` | Per-paper 62-field extraction                                     |
-| `outputs/all_extractions.json`   | Master file with all papers combined                              |
 | `outputs/qc_report.csv`          | Fields flagged for manual review, low confidence, or not reported |
 | `manifest.json`                  | Progress checkpoint, safe to re-run after a crash                 |
 
