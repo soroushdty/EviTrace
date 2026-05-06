@@ -7,6 +7,7 @@ import os
 import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
+import yaml
 
 PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent
 
@@ -18,13 +19,35 @@ PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent
 BASE_DIR: Path = PROJECT_ROOT
 """The root directory of the EviTrace project."""
 
-EXTRACTION_MAP: Path = BASE_DIR / "extraction_map.json"
+
+def _load_local_settings() -> dict:
+    """Load local-related settings from `config.yaml` if present.
+
+    Returns a dict of local config keys. Supports both top-level keys
+    and a nested `local:` mapping for backward compatibility.
+    """
+    cfg_path = PROJECT_ROOT / "config.yaml"
+    if not cfg_path.exists():
+        return {}
+    try:
+        with open(cfg_path, encoding="utf-8") as f:
+            raw = yaml.safe_load(f) or {}
+    except Exception:
+        return {}
+
+    # Support either `local:` block or top-level keys
+    return raw.get("local", raw)
+
+
+_LOCAL_SETTINGS = _load_local_settings()
+
+EXTRACTION_MAP: Path = BASE_DIR / _LOCAL_SETTINGS.get("extraction_map_path", "extraction_map.json")
 """Path to the extraction field definitions mapping."""
 
-PDF_DIR: Path = BASE_DIR / "pdfs"
+PDF_DIR: Path = BASE_DIR / _LOCAL_SETTINGS.get("pdfs_path", "pdfs")
 """Directory where input PDFs are located."""
 
-OUTPUT_DIR: Path = BASE_DIR / "outputs"
+OUTPUT_DIR: Path = BASE_DIR / _LOCAL_SETTINGS.get("output_folder_path", "outputs")
 """Directory where extraction results are written."""
 
 MANIFEST_FILE: Path = BASE_DIR / "manifest.json"

@@ -14,12 +14,13 @@ from pathlib import Path
 
 import orchestrator
 from qc_report import generate_qc_report
-from utils.config_utils import load_openai_config
+from utils.config_utils import load_openai_config, load_local_config
 from utils.path_utils import PDF_DIR
 from utils.logging_utils import get_logger, setup_logging
 
-# Initialize logging at startup (idempotent)
-setup_logging(log_file="pipeline.log", console_level="INFO")
+# Initialize logging at startup using config values (idempotent)
+local_cfg = load_local_config(None)
+setup_logging(log_file=local_cfg.get("log_file", "pipeline.log"), console_level=local_cfg.get("log_level", "INFO"))
 logger = get_logger(__name__)
 
 

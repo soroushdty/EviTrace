@@ -224,29 +224,33 @@ def _get_domain_to_chunk(num_chunks: int) -> dict[int, int]:
 # Local (EviTrace Parser) Configuration Loading
 # ============================================================================
 
-def load_local_config(config_path: str) -> dict:
-    """Load, validate, and normalize the local parser config file (YAML format).
+def load_local_config(config_path: str | None = None) -> dict:
+    """Load, validate, and normalize local parser settings from `config.yaml`.
 
-    This was previously load_config() and handles EviTrace-specific settings
-    like pdfs_path, ocr settings, logging, etc.
+    This function is tolerant of the full project-level `config.yaml` layout.
+    It will first attempt to read a nested `local:` mapping and fall back to
+    top-level keys if the nested block is not present. Unknown keys in the
+    *local* mapping will raise `ValueError` to prevent typos.
 
     Args:
-        config_path: Path to the local config YAML file.
+        config_path: Optional path to the YAML file. If None, defaults to
+                     the repo's `config.yaml` next to this module's parent.
 
     Raises:
         ValueError: For unknown keys or a missing/empty pdfs_path.
         TypeError: For keys with wrong types.
 
     Returns:
-        Dict with all optional keys filled with their defaults and
-        pdfs_path resolved to an absolute path.
+        Dict with optional keys filled with defaults and `pdfs_path`
+        resolved to an absolute path.
     """
-    with open(config_path, encoding="utf-8") as f:
-        raw: dict = yaml.safe_load(f) or {}
+    cfg_yaml = _load_config_yaml(config_path)
+    raw = cfg_yaml.get("local", cfg_yaml)
 
+    # Only validate keys that pertain to the local config
     unknown = set(raw) - _LOCAL_REQUIRED - set(_LOCAL_DEFAULTS)
     if unknown:
-        raise ValueError(f"Unknown config keys: {sorted(unknown)}")
+        raise ValueError(f"Unknown local config keys: {sorted(unknown)}")
 
     cfg = {**_LOCAL_DEFAULTS, **raw}
 

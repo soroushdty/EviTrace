@@ -31,7 +31,7 @@ extraction:
 
 # Concurrency settings
 concurrency:
-  pdf_processing: 3 # PDFs processed in parallel
+  pdf_processing: 1 # PDFs processed in parallel
   global_api_limit: 15 # Max concurrent OpenAI API calls across all PDFs
 
 # Retry configuration
@@ -39,12 +39,16 @@ retry:
   max_retries: 3
   base_delay_seconds: 5 # Actual delay = base * 2^(attempt - 1)
 
-# Local parser configuration (from existing config_utils.py)
-local:
-  pdfs_path: "pdfs"
-  output_folder_path: "output"
-  log_file: "log.txt"
-  log_level: "INFO"
-  len_filter: 40
-  ocr: true
-  ocr_text_quality_threshold: 0.7
+# Paths
+pdfs_path: "pdfs"
+output_folder_path: "output"
+extraction_map_path: "extraction_map.json"
+
+# Logging configuration
+log_file: "log.txt"
+log_level: "DEBUG"
+
+# Extraction and OCR settings
+len_filter: 40
+ocr: true
+ocr_text_quality_threshold: 0.7
