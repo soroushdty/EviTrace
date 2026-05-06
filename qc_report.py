@@ -43,10 +43,10 @@ def generate_qc_report(results: list[dict]) -> None:
             conf = field["confidence"]
             conf_dist[fi][conf] += 1
 
-            if field.get("extracted_value") == "Not reported":
+            if field.get("extracted_value") == "nr":
                 not_reported[fi] += 1
 
-            if conf in ("low", "not reported"):
+            if conf in ("l", "nr"):
                 flagged_rows.append({
                     "pdf"            : pdf_name,
                     "field_index"    : fi,
@@ -86,7 +86,7 @@ def generate_qc_report(results: list[dict]) -> None:
     print(sep)
 
     if not_reported:
-        print("\nTop 10 fields by 'Not reported' rate:")
+        print("\nTop 10 fields by 'nr' rate:")
         top10 = sorted(not_reported.items(), key=lambda x: x[1], reverse=True)[:10]
         for fi, count in top10:
             rate = count / total_pdfs * 100 if total_pdfs else 0

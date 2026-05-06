@@ -4,49 +4,20 @@ from typing import Optional
 
 # System prompt is identical for all warmup and extraction calls. Keep it stable:
 # do not inject PDF names, timestamps, chunk numbers, or run IDs here.
-SYSTEM_PROMPT = """You are a precise data extractor for an academic scoping review on clinical temporal knowledge graphs.
+SYSTEM_PROMPT = """You are a precise extractor for academic papers on clinical temporal knowledge graphs.
 
-You will receive the full text of one academic paper and, for real extraction calls, a partial extraction map.
-Extract exactly the fields in the map. Return ONLY a JSON object with one key, "extractions", whose value is an array of extraction objects. No prose, no markdown, no code fences.
+Input: paper text/PDF + extraction map. Output only JSON:
+{"extractions":[{"i":<integer>,"v":"<string>","e":"<string>","c":"<h|m|l|nr>"}]}
 
-CACHE WARMUP RULE
-- If the user explicitly says "CACHE WARMUP ONLY", do not extract fields. Return exactly an object whose "extractions" array is empty.
+If user says "CACHE WARMUP ONLY", return {"extractions":[]}.
 
-EXTRACTION RULES
-- Output one object per field in the map, in the same order.
-- Copy field_index, domain_group, and field_name verbatim from the map.
-- For categorical fields, pick the closest supported category. For multi-select, join with "; ".
-- For free-text or verbatim fields, use concise extracted text or authors' wording (25 words or fewer when quoting).
-- Represent all extracted_value values as strings, including numeric values.
-- Do not infer beyond what the PDF supports.
-- If the PDF does not report a value, write "Not reported" unless the field's allowed categories include something more specific, such as not stated, unclear, not applicable, or none, in which case prefer that.
-- For ambiguous or partial information, extract the supported part and explain the ambiguity in the evidence field.
+For each mapped field, output exactly one object in the same order as the map. Extract only paper-supported values; do not infer. v is always a string. For categories, choose the closest supported allowed value; multi-select uses "; ". Free text concise; quotes ≤25 words.
 
-EVIDENCE RULES
-- Provide the most relevant supporting quote, near-quote, or location anchor, such as section name plus page number, table reference, or figure reference. Quotes must be 25 words or fewer.
-- If extracted_value is "Not reported", state where you looked, for example, "Not reported in Methods, Results, or Limitations."
+If absent, set v="nr" and c="nr" and say where you looked in e.
 
-CONFIDENCE - use exactly one of:
-- "high" = directly stated in the PDF
-- "medium" = supported but requires minor synthesis or interpretation across sections
-- "low" = ambiguous or weakly supported
-- "not reported" = required whenever extracted_value is "Not reported"
+e must directly support v via quote, near-quote, or location anchor. For ambiguity, extract the supported part and explain in e.
 
-OUTPUT SHAPE
-{
-  "extractions": [
-    {
-      "field_index": <integer>,
-      "domain_group": "<string>",
-      "field_name": "<string>",
-      "extracted_value": "<string>",
-      "evidence": "<string>",
-      "confidence": "<high|medium|low|not reported>"
-    }
-  ]
-}
-
-Return only the JSON object. No other text."""
+c: h=direct; m=minor synthesis; l=ambiguous/weak; nr=not reported."""
 
 
 def _shared_paper_prefix(pdf_text: str) -> str:
@@ -86,20 +57,24 @@ def build_user_message(
     """
     Build the user message for a chunk API call.
 
-    The full PDF text appears before the chunk-specific extraction map and
-    before prior chunk outputs. This maximizes the repeated prefix that can be
-    reused by prompt caching for all calls for the same PDF.
+    Order: shared PDF prefix → extraction map → prior chunk outputs (chunk 5 only).
+
+    The extraction map is placed immediately after the shared PDF prefix so the
+    cached prefix for chunk 5 extends as far as it does for chunks 1–4. Prior
+    chunk outputs are a trailing suffix — strictly after the full PDF text and
+    never interleaved between the PDF and the extraction task.
     """
     parts: list[str] = [_shared_paper_prefix(pdf_text)]
+
+    parts.append(f"EXTRACTION MAP ({len(chunk_fields)} fields to extract):")
+    parts.append(json.dumps(chunk_fields, indent=2, ensure_ascii=False))
+    parts.append("")
 
     if prior_context is not None:
         parts.append("PRIOR EXTRACTION RESULTS from chunks 1-4. Treat these as read-only context for synthesis:")
         parts.append(json.dumps(prior_context, indent=2, ensure_ascii=False))
         parts.append("")
 
-    parts.append(f"EXTRACTION MAP ({len(chunk_fields)} fields to extract):")
-    parts.append(json.dumps(chunk_fields, indent=2, ensure_ascii=False))
-    parts.append("")
     parts.append("Return the JSON object now.")
 
     return "\n".join(parts)
