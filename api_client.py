@@ -2,7 +2,6 @@
 import asyncio
 import hashlib
 import json
-import logging
 from typing import Any, Optional
 
 from openai import APIConnectionError, APIStatusError, APITimeoutError, AsyncOpenAI, RateLimitError
@@ -22,8 +21,9 @@ from config import (
 )
 from prompts import SYSTEM_PROMPT, build_cache_warmup_message, build_user_message
 from validator import ValidationError, validate_chunk_output
+from utils.logging_utils import get_logger, log_cache_usage
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # One shared async client for the entire run.
 _client_kwargs: dict[str, Any] = {"api_key": OPENAI_API_KEY}
@@ -82,33 +82,6 @@ def paper_cache_key(pdf_text: str) -> str:
     return f"{prefix}:{digest}"
 
 
-def _get_attr_or_key(obj: Any, name: str, default: Any = None) -> Any:
-    if isinstance(obj, dict):
-        return obj.get(name, default)
-    return getattr(obj, name, default)
-
-
-def log_cache_usage(response: Any, tag: str) -> None:
-    """Log token counts and prompt-cache hits from an OpenAI Responses result."""
-    usage = _get_attr_or_key(response, "usage")
-    if not usage:
-        logger.info(f"{tag} usage unavailable")
-        return
-
-    input_tokens = _get_attr_or_key(usage, "input_tokens", 0) or 0
-    output_tokens = _get_attr_or_key(usage, "output_tokens", 0) or 0
-    details = _get_attr_or_key(usage, "input_tokens_details")
-    cached_tokens = 0
-    if details:
-        cached_tokens = _get_attr_or_key(details, "cached_tokens", 0) or 0
-
-    hit_rate = (cached_tokens / input_tokens * 100) if input_tokens else 0.0
-    logger.info(
-        f"{tag} tokens: input={input_tokens}, cached={cached_tokens}, "
-        f"cache_hit={hit_rate:.1f}%, output={output_tokens}"
-    )
-
-
 def _response_text(response: Any) -> str:
     """Extract assistant text from OpenAI Responses API objects robustly."""
     output_text = getattr(response, "output_text", None)
@@ -136,8 +109,6 @@ def _response_text(response: Any) -> str:
         return response.model_dump_json()
     except Exception:
         return json.dumps(response, default=str)
-
-
 def _base_request_kwargs(model: str, pdf_text: str, user_msg: str, max_output_tokens: int) -> dict[str, Any]:
     request_kwargs: dict[str, Any] = {
         "model": model,

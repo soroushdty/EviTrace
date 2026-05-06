@@ -1,0 +1,49 @@
+# OpenAI API Configuration
+openai:
+  # API key: will read from OPENAI_API_KEY environment variable if not set here
+  # api_key: ""  # Uncomment and set if not using environment variable
+
+  # Base URL: will read from OPENAI_BASE_URL environment variable if not set here
+  # base_url: ""  # Uncomment to override
+
+  # Model choices
+  chunk_model: "gpt-5.5"
+  synthesis_model: "gpt-5.5"
+
+  # Temperature parameter (leave empty to omit from API requests)
+  # Some newer OpenAI models reject the temperature parameter entirely
+  temperature: null
+
+  # Prompt cache configuration
+  prompt_cache:
+    key_prefix: "scoping-review-v1"
+    retention: "in_memory" # e.g., "24h", "in_memory"
+    enable_prewarm: true
+    warmup_max_tokens: 32
+    prewarm_synthesis_if_model_diff: true
+
+# Extraction and chunking configuration
+extraction:
+  # Number of extraction chunks
+  # Chunk 1-N: extraction, Chunk N+1: synthesis/review
+  num_chunks: 3
+
+# Concurrency settings
+concurrency:
+  pdf_processing: 3 # PDFs processed in parallel
+  global_api_limit: 15 # Max concurrent OpenAI API calls across all PDFs
+
+# Retry configuration
+retry:
+  max_retries: 3
+  base_delay_seconds: 5 # Actual delay = base * 2^(attempt - 1)
+
+# Local parser configuration (from existing config_utils.py)
+local:
+  pdfs_path: "pdfs"
+  output_folder_path: "output"
+  log_file: "log.txt"
+  log_level: "INFO"
+  len_filter: 40
+  ocr: true
+  ocr_text_quality_threshold: 0.7

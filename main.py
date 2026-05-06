@@ -9,24 +9,17 @@ Usage:
 """
 import argparse
 import asyncio
-import logging
 import sys
 from pathlib import Path
 
 import config  # imported as module so CLI flags can patch it at runtime
 import orchestrator
 from qc_report import generate_qc_report
+from utils.logging_utils import get_logger, setup_logging
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s  %(levelname)-8s  %(message)s",
-    datefmt="%H:%M:%S",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler("pipeline.log", encoding="utf-8"),
-    ],
-)
-logger = logging.getLogger(__name__)
+# Initialize logging at startup (idempotent)
+setup_logging(log_file="pipeline.log", console_level="INFO")
+logger = get_logger(__name__)
 
 
 def parse_args() -> argparse.Namespace:

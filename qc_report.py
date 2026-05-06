@@ -1,12 +1,12 @@
 """Generate QC report after the pipeline completes."""
 import csv
-import logging
 from collections import defaultdict
 from pathlib import Path
 
 from config import OUTPUT_DIR, QC_REPORT_FILE
+from utils.logging_utils import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def generate_qc_report(results: list[dict]) -> None:

@@ -17,7 +17,6 @@ API-level concurrency is controlled by api_semaphore (default 15).
 """
 import asyncio
 import json
-import logging
 from pathlib import Path
 from typing import Optional
 
@@ -37,8 +36,9 @@ from config import (
 from api_client import extract_chunk, warm_pdf_cache
 from pdf_extractor import extract_pdf_text
 from validator import reconstruct_fields
+from utils.logging_utils import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 # -- Extraction map helpers --------------------------------------------------
