@@ -28,6 +28,9 @@ _LOCAL_DEFAULTS: dict = {
 }
 
 _LOCAL_REQUIRED: frozenset[str] = frozenset({"pdfs_path"})
+_LOCAL_ALLOWED_TOP_LEVEL_KEYS: frozenset[str] = frozenset(
+    {*_LOCAL_DEFAULTS.keys(), *_LOCAL_REQUIRED, "extraction_map_path"}
+)
 
 
 # ============================================================================
@@ -245,10 +248,12 @@ def load_local_config(config_path: str | None = None) -> dict:
         resolved to an absolute path.
     """
     cfg_yaml = _load_config_yaml(config_path)
-    raw = cfg_yaml.get("local", cfg_yaml)
+    raw = cfg_yaml.get("local")
+    if raw is None:
+        raw = {key: value for key, value in cfg_yaml.items() if key in _LOCAL_ALLOWED_TOP_LEVEL_KEYS}
 
     # Only validate keys that pertain to the local config
-    unknown = set(raw) - _LOCAL_REQUIRED - set(_LOCAL_DEFAULTS)
+    unknown = set(raw) - _LOCAL_REQUIRED - set(_LOCAL_DEFAULTS) - {"extraction_map_path"}
     if unknown:
         raise ValueError(f"Unknown local config keys: {sorted(unknown)}")
 

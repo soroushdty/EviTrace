@@ -18,7 +18,7 @@ openai:
   # Prompt cache configuration
   prompt_cache:
     key_prefix: "scoping-review-v1"
-    retention: "in_memory" # e.g., "24h", "in_memory"
+    retention: "24h" # e.g., "24h", "in_memory"
     enable_prewarm: true
     warmup_max_tokens: 32
     prewarm_synthesis_if_model_diff: true
