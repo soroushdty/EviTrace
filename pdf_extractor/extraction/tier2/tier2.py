@@ -1,10 +1,10 @@
 """
-evi_trace/extraction/tier2/tier2.py
+pdf_extractor/extraction/tier2/tier2.py
 ------------------------------
 Tesseract OCR extraction backend.
 
-Migrated from ``evi_trace.extraction.py::extract_with_tesseract``.
-Block construction uses :func:`~evi_trace.extraction.schemas.make_block`.
+Migrated from ``pdf_extractor/extraction::extract_with_tesseract``.
+Block construction uses :func:`~pdf_extractor.extraction.schemas.make_block`.
 
 ``pytesseract`` and ``pdf2image`` are installed lazily inside the
 function body — no import-time side effects.

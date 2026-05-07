@@ -28,9 +28,9 @@ from .models import (
     QCContext,
     QualityReport,
 )
-from ...evi_trace.utils.text_utils import exact_match_search, semantic_search
+from ...utils.text_utils import exact_match_search, semantic_search
 
-logger = logging.getLogger("evi_trace")
+logger = logging.getLogger("pdf_extractor")
 
 
 def _split_sentences(text: str) -> list[str]:
@@ -149,7 +149,7 @@ def _derive_document_id(grobid_output: str, pymupdf_output: dict | list) -> str:
 
     Serialises both inputs into a stable JSON payload (sorted keys,
     no ASCII escaping) and returns the hex digest of its SHA-256 hash.
-    Consistent with the SHA-256 convention used in ``evi_trace/utils/path_utils.py``.
+    Consistent with the SHA-256 convention used in ``utils/path_utils.py``.
     """
     payload = json.dumps(
         {"grobid": grobid_output, "pymupdf": pymupdf_output},
@@ -238,9 +238,9 @@ def run_quality_control(
 ) -> QCContext:
     """Orchestrate the QC pipeline and return a ``QCContext``.
 
-    Accepts a list of :class:`~evi_trace.extraction.quality_control.models.BranchOutput`
+    Accepts a list of :class:`~pdf_extractor.extraction.quality_control.models.BranchOutput`
     instances (one per extractor branch), runs the five-module QC pipeline, and
-    returns a fully populated :class:`~evi_trace.extraction.quality_control.models.QCContext`.
+    returns a fully populated :class:`~pdf_extractor.extraction.quality_control.models.QCContext`.
 
     The existing legacy pipeline (artifact generation, rating, IAA calculation,
     adjudication, reconciliation) is preserved internally and wired to populate

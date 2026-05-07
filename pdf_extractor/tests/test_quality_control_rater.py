@@ -1,7 +1,7 @@
 """
 tests/test_quality_control_observer.py
 =======================================
-Tests for evi_trace/extraction/quality_control/observer.py.
+Tests for pdf_extractor/extraction/quality_control/observer.py.
 
 Covers:
   - Property 5: Observer output contains all required fields with correct extractor name
@@ -19,7 +19,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from evi_trace.extraction.quality_control.rater import observe
+from pdf_extractor.extraction.quality_control.rater import observe
 
 
 # ---------------------------------------------------------------------------
@@ -182,7 +182,7 @@ class TestObserver:
 
     def test_observer_does_not_call_artifacts_module(self, monkeypatch):
         """observe must not call any function from the artifact_generator module."""
-        import evi_trace.extraction.quality_control.artifact_generator as artifact_generator_mod
+        import pdf_extractor.extraction.quality_control.artifact_generator as artifact_generator_mod
 
         called = []
 

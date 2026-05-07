@@ -1,7 +1,7 @@
 """
 tests/test_text_extractor_branch2.py
 --------------------------------------
-Property-based tests for ``evi_trace.extraction.core.branch2`` (PyMuPDF backend).
+Property-based tests for ``pdf_extractor.extraction.core.branch2`` (PyMuPDF backend).
 
 Properties covered:
   5. PyMuPDF backend output conforms to BlockDict schema
@@ -12,8 +12,8 @@ from unittest.mock import MagicMock, patch
 
 from hypothesis import given, settings, strategies as st
 
-from evi_trace.extraction import schemas
-from evi_trace.extraction.core import branch2
+from pdf_extractor.extraction import schemas
+from pdf_extractor.extraction.core import branch2
 
 
 # ---------------------------------------------------------------------------

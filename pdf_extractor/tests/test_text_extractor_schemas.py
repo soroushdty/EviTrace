@@ -1,7 +1,7 @@
 """
 tests/test_text_extractor_schemas.py
 -------------------------------------
-Property-based tests for ``evi_trace.extraction.schemas``.
+Property-based tests for ``pdf_extractor.extraction.schemas``.
 
 Properties covered:
   1. make_block is a faithful constructor
@@ -13,7 +13,7 @@ Properties covered:
 import pytest
 from hypothesis import given, settings, strategies as st
 
-from evi_trace.extraction import schemas
+from pdf_extractor.extraction import schemas
 
 
 # ---------------------------------------------------------------------------

@@ -14,9 +14,9 @@ from pathlib import Path
 
 import pytest
 
-from evi_trace.utils import logging_utils
-from evi_trace.utils.path_utils import PROJECT_ROOT
-from evi_trace.utils.logging_utils import setup_logging, _PROJECT_ROOT
+from utils import logging_utils
+from utils.path_utils import PROJECT_ROOT
+from utils.logging_utils import setup_logging, _PROJECT_ROOT
 
 
 # ---------------------------------------------------------------------------
@@ -24,7 +24,7 @@ from evi_trace.utils.logging_utils import setup_logging, _PROJECT_ROOT
 # ---------------------------------------------------------------------------
 
 def _fresh_logger():
-    """Remove all managed handlers from the evi_trace logger to ensure a clean
+    """Remove all managed handlers from the pdf_extractor logger to ensure a clean
     state before each test."""
     lg = logging.getLogger("evi_trace")
     lg.handlers = []
@@ -57,7 +57,7 @@ class TestResolveLogPath:
 class TestFileCreation:
     def test_creates_log_file_relative(self, tmp_path, monkeypatch):
         """Relative log file is created relative to project root (monkeypatched)."""
-        monkeypatch.setattr("evi_trace.utils.path_utils.PROJECT_ROOT", tmp_path)
+        monkeypatch.setattr("utils.path_utils.PROJECT_ROOT", tmp_path)
         _fresh_logger()
 
         setup_logging(log_file="log.txt", console_level="INFO")
@@ -75,7 +75,7 @@ class TestFileCreation:
 
     def test_creates_parent_directories(self, tmp_path, monkeypatch):
         """Parent directories are created automatically for relative paths."""
-        monkeypatch.setattr("evi_trace.utils.path_utils.PROJECT_ROOT", tmp_path)
+        monkeypatch.setattr("utils.path_utils.PROJECT_ROOT", tmp_path)
         _fresh_logger()
 
         setup_logging(log_file="nested/dir/run.log", console_level="INFO")
@@ -132,7 +132,7 @@ class TestIdempotency:
         setup_logging(log_file=str(log_path), console_level="INFO")
 
         lg = logging.getLogger("evi_trace")
-        managed = [h for h in lg.handlers if getattr(h, "_evi_trace_managed", False)]
+        managed = [h for h in lg.handlers if getattr(h, "_pdf_extractor_managed", False)]
         assert len(managed) == 2  # exactly one file + one stream
 
     def test_repeated_calls_do_not_duplicate_log_lines(self, tmp_path):

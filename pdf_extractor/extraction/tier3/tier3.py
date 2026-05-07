@@ -1,10 +1,10 @@
 """
-evi_trace/extraction/tier3/tier3.py
+pdf_extractor/extraction/tier3/tier3.py
 ------------------------------
 PaddleOCR extraction backend.
 
-Migrated from ``evi_trace.extraction.py::extract_with_paddleocr``.
-Block construction uses :func:`~evi_trace.extraction.schemas.make_block`.
+Migrated from ``pdf_extractor/extraction::extract_with_paddleocr``.
+Block construction uses :func:`~pdf_extractor.extraction.schemas.make_block`.
 
 ``paddleocr``, ``paddlepaddle``, and ``pdf2image`` are installed lazily
 inside the function body — no import-time side effects.
@@ -14,8 +14,6 @@ from __future__ import annotations
 
 import subprocess
 import sys
-
-import numpy as np
 
 from .. import schemas
 
@@ -65,6 +63,7 @@ def extract_with_paddleocr(pdf_path: str) -> list[schemas.BlockDict]:
 
     # ------------------------------------------------------------------ imports
     from paddleocr import PaddleOCR
+    import numpy as np
     import pdf2image
 
     # Initialise once; use_angle_cls handles rotated text gracefully.

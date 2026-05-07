@@ -16,8 +16,8 @@ except ImportError:
     fake_gdown.download_folder = lambda *args, **kwargs: True
     sys.modules["gdown"] = fake_gdown
 
-from evi_trace.utils import path_utils
-from evi_trace.utils.path_utils import PROJECT_ROOT
+from utils import path_utils
+from utils.path_utils import PROJECT_ROOT
 
 
 def _write_stub_pdf(path: Path) -> None:
@@ -80,7 +80,7 @@ class TestPdfSourceResolution:
 
 class TestOutputFolderResolution:
     def test_default_output_folder_is_project_root_output(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("evi_trace.utils.path_utils.PROJECT_ROOT", tmp_path)
+        monkeypatch.setattr("utils.path_utils.PROJECT_ROOT", tmp_path)
 
         output_folder = path_utils.create_output_folder()
 
@@ -88,7 +88,7 @@ class TestOutputFolderResolution:
         assert Path(output_folder).exists()
 
     def test_custom_output_folder_path_is_resolved_from_project_root(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("evi_trace.utils.path_utils.PROJECT_ROOT", tmp_path)
+        monkeypatch.setattr("utils.path_utils.PROJECT_ROOT", tmp_path)
 
         output_folder = path_utils.create_output_folder("results/output")
 

@@ -22,9 +22,9 @@ import yaml
 from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
-import evi_trace.extraction
-from evi_trace.extraction import schemas
-from evi_trace.extraction.quality_control.artifact_generator import build_canonical_artifacts
+import pdf_extractor.extraction
+from pdf_extractor.extraction import schemas
+from pdf_extractor.extraction.quality_control.artifact_generator import build_canonical_artifacts
 
 
 # ---------------------------------------------------------------------------
@@ -62,12 +62,12 @@ def test_pymupdf_sufficient_cascade_no_fallback():
     Preservation: this behaviour must survive all structural fixes.
     """
     with (
-        patch("evi_trace.extraction.extract_with_pymupdf", return_value=(_PYMUPDF_BLOCKS, _FONT_META)) as mock_pymupdf,
-        patch("evi_trace.extraction._compute_quality_score", return_value=0.9),
-        patch("evi_trace.extraction.extract_with_tesseract") as mock_tess,
-        patch("evi_trace.extraction.extract_with_paddleocr") as mock_paddle,
+        patch("pdf_extractor.extraction.extract_with_pymupdf", return_value=(_PYMUPDF_BLOCKS, _FONT_META)) as mock_pymupdf,
+        patch("pdf_extractor.extraction._compute_quality_score", return_value=0.9),
+        patch("pdf_extractor.extraction.extract_with_tesseract") as mock_tess,
+        patch("pdf_extractor.extraction.extract_with_paddleocr") as mock_paddle,
     ):
-        blocks, font_metadata = evi_trace.extraction.extract_pdf(
+        blocks, font_metadata = pdf_extractor.extraction.extract_pdf(
             pdf_path="dummy.pdf",
             ocr=True,
             ocr_text_quality_threshold=0.7,
@@ -95,12 +95,12 @@ def test_ocr_false_returns_only_pymupdf_blocks():
     Preservation: this behaviour must survive all structural fixes.
     """
     with (
-        patch("evi_trace.extraction.extract_with_pymupdf", return_value=(_PYMUPDF_BLOCKS, _FONT_META)),
-        patch("evi_trace.extraction._compute_quality_score", return_value=0.0),
-        patch("evi_trace.extraction.extract_with_tesseract") as mock_tess,
-        patch("evi_trace.extraction.extract_with_paddleocr") as mock_paddle,
+        patch("pdf_extractor.extraction.extract_with_pymupdf", return_value=(_PYMUPDF_BLOCKS, _FONT_META)),
+        patch("pdf_extractor.extraction._compute_quality_score", return_value=0.0),
+        patch("pdf_extractor.extraction.extract_with_tesseract") as mock_tess,
+        patch("pdf_extractor.extraction.extract_with_paddleocr") as mock_paddle,
     ):
-        blocks, font_metadata = evi_trace.extraction.extract_pdf(
+        blocks, font_metadata = pdf_extractor.extraction.extract_pdf(
             pdf_path="dummy.pdf",
             ocr=False,
             ocr_text_quality_threshold=0.7,
@@ -190,7 +190,7 @@ def test_load_config_valid_yaml_returns_merged_dict(tmp_path):
 
     Preservation: this behaviour must survive all structural fixes.
     """
-    from evi_trace.utils.config_utils import load_config
+    from pdf_extractor.utils.config_utils import load_config
 
     cfg_file = tmp_path / "config.yaml"
     cfg_file.write_text(
@@ -220,7 +220,7 @@ def test_load_config_unknown_keys_raises_value_error(tmp_path):
 
     Preservation: this behaviour must survive all structural fixes.
     """
-    from evi_trace.utils.config_utils import load_config
+    from pdf_extractor.utils.config_utils import load_config
 
     cfg_file = tmp_path / "config.yaml"
     cfg_file.write_text(
@@ -283,12 +283,12 @@ def test_pbt_pymupdf_sufficient_no_fallback_for_any_score_above_threshold(score:
     assume(score >= threshold)
 
     with (
-        patch("evi_trace.extraction.extract_with_pymupdf", return_value=(_PYMUPDF_BLOCKS, _FONT_META)),
-        patch("evi_trace.extraction._compute_quality_score", return_value=score),
-        patch("evi_trace.extraction.extract_with_tesseract") as mock_tess,
-        patch("evi_trace.extraction.extract_with_paddleocr") as mock_paddle,
+        patch("pdf_extractor.extraction.extract_with_pymupdf", return_value=(_PYMUPDF_BLOCKS, _FONT_META)),
+        patch("pdf_extractor.extraction._compute_quality_score", return_value=score),
+        patch("pdf_extractor.extraction.extract_with_tesseract") as mock_tess,
+        patch("pdf_extractor.extraction.extract_with_paddleocr") as mock_paddle,
     ):
-        blocks, font_metadata = evi_trace.extraction.extract_pdf(
+        blocks, font_metadata = pdf_extractor.extraction.extract_pdf(
             pdf_path="dummy.pdf",
             ocr=True,
             ocr_text_quality_threshold=threshold,
@@ -316,12 +316,12 @@ def test_pbt_ocr_false_never_calls_fallback_for_any_score(score: float):
     Preservation property: must hold on unfixed code and after every fix.
     """
     with (
-        patch("evi_trace.extraction.extract_with_pymupdf", return_value=(_PYMUPDF_BLOCKS, _FONT_META)),
-        patch("evi_trace.extraction._compute_quality_score", return_value=score),
-        patch("evi_trace.extraction.extract_with_tesseract") as mock_tess,
-        patch("evi_trace.extraction.extract_with_paddleocr") as mock_paddle,
+        patch("pdf_extractor.extraction.extract_with_pymupdf", return_value=(_PYMUPDF_BLOCKS, _FONT_META)),
+        patch("pdf_extractor.extraction._compute_quality_score", return_value=score),
+        patch("pdf_extractor.extraction.extract_with_tesseract") as mock_tess,
+        patch("pdf_extractor.extraction.extract_with_paddleocr") as mock_paddle,
     ):
-        blocks, font_metadata = evi_trace.extraction.extract_pdf(
+        blocks, font_metadata = pdf_extractor.extraction.extract_pdf(
             pdf_path="dummy.pdf",
             ocr=False,
             ocr_text_quality_threshold=0.7,

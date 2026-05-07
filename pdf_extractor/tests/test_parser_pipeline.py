@@ -4,8 +4,8 @@ tests/test_parser_pipeline.py
 Integration-style tests for the EviTrace parser pipeline.
 
 Covers:
-  - config loading (evi_trace.utils.config.load_config)
-  - PDF source resolution (evi_trace.utils.path_utils)
+    - config loading (utils.config_utils.load_config)
+    - PDF source resolution (utils.path_utils)
   - text extraction (text_extractor, mocked)
   - sentence processing (sentence_processor)
   - artifact saving (_save_artifact)
@@ -21,11 +21,11 @@ from unittest.mock import patch
 import pytest
 import yaml
 
-from evi_trace.utils import path_utils
-from evi_trace.utils.config_utils import load_config
-import evi_trace.cli as run
-import evi_trace.processing.sentence_processor as sentence_processor
-import evi_trace.extraction as text_extractor
+from utils import path_utils
+from utils.config_utils import load_config
+import pdf_extractor.pdf_extractor as run
+import pdf_extractor.processing.sentence_processor as sentence_processor
+import pdf_extractor.extraction as text_extractor
 
 
 # ---------------------------------------------------------------------------
@@ -299,7 +299,7 @@ class TestDriveUtils:
             path_utils.list_pdf_files_from_source(str(txt_file))
 
     def test_create_output_folder_creates_dir(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("evi_trace.utils.path_utils.PROJECT_ROOT", tmp_path)
+        monkeypatch.setattr("utils.path_utils.PROJECT_ROOT", tmp_path)
         folder = path_utils.create_output_folder("parser_output")
         assert Path(folder).is_dir()
         assert Path(folder) == tmp_path / "parser_output"
@@ -337,7 +337,7 @@ class TestRunPipeline:
             }
         ]
 
-        with patch("evi_trace.cli.extract_pdf", return_value=(fake_blocks, [])):
+        with patch("pdf_extractor.pdf_extractor.extract_pdf", return_value=(fake_blocks, [])):
             run.run_pipeline(str(cfg_file))
 
         artifact_path = tmp_path / "output" / "paper.json"

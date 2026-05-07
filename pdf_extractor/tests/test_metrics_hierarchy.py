@@ -15,8 +15,8 @@ from unittest.mock import patch
 
 import pytest
 
-from evi_trace.extraction.quality_control.quality_control import evi_trace.cli as run_quality_control
-from evi_trace.extraction.quality_control import BranchOutput, QCContext, LocalQCMetricRecord
+from pdf_extractor.extraction.quality_control.quality_control import run_quality_control
+from pdf_extractor.extraction.quality_control import BranchOutput, QCContext, LocalQCMetricRecord
 
 
 # ---------------------------------------------------------------------------
@@ -96,7 +96,7 @@ def test_semantic_qc_enabled_scaffolded_only():
 
 def test_metrics_hierarchy_comment_exists():
     """The sentinel phrase 'Embeddings are deliberately NOT used' must appear in quality_control.py."""
-    import evi_trace.extraction.quality_control.quality_control as qc_mod
+    import pdf_extractor.extraction.quality_control.quality_control as qc_mod
     import inspect
 
     source = inspect.getsource(qc_mod)
@@ -123,13 +123,13 @@ def test_metrics_hierarchy_records_tier1_and_scaffolded_tier2_tier3():
         return False
 
     with patch(
-        "evi_trace.extraction.quality_control.quality_control.LocalQCReport.passes_check",
+        "pdf_extractor.extraction.quality_control.quality_control.LocalQCReport.passes_check",
         new=fake_passes_check,
     ), patch(
-        "evi_trace.extraction.quality_control.quality_control.exact_match_search",
+        "pdf_extractor.extraction.quality_control.quality_control.exact_match_search",
         return_value=None,
     ) as mock_exact, patch(
-        "evi_trace.extraction.quality_control.quality_control.semantic_search",
+        "pdf_extractor.extraction.quality_control.quality_control.semantic_search",
         return_value=None,
     ) as mock_semantic:
         result = run_quality_control(branches, "tier-hierarchy-doc", config)

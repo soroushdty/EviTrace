@@ -1,5 +1,5 @@
 """
-evi_trace/utils/embedding_utils.py
+pdf_extractor/utils/embedding_utils.py
 ========================
 Embedding Engine for the EviTrace parser.
 
@@ -8,7 +8,7 @@ sentence-embedding model, normalising vectors, building a FAISS index, and
 encoding query strings.  **None** of the heavy dependencies (``faiss``,
 ``torch``, ``sentence_transformers``) are imported at module level: they are
 imported lazily inside each function that requires them.  This ensures that
-``import evi_trace.utils.embedding_utils`` succeeds in any environment, even when the
+``import pdf_extractor.utils.embedding_utils`` succeeds in any environment, even when the
 optional packages are not installed.
 
 No global state is mutated at import time.  In particular, neither
@@ -25,11 +25,11 @@ build_sentence_store  — build the full SentenceStore dict for a PDF
 
 Usage::
 
-    from evi_trace.utils.embedding_utils import load_embedding_model, embed_query
+    from pdf_extractor.utils.embedding_utils import load_embedding_model, embed_query
     model = load_embedding_model()           # requires sentence-transformers
     vec   = embed_query("my query", model)   # shape (1, 768), L2-normalised
 
-Logging is via ``logging.getLogger("evi_trace")`` — no ``print()`` calls.
+Logging is via ``logging.getLogger("pdf_extractor")`` — no ``print()`` calls.
 """
 
 import logging
@@ -44,7 +44,7 @@ _EMBEDDING_DIM: int = 768
 _MAX_SENTENCES: int = 10_000
 _ENCODE_BATCH_SIZE: int = 64
 
-logger = logging.getLogger("evi_trace")
+logger = logging.getLogger("pdf_extractor")
 
 
 # ---------------------------------------------------------------------------

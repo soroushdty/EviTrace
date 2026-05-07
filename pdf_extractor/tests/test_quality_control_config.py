@@ -1,7 +1,7 @@
 """
 tests/test_quality_control_config.py
 =====================================
-Tests for the QC config extension in evi_trace/utils/config_evi_trace.utils.py.
+Tests for the QC config extension in pdf_extractor/utils/config_utils.py.
 
 Covers:
   - Property 15: QC config defaults are applied when namespace is absent
@@ -19,7 +19,7 @@ import pytest
 from hypothesis import given, settings, HealthCheck
 from hypothesis import strategies as st
 
-from evi_trace.utils.config_utils import (
+from pdf_extractor.utils.config_utils import (
     _QC_DEFAULTS,
     _deep_merge,
     get_qc_config,

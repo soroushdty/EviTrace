@@ -1,7 +1,7 @@
 """
 tests/test_quality_control_investigator.py
 ==========================================
-Tests for evi_trace/extraction/quality_control/investigator.py.
+Tests for pdf_extractor/extraction/quality_control/investigator.py.
 
 Covers:
   - Property 8: Investigator output contains all required fields and defers decision
@@ -17,7 +17,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from evi_trace.extraction.quality_control.iaa_calculator import investigate
+from pdf_extractor.extraction.quality_control.iaa_calculator import investigate
 
 
 # ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 """
 tests/test_quality_control_artifacts.py
 ========================================
-Tests for evi_trace/extraction/quality_control/artifacts.py.
+Tests for pdf_extractor/extraction/quality_control/artifacts.py.
 
 Covers:
   - Property 1: GROBID canonicalization is deterministic
@@ -20,7 +20,7 @@ import pytest
 from hypothesis import given, settings, HealthCheck
 from hypothesis import strategies as st
 
-from evi_trace.extraction.quality_control.artifact_generator import (
+from pdf_extractor.extraction.quality_control.artifact_generator import (
     build_canonical_artifacts,
     canonicalize_grobid_xml,
     canonicalize_pymupdf_json,

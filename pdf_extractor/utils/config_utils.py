@@ -6,7 +6,7 @@ import copy
 
 import yaml
 
-from .path_utils import resolve_project_path
+from utils.path_utils import resolve_project_path
 
 _DEFAULTS: dict = {
     "log_file": "log.txt",

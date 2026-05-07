@@ -1,5 +1,5 @@
 """
-Tests for evi_trace/extraction/quality_control/adjudicator.py — quality evaluation and decision-making.
+Tests for pdf_extractor/extraction/quality_control/adjudicator.py — quality evaluation and decision-making.
 
 Covers:
   - Property 10: Adjudicator evaluates quality and delegates to Repair
@@ -14,7 +14,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from evi_trace.extraction.quality_control.adjudicator import adjudicate
+from pdf_extractor.extraction.quality_control.adjudicator import adjudicate
 
 
 # ---------------------------------------------------------------------------
@@ -61,7 +61,7 @@ def test_adjudicator_evaluates_and_delegates(
     known_result = {"adjudication_status": "accepted_pymupdf", "document_id": document_id}
 
     with patch(
-        "evi_trace.extraction.quality_control.adjudicator.reconciler.reconcile",
+        "pdf_extractor.extraction.quality_control.adjudicator.reconciler.reconcile",
         return_value=known_result,
     ) as mock_reconcile:
         grobid_artifact = _make_grobid_artifact(document_id, grobid_id)
@@ -102,7 +102,7 @@ class TestAdjudicator:
         sentinel = {"adjudication_status": "placeholder", "document_id": "doc-1"}
 
         with patch(
-            "evi_trace.extraction.quality_control.adjudicator.reconciler.reconcile",
+            "pdf_extractor.extraction.quality_control.adjudicator.reconciler.reconcile",
             return_value=sentinel,
         ) as mock_reconcile:
             result = adjudicate(
@@ -122,7 +122,7 @@ class TestAdjudicator:
         config = {"quality_control": {"adjudicator": {"strategy": "placeholder"}}}
 
         with patch(
-            "evi_trace.extraction.quality_control.adjudicator.reconciler.reconcile",
+            "pdf_extractor.extraction.quality_control.adjudicator.reconciler.reconcile",
             return_value={},
         ) as mock_reconcile:
             adjudicate(

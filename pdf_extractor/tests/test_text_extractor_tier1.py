@@ -1,7 +1,7 @@
 """
 tests/test_text_extractor_tier1.py
 ------------------------------------
-Property-based tests for ``evi_trace.extraction.tier1.tier1`` (pdfplumber backend).
+Property-based tests for ``pdf_extractor.extraction.tier1.tier1`` (pdfplumber backend).
 
 Properties covered:
   7. pdfplumber backend output conforms to BlockDict schema with null geometry
@@ -15,8 +15,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from hypothesis import given, settings, strategies as st
 
-from evi_trace.extraction import schemas
-from evi_trace.extraction.tier1 import tier1
+from pdf_extractor.extraction import schemas
+from pdf_extractor.extraction.tier1 import tier1
 
 pytestmark = pytest.mark.slow
 

@@ -1,10 +1,10 @@
 """
-evi_trace/utils/layout_utils.py
+pdf_extractor/utils/layout_utils.py
 =====================
 Layout-aware utilities for section heading detection and location cross-check.
 
 These functions provide layout-aware utilities used by the embedding and
-text-processing pipeline (see ``evi_trace/utils/embedding_utils.py`` and ``evi_trace/utils/text_utils.py``).
+text-processing pipeline (see ``pdf_extractor/utils/embedding_utils.py`` and ``pdf_extractor/utils/text_utils.py``).
 """
 
 import numpy as np

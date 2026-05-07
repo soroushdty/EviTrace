@@ -1,5 +1,5 @@
 """
-evi_trace/extraction/schemas.py
+pdf_extractor/extraction/schemas.py
 -------------------------
 Canonical output types and factory/validation helpers for all extraction
 backends.

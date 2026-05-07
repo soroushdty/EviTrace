@@ -1,5 +1,5 @@
 """
-evi_trace/utils/text_utils.py
+pdf_extractor/utils/text_utils.py
 ===================
 Text normalisation helpers for QC text comparison.
 
@@ -43,7 +43,7 @@ import re
 import logging
 from difflib import SequenceMatcher
 
-logger = logging.getLogger("evi_trace")
+logger = logging.getLogger("pdf_extractor")
 
 # ---------------------------------------------------------------------------
 # 1. WHITESPACE NORMALISATION  (Pass 1)
@@ -231,7 +231,7 @@ def exact_match_search(
         if best_page is None:
             return None
         logger.info(
-            "[evi_trace] Cross-page sentence detected; attributing to page %s "
+            "[pdf_extractor] Cross-page sentence detected; attributing to page %s "
             "(overlap=%s chars). Returning exact_match.",
             best_page,
             best_overlap,

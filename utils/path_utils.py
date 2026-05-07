@@ -120,7 +120,11 @@ def _download_url_to_temp_file(url: str, prefix: str) -> str:
     return temp_path
 
 
-def _download_pdf_source_url(url: str) -> tuple[str, list[str]]:
+def _download_pdf_source_url(
+    url: str,
+    folder_prefix: str = "evi_trace_pdf_folder_",
+    file_prefix: str = "evi_trace_pdf_",
+) -> tuple[str, list[str]]:
     """Download PDF URL sources and return (local_folder, pdf_paths)."""
     try:
         import gdown
@@ -128,7 +132,7 @@ def _download_pdf_source_url(url: str) -> tuple[str, list[str]]:
         raise ImportError("gdown is required to download URL sources") from exc
 
     if "drive.google.com" in url and "/folders/" in url:
-        download_root = Path(tempfile.mkdtemp(prefix="evi_trace_pdf_folder_"))
+        download_root = Path(tempfile.mkdtemp(prefix=folder_prefix))
         gdown.download_folder(
             url=url,
             output=str(download_root),
@@ -138,17 +142,26 @@ def _download_pdf_source_url(url: str) -> tuple[str, list[str]]:
         pdf_paths = sorted(str(p) for p in download_root.rglob("*.pdf"))
         return str(download_root), pdf_paths
 
-    downloaded_pdf = _download_url_to_temp_file(url, prefix="evi_trace_pdf_")
+    downloaded_pdf = _download_url_to_temp_file(url, prefix=file_prefix)
     return str(Path(downloaded_pdf).parent), [downloaded_pdf]
 
 
-def list_pdf_files_from_source(pdf_source: str) -> tuple[str, dict]:
+def list_pdf_files_from_source(
+    pdf_source: str,
+    *,
+    folder_prefix: str = "evi_trace_pdf_folder_",
+    file_prefix: str = "evi_trace_pdf_",
+) -> tuple[str, dict]:
     """Build PDF metadata from a URL or local file/folder path."""
     local_folder: str
     pdf_paths: list[str]
 
     if is_url(pdf_source):
-        local_folder, pdf_paths = _download_pdf_source_url(pdf_source)
+        local_folder, pdf_paths = _download_pdf_source_url(
+            pdf_source,
+            folder_prefix=folder_prefix,
+            file_prefix=file_prefix,
+        )
     else:
         resolved = resolve_project_path(pdf_source)
         pdf_paths = _scan_local_pdf_paths(resolved)
@@ -172,12 +185,21 @@ def list_pdf_files_from_source(pdf_source: str) -> tuple[str, dict]:
     return local_folder, result
 
 
-def list_pdf_files_from_dir(pdfs_dir: str) -> tuple[str, dict]:
+def list_pdf_files_from_dir(
+    pdfs_dir: str,
+    *,
+    folder_prefix: str = "evi_trace_pdf_folder_",
+    file_prefix: str = "evi_trace_pdf_",
+) -> tuple[str, dict]:
     """Resolve a local PDF folder and return metadata for all PDFs inside it."""
     resolved = resolve_project_path(pdfs_dir)
     if not Path(resolved).is_dir():
         raise ValueError(f"Expected a folder, got: {pdfs_dir}")
-    return list_pdf_files_from_source(resolved)
+    return list_pdf_files_from_source(
+        resolved,
+        folder_prefix=folder_prefix,
+        file_prefix=file_prefix,
+    )
 
 
 def create_output_folder(output_folder_path: str = "output") -> str:

@@ -1,8 +1,8 @@
 """
-evi_trace/extraction/quality_control/local_metrics.py
+pdf_extractor/extraction/quality_control/local_metrics.py
 ------------------------------------------------
 Concrete LocalQCReport dataclass implementing all 8 Metrics Tier 1
-(Local_QC_Metrics) checks for the EviTrace QC pipeline.
+(Local_QC_Metrics) checks for the pdf_extractor QC pipeline.
 
 All extractor branches in a given run must use the same QualityReport
 subclass (Universal_Metrics constraint).  LocalQCReport reads thresholds

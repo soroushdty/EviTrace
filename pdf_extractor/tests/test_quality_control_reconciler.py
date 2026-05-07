@@ -1,5 +1,5 @@
 """
-Tests for evi_trace/extraction/quality_control/repair.py — Unified Output production.
+Tests for pdf_extractor/extraction/quality_control/repair.py — Unified Output production.
 
 Covers:
   - Property 11: Unified Output contains all required top-level fields with correct status
@@ -15,7 +15,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from evi_trace.extraction.quality_control.reconciler import PLACEHOLDER_NOTICE, reconcile
+from pdf_extractor.extraction.quality_control.reconciler import PLACEHOLDER_NOTICE, reconcile
 
 # ---------------------------------------------------------------------------
 # Helpers

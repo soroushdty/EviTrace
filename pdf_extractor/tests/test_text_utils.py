@@ -1,7 +1,7 @@
 """
 test_text_utils.py
 ==================
-Tests for :mod:`evi_trace.utils.text_utils`.
+Tests for :mod:`pdf_extractor.utils.text_utils`.
 
 These normalisation functions are DISTINCT from
 :func:`sentence_processor.normalise_text`, which heals line breaks for
@@ -10,7 +10,7 @@ text comparison.
 
 Run with::
 
-    pytest tests/test_text_evi_trace.utils.py -v
+    pytest tests/test_text_utils.py -v
 """
 
 import pytest
@@ -18,7 +18,7 @@ import numpy as np
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from evi_trace.utils.text_utils import normalise_full, normalise_ws, exact_match_search, semantic_search
+from pdf_extractor.utils.text_utils import normalise_full, normalise_ws, exact_match_search, semantic_search
 
 
 # ---------------------------------------------------------------------------

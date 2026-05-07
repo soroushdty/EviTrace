@@ -1,5 +1,5 @@
 """
-evi_trace/extraction/core/branch1.py
+pdf_extractor/extraction/core/branch1.py
 -------------------------------
 GROBID extraction stub.
 

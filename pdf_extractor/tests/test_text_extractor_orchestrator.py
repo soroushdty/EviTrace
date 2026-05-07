@@ -2,7 +2,7 @@
 tests/test_text_extractor_orchestrator.py
 ------------------------------------------
 Property-based tests for the ``text_extractor`` orchestrator
-(``evi_trace/extraction/__init__.py``).
+(``pdf_extractor/extraction/__init__.py``).
 
 Properties covered:
   9.  Orchestrator returns PyMuPDF blocks when score meets threshold or OCR is disabled
@@ -17,7 +17,7 @@ from unittest.mock import MagicMock, call, patch
 import pytest
 from hypothesis import given, settings, strategies as st
 
-import evi_trace.extraction
+import pdf_extractor.extraction
 
 
 # ---------------------------------------------------------------------------
@@ -71,13 +71,13 @@ def test_property9_pymupdf_path_taken_when_score_meets_threshold_or_ocr_disabled
         return  # skip cases that would fall through to OCR
 
     with (
-        patch("evi_trace.extraction.extract_with_pymupdf", return_value=(_PYMUPDF_BLOCKS, _FONT_META)) as mock_pymupdf,
-        patch("evi_trace.extraction.extract_with_pdfplumber") as mock_plumber,
-        patch("evi_trace.extraction.extract_with_tesseract") as mock_tess,
-        patch("evi_trace.extraction.extract_with_paddleocr") as mock_paddle,
-        patch("evi_trace.extraction._compute_quality_score", return_value=score),
+        patch("pdf_extractor.extraction.extract_with_pymupdf", return_value=(_PYMUPDF_BLOCKS, _FONT_META)) as mock_pymupdf,
+        patch("pdf_extractor.extraction.extract_with_pdfplumber") as mock_plumber,
+        patch("pdf_extractor.extraction.extract_with_tesseract") as mock_tess,
+        patch("pdf_extractor.extraction.extract_with_paddleocr") as mock_paddle,
+        patch("pdf_extractor.extraction._compute_quality_score", return_value=score),
     ):
-        blocks, font_meta = evi_trace.extraction.extract_pdf(
+        blocks, font_meta = pdf_extractor.extraction.extract_pdf(
             pdf_path="fake.pdf",
             ocr=ocr,
             ocr_text_quality_threshold=threshold,
@@ -127,13 +127,13 @@ def test_property10_cascade_selects_highest_scoring_ocr_backend(tess_score, padd
         return next(score_iter)
 
     with (
-        patch("evi_trace.extraction.extract_with_pymupdf", return_value=(_PYMUPDF_BLOCKS, _FONT_META)),
-        patch("evi_trace.extraction.extract_with_pdfplumber", return_value=_PLUMBER_BLOCKS),
-        patch("evi_trace.extraction.extract_with_tesseract", return_value=_TESS_BLOCKS),
-        patch("evi_trace.extraction.extract_with_paddleocr", return_value=_PADDLE_BLOCKS),
-        patch("evi_trace.extraction._compute_quality_score", side_effect=_side_effect_score),
+        patch("pdf_extractor.extraction.extract_with_pymupdf", return_value=(_PYMUPDF_BLOCKS, _FONT_META)),
+        patch("pdf_extractor.extraction.extract_with_pdfplumber", return_value=_PLUMBER_BLOCKS),
+        patch("pdf_extractor.extraction.extract_with_tesseract", return_value=_TESS_BLOCKS),
+        patch("pdf_extractor.extraction.extract_with_paddleocr", return_value=_PADDLE_BLOCKS),
+        patch("pdf_extractor.extraction._compute_quality_score", side_effect=_side_effect_score),
     ):
-        blocks, font_meta = evi_trace.extraction.extract_pdf(
+        blocks, font_meta = pdf_extractor.extraction.extract_pdf(
             pdf_path="fake.pdf",
             ocr=True,
             ocr_text_quality_threshold=threshold,
@@ -195,14 +195,14 @@ def test_property11_validate_blocks_called_exactly_once(
         return next(score_iter)
 
     with (
-        patch("evi_trace.extraction.extract_with_pymupdf", return_value=(_PYMUPDF_BLOCKS, _FONT_META)),
-        patch("evi_trace.extraction.extract_with_pdfplumber", return_value=_PLUMBER_BLOCKS),
-        patch("evi_trace.extraction.extract_with_tesseract", return_value=_TESS_BLOCKS),
-        patch("evi_trace.extraction.extract_with_paddleocr", return_value=_PADDLE_BLOCKS),
-        patch("evi_trace.extraction._compute_quality_score", side_effect=_side_effect_score),
-        patch("evi_trace.extraction.schemas.validate_blocks") as mock_validate,
+        patch("pdf_extractor.extraction.extract_with_pymupdf", return_value=(_PYMUPDF_BLOCKS, _FONT_META)),
+        patch("pdf_extractor.extraction.extract_with_pdfplumber", return_value=_PLUMBER_BLOCKS),
+        patch("pdf_extractor.extraction.extract_with_tesseract", return_value=_TESS_BLOCKS),
+        patch("pdf_extractor.extraction.extract_with_paddleocr", return_value=_PADDLE_BLOCKS),
+        patch("pdf_extractor.extraction._compute_quality_score", side_effect=_side_effect_score),
+        patch("pdf_extractor.extraction.schemas.validate_blocks") as mock_validate,
     ):
-        blocks, _ = evi_trace.extraction.extract_pdf(
+        blocks, _ = pdf_extractor.extraction.extract_pdf(
             pdf_path="fake.pdf",
             ocr=ocr,
             ocr_text_quality_threshold=threshold,
@@ -243,14 +243,14 @@ def test_property11_validate_blocks_called_exactly_once_property(score, threshol
         return next(score_iter)
 
     with (
-        patch("evi_trace.extraction.extract_with_pymupdf", return_value=(_PYMUPDF_BLOCKS, _FONT_META)),
-        patch("evi_trace.extraction.extract_with_pdfplumber", return_value=_PLUMBER_BLOCKS),
-        patch("evi_trace.extraction.extract_with_tesseract", return_value=_TESS_BLOCKS),
-        patch("evi_trace.extraction.extract_with_paddleocr", return_value=_PADDLE_BLOCKS),
-        patch("evi_trace.extraction._compute_quality_score", side_effect=_side_effect_score),
-        patch("evi_trace.extraction.schemas.validate_blocks") as mock_validate,
+        patch("pdf_extractor.extraction.extract_with_pymupdf", return_value=(_PYMUPDF_BLOCKS, _FONT_META)),
+        patch("pdf_extractor.extraction.extract_with_pdfplumber", return_value=_PLUMBER_BLOCKS),
+        patch("pdf_extractor.extraction.extract_with_tesseract", return_value=_TESS_BLOCKS),
+        patch("pdf_extractor.extraction.extract_with_paddleocr", return_value=_PADDLE_BLOCKS),
+        patch("pdf_extractor.extraction._compute_quality_score", side_effect=_side_effect_score),
+        patch("pdf_extractor.extraction.schemas.validate_blocks") as mock_validate,
     ):
-        evi_trace.extraction.extract_pdf(
+        pdf_extractor.extraction.extract_pdf(
             pdf_path="fake.pdf",
             ocr=ocr,
             ocr_text_quality_threshold=threshold,

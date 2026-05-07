@@ -1,18 +1,16 @@
 """
-tests/test_layout_evi_trace.utils.py
+tests/test_layout_utils.py
 ==========================
-Tests for :mod:`evi_trace.utils.layout_utils`.
-"""
-test_layout_utils.py
-=====================
+Tests for :mod:`pdf_extractor.utils.layout_utils`.
+
 Run with::
 
-    pytest tests/test_layout_evi_trace.utils.py -v
-"""
     pytest tests/test_layout_utils.py -v
+"""
+
 import pytest
 
-from evi_trace.utils.layout_utils import detect_section_heading, location_cross_check
+from pdf_extractor.utils.layout_utils import detect_section_heading, location_cross_check
 
 
 # ---------------------------------------------------------------------------

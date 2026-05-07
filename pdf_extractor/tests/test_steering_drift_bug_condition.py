@@ -38,7 +38,7 @@ def test_qc_file_names():
         are absent
       - artifacts.py, observer.py, investigator.py, repair.py are present
     """
-    qc_dir = Path("evi_trace/extraction/quality_control")
+    qc_dir = Path("pdf_extractor/extraction/quality_control")
 
     # New names MUST exist
     for name in ("artifact_generator.py", "rater.py", "iaa_calculator.py", "reconciler.py"):
@@ -68,11 +68,11 @@ def test_run_quality_control_signature():
       - return annotation is dict, not QCContext
     """
     try:
-        from evi_trace.extraction.quality_control import evi_trace.cli as run_quality_control
-        from evi_trace.extraction.quality_control import QCContext  # noqa: F401 — needed for annotation check
+        from pdf_extractor.extraction.quality_control.quality_control import run_quality_control
+        from pdf_extractor.extraction.quality_control import QCContext  # noqa: F401 — needed for annotation check
     except ImportError as exc:
         pytest.fail(
-            f"Could not import evi_trace.cli as run_quality_control or QCContext: {exc}. "
+            f"Could not import run_quality_control or QCContext: {exc}. "
             "Deviation 1.2/1.3: signature or dataclasses not yet updated."
         )
 
@@ -101,7 +101,7 @@ def test_run_quality_control_signature():
 
 def test_qc_dataclasses():
     """Assert all seven QC dataclasses can be imported from
-    evi_trace.extraction.quality_control and are confirmed as dataclasses.
+    pdf_extractor.extraction.quality_control and are confirmed as dataclasses.
 
     Expected to FAIL on unfixed code with ImportError — none of these
     dataclasses exist yet.
@@ -117,7 +117,7 @@ def test_qc_dataclasses():
     ]
 
     try:
-        from evi_trace.extraction.quality_control import (  # type: ignore[attr-defined]
+        from pdf_extractor.extraction.quality_control import (  # type: ignore[attr-defined]
             BranchOutput,
             QCContext,
             QualityMetrics,
@@ -159,9 +159,9 @@ def test_cascade_order_pdfplumber_before_tesseract():
 
     Expected to FAIL on unfixed code:
       - extract_with_pdfplumber is never imported or called in
-        evi_trace/extraction/__init__.py; Tesseract is called directly.
+        pdf_extractor/extraction/__init__.py; Tesseract is called directly.
     """
-    import evi_trace.extraction
+    import pdf_extractor.extraction
 
     # Low-quality blocks: all non-alpha characters so score ≈ 0.0
     low_quality_blocks = [{"text": "!@#$%^&*()", "page_index": 0, "block_bbox": None, "spans": []}]
@@ -197,7 +197,7 @@ def test_cascade_order_pdfplumber_before_tesseract():
                 # extract_with_pdfplumber may not exist yet — handle gracefully
                 try:
                     with patch.object(text_extractor, "extract_with_pdfplumber", tracking_pdfplumber):
-                        evi_trace.extraction.extract_pdf(
+                        pdf_extractor.extraction.extract_pdf(
                             "dummy.pdf",
                             ocr=True,
                             ocr_text_quality_threshold=0.9,
@@ -205,7 +205,7 @@ def test_cascade_order_pdfplumber_before_tesseract():
                 except AttributeError:
                     # extract_with_pdfplumber not yet wired into text_extractor
                     # Run without it so we can still check call_order
-                    evi_trace.extraction.extract_pdf(
+                    pdf_extractor.extraction.extract_pdf(
                         "dummy.pdf",
                         ocr=True,
                         ocr_text_quality_threshold=0.9,
@@ -237,7 +237,7 @@ def test_tier1_function_name():
     currently named extract_pdf_text.
     """
     try:
-        from evi_trace.extraction.tier1.tier1 import extract_with_pdfplumber  # type: ignore[attr-defined]
+        from pdf_extractor.extraction.tier1.tier1 import extract_with_pdfplumber  # type: ignore[attr-defined]
     except ImportError as exc:
         pytest.fail(
             f"ImportError: {exc}. "
@@ -261,7 +261,7 @@ def test_spandict_fields():
     Expected to FAIL on unfixed code:
       - SpanDict only has text, bbox, size.
     """
-    from evi_trace.extraction.schemas import SpanDict
+    from pdf_extractor.extraction.schemas import SpanDict
 
     annotations = SpanDict.__annotations__
 
@@ -324,7 +324,7 @@ def test_branch2_span_construction():
             del sys.modules[mod_name]
 
     with patch.dict("sys.modules", {"fitz": fitz_mock}):
-        from evi_trace.extraction.core import branch2 as b2_fresh
+        from pdf_extractor.extraction.core import branch2 as b2_fresh
         blocks, font_metadata = b2_fresh.extract_with_pymupdf("dummy.pdf")
 
     assert blocks, "No blocks returned from extract_with_pymupdf mock. Check mock setup."
@@ -359,7 +359,7 @@ def test_config_defaults(tmp_path):
     Expected to FAIL on unfixed code with KeyError — these keys are absent
     from _QC_DEFAULTS.
     """
-    from evi_trace.utils.config_utils import load_config
+    from pdf_extractor.utils.config_utils import load_config
 
     # Write a minimal valid config YAML
     cfg_file = tmp_path / "test_config.yaml"

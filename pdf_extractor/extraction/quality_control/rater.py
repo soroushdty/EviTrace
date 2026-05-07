@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 
-logger = logging.getLogger("evi_trace")
+logger = logging.getLogger("pdf_extractor")
 
 
 def observe(

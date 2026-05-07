@@ -1,10 +1,8 @@
 """
-tests/test_embedding_evi_trace.utils.py
+tests/test_embedding_utils.py
 =============================
-Tests for :mod:`evi_trace.utils.embedding_utils`.
-"""
-test_embedding_utils.py
-=======================
+Tests for :mod:`pdf_extractor.utils.embedding_utils`.
+
 no GPU required.
 
 Run with::
@@ -40,11 +38,11 @@ class MockModel:
 # ---------------------------------------------------------------------------
 
 class TestImportSafety:
-    """evi_trace.utils.embedding_utils must be importable even when heavy deps are absent."""
+    """pdf_extractor.utils.embedding_utils must be importable even when heavy deps are absent."""
 
     def test_import_succeeds_without_sentence_transformers(self):
         """
-        Req 10.5: importing evi_trace.utils.embedding_utils must NOT raise when
+        Req 10.5: importing pdf_extractor.utils.embedding_utils must NOT raise when
         sentence_transformers is not installed.
         """
         with unittest.mock.patch.dict(sys.modules, {
@@ -53,12 +51,12 @@ class TestImportSafety:
             'torch': None,
         }):
             # Force a clean reimport with patched sys.modules
-            keys_to_evict = [k for k in sys.modules if k == 'evi_trace.utils.embedding_utils']
+            keys_to_evict = [k for k in sys.modules if k == 'pdf_extractor.utils.embedding_utils']
             for k in keys_to_evict:
                 del sys.modules[k]
             # This must not raise
-            import evi_trace.utils.embedding_utils  # noqa: F401 — we only care it doesn't raise
-            importlib.reload(evi_trace.utils.embedding_utils)
+            import pdf_extractor.utils.embedding_utils  # noqa: F401 — we only care it doesn't raise
+            importlib.reload(pdf_extractor.utils.embedding_utils)
 
     def test_import_succeeds_without_any_heavy_deps(self):
         """
@@ -70,10 +68,10 @@ class TestImportSafety:
             'faiss': None,
             'torch': None,
         }):
-            keys_to_evict = [k for k in sys.modules if k == 'evi_trace.utils.embedding_utils']
+            keys_to_evict = [k for k in sys.modules if k == 'pdf_extractor.utils.embedding_utils']
             for k in keys_to_evict:
                 del sys.modules[k]
-            mod = importlib.import_module('evi_trace.utils.embedding_utils')
+            mod = importlib.import_module('pdf_extractor.utils.embedding_utils')
             assert mod is not None
 
 
@@ -83,14 +81,14 @@ class TestImportSafety:
 
 class TestImportSafetyAndFunctionRaises:
     """
-    Req 11.7: A single test that imports evi_trace.utils.embedding_utils with ALL THREE
+    Req 11.7: A single test that imports pdf_extractor.utils.embedding_utils with ALL THREE
     heavy deps patched as missing, confirms the import succeeds, then calls
     each Embedding_Engine function and asserts ImportError with 'pip install'.
     """
 
     def test_import_succeeds_and_functions_raise_on_all_deps_missing(self):
         """
-        Req 11.7: import evi_trace.utils.embedding_utils when faiss, torch, and
+        Req 11.7: import pdf_extractor.utils.embedding_utils when faiss, torch, and
         sentence_transformers are all patched as missing — import must succeed;
         calling any function that requires a missing dep must raise ImportError
         containing 'pip install'.
@@ -100,11 +98,11 @@ class TestImportSafetyAndFunctionRaises:
             'faiss': None,
             'torch': None,
         }):
-            keys_to_evict = [k for k in sys.modules if k == 'evi_trace.utils.embedding_utils']
+            keys_to_evict = [k for k in sys.modules if k == 'pdf_extractor.utils.embedding_utils']
             for k in keys_to_evict:
                 del sys.modules[k]
             # Import must NOT raise — this is the import-safety assertion.
-            eu = importlib.import_module('evi_trace.utils.embedding_utils')
+            eu = importlib.import_module('pdf_extractor.utils.embedding_utils')
             assert eu is not None, "Module import must succeed with all heavy deps missing"
 
             # Calling load_embedding_model must raise ImportError with pip install.
@@ -143,7 +141,7 @@ class TestLoadEmbeddingModelImportError:
         Req 5.3: calling load_embedding_model() when sentence_transformers is
         not installed must raise ImportError.
         """
-        import evi_trace.utils.embedding_utils as eu
+        import pdf_extractor.utils.embedding_utils as eu
 
         with unittest.mock.patch.dict(sys.modules, {'sentence_transformers': None}):
             with pytest.raises(ImportError) as exc_info:
@@ -154,7 +152,7 @@ class TestLoadEmbeddingModelImportError:
         """
         Req 5.3: the ImportError message must contain 'pip install'.
         """
-        import evi_trace.utils.embedding_utils as eu
+        import pdf_extractor.utils.embedding_utils as eu
 
         with unittest.mock.patch.dict(sys.modules, {'sentence_transformers': None}):
             with pytest.raises(ImportError) as exc_info:
@@ -172,13 +170,13 @@ class TestNoSeedAtImport:
     def test_np_random_seed_not_called_at_import(self):
         """
         Req 5.4 / 10.2: np.random.seed() must NOT be called when
-        evi_trace.utils.embedding_utils is imported.
+        pdf_extractor.utils.embedding_utils is imported.
         """
         with unittest.mock.patch('numpy.random.seed') as mock_seed:
-            keys_to_evict = [k for k in sys.modules if k == 'evi_trace.utils.embedding_utils']
+            keys_to_evict = [k for k in sys.modules if k == 'pdf_extractor.utils.embedding_utils']
             for k in keys_to_evict:
                 del sys.modules[k]
-            importlib.import_module('evi_trace.utils.embedding_utils')
+            importlib.import_module('pdf_extractor.utils.embedding_utils')
             mock_seed.assert_not_called()
 
     # ---------------------------------------------------------------------------
@@ -188,15 +186,15 @@ class TestNoSeedAtImport:
     def test_torch_manual_seed_not_called_at_import(self):
         """
         Req 5.4 / 10.2: torch.manual_seed() must NOT be called when
-        evi_trace.utils.embedding_utils is imported.
+        pdf_extractor.utils.embedding_utils is imported.
         """
         # Provide a mock torch module so we can observe manual_seed calls
         mock_torch = unittest.mock.MagicMock()
         with unittest.mock.patch.dict(sys.modules, {'torch': mock_torch}):
-            keys_to_evict = [k for k in sys.modules if k == 'evi_trace.utils.embedding_utils']
+            keys_to_evict = [k for k in sys.modules if k == 'pdf_extractor.utils.embedding_utils']
             for k in keys_to_evict:
                 del sys.modules[k]
-            importlib.import_module('evi_trace.utils.embedding_utils')
+            importlib.import_module('pdf_extractor.utils.embedding_utils')
             mock_torch.manual_seed.assert_not_called()
 
 
@@ -215,10 +213,10 @@ class TestEmbedQueryShape:
         """
         mock_faiss = MockFaiss()
         with unittest.mock.patch.dict(sys.modules, {'faiss': mock_faiss}):
-            keys_to_evict = [k for k in sys.modules if k == 'evi_trace.utils.embedding_utils']
+            keys_to_evict = [k for k in sys.modules if k == 'pdf_extractor.utils.embedding_utils']
             for k in keys_to_evict:
                 del sys.modules[k]
-            eu = importlib.import_module('evi_trace.utils.embedding_utils')
+            eu = importlib.import_module('pdf_extractor.utils.embedding_utils')
             importlib.reload(eu)
             model = MockModel(dim=768)
             result = eu.embed_query("test query", model)
@@ -230,10 +228,10 @@ class TestEmbedQueryShape:
         """Shape check also holds for small embedding dimensions."""
         mock_faiss = MockFaiss()
         with unittest.mock.patch.dict(sys.modules, {'faiss': mock_faiss}):
-            keys_to_evict = [k for k in sys.modules if k == 'evi_trace.utils.embedding_utils']
+            keys_to_evict = [k for k in sys.modules if k == 'pdf_extractor.utils.embedding_utils']
             for k in keys_to_evict:
                 del sys.modules[k]
-            eu = importlib.import_module('evi_trace.utils.embedding_utils')
+            eu = importlib.import_module('pdf_extractor.utils.embedding_utils')
             importlib.reload(eu)
             model = MockModel(dim=4)
             result = eu.embed_query("hello world", model)
@@ -255,10 +253,10 @@ class TestEmbedQueryPrefix:
         """
         mock_faiss = MockFaiss()
         with unittest.mock.patch.dict(sys.modules, {'faiss': mock_faiss}):
-            keys_to_evict = [k for k in sys.modules if k == 'evi_trace.utils.embedding_utils']
+            keys_to_evict = [k for k in sys.modules if k == 'pdf_extractor.utils.embedding_utils']
             for k in keys_to_evict:
                 del sys.modules[k]
-            eu = importlib.import_module('evi_trace.utils.embedding_utils')
+            eu = importlib.import_module('pdf_extractor.utils.embedding_utils')
             importlib.reload(eu)
 
             captured_texts: list = []
@@ -284,10 +282,10 @@ class TestEmbedQueryPrefix:
         """
         mock_faiss = MockFaiss()
         with unittest.mock.patch.dict(sys.modules, {'faiss': mock_faiss}):
-            keys_to_evict = [k for k in sys.modules if k == 'evi_trace.utils.embedding_utils']
+            keys_to_evict = [k for k in sys.modules if k == 'pdf_extractor.utils.embedding_utils']
             for k in keys_to_evict:
                 del sys.modules[k]
-            eu = importlib.import_module('evi_trace.utils.embedding_utils')
+            eu = importlib.import_module('pdf_extractor.utils.embedding_utils')
             importlib.reload(eu)
 
             captured_texts: list = []
@@ -306,10 +304,10 @@ class TestEmbedQueryPrefix:
         """Default BGE prefix is prepended when no explicit prefix is given."""
         mock_faiss = MockFaiss()
         with unittest.mock.patch.dict(sys.modules, {'faiss': mock_faiss}):
-            keys_to_evict = [k for k in sys.modules if k == 'evi_trace.utils.embedding_utils']
+            keys_to_evict = [k for k in sys.modules if k == 'pdf_extractor.utils.embedding_utils']
             for k in keys_to_evict:
                 del sys.modules[k]
-            eu = importlib.import_module('evi_trace.utils.embedding_utils')
+            eu = importlib.import_module('pdf_extractor.utils.embedding_utils')
             importlib.reload(eu)
 
             captured_texts: list = []
@@ -341,13 +339,13 @@ class TestEmbedQueryNormalisation:
         """
         mock_faiss = MockFaiss()
         with unittest.mock.patch.dict(sys.modules, {'faiss': mock_faiss}):
-            keys_to_evict = [k for k in sys.modules if k == 'evi_trace.utils.embedding_utils']
+            keys_to_evict = [k for k in sys.modules if k == 'pdf_extractor.utils.embedding_utils']
             for k in keys_to_evict:
                 del sys.modules[k]
             import importlib
-            import evi_trace.utils.embedding_utils
-            importlib.reload(evi_trace.utils.embedding_utils)
-            import evi_trace.utils.embedding_utils as eu  # noqa: F811
+            import pdf_extractor.utils.embedding_utils
+            importlib.reload(pdf_extractor.utils.embedding_utils)
+            import pdf_extractor.utils.embedding_utils as eu  # noqa: F811
             model = MockModel(dim=768)
             result = eu.embed_query("test query", model)
             norm = float(np.linalg.norm(result[0]))
@@ -357,13 +355,13 @@ class TestEmbedQueryNormalisation:
         """L2 normalisation also works for non-uniform embeddings."""
         mock_faiss = MockFaiss()
         with unittest.mock.patch.dict(sys.modules, {'faiss': mock_faiss}):
-            keys_to_evict = [k for k in sys.modules if k == 'evi_trace.utils.embedding_utils']
+            keys_to_evict = [k for k in sys.modules if k == 'pdf_extractor.utils.embedding_utils']
             for k in keys_to_evict:
                 del sys.modules[k]
             import importlib
-            import evi_trace.utils.embedding_utils
-            importlib.reload(evi_trace.utils.embedding_utils)
-            import evi_trace.utils.embedding_utils as eu  # noqa: F811
+            import pdf_extractor.utils.embedding_utils
+            importlib.reload(pdf_extractor.utils.embedding_utils)
+            import pdf_extractor.utils.embedding_utils as eu  # noqa: F811
 
             class NonUniformModel:
                 def encode(self, texts, convert_to_numpy=True):
@@ -379,13 +377,13 @@ class TestEmbedQueryNormalisation:
         """Output array should be float32 (as produced by BGE models)."""
         mock_faiss = MockFaiss()
         with unittest.mock.patch.dict(sys.modules, {'faiss': mock_faiss}):
-            keys_to_evict = [k for k in sys.modules if k == 'evi_trace.utils.embedding_utils']
+            keys_to_evict = [k for k in sys.modules if k == 'pdf_extractor.utils.embedding_utils']
             for k in keys_to_evict:
                 del sys.modules[k]
             import importlib
-            import evi_trace.utils.embedding_utils
-            importlib.reload(evi_trace.utils.embedding_utils)
-            import evi_trace.utils.embedding_utils as eu  # noqa: F811
+            import pdf_extractor.utils.embedding_utils
+            importlib.reload(pdf_extractor.utils.embedding_utils)
+            import pdf_extractor.utils.embedding_utils as eu  # noqa: F811
             model = MockModel(dim=768)
             result = eu.embed_query("test", model)
             assert result.dtype == np.float32
@@ -399,24 +397,24 @@ class TestModuleConstants:
     """Verify module-level constants have expected values."""
 
     def test_bge_model_name_constant(self):
-        import evi_trace.utils.embedding_utils as eu
+        import pdf_extractor.utils.embedding_utils as eu
         assert eu._BGE_MODEL_NAME == "BAAI/bge-base-en-v1.5"
 
     def test_bge_query_prefix_constant(self):
-        import evi_trace.utils.embedding_utils as eu
+        import pdf_extractor.utils.embedding_utils as eu
         expected = "Represent this sentence for searching relevant passages: "
         assert eu._BGE_QUERY_PREFIX == expected
 
     def test_embedding_dim_constant(self):
-        import evi_trace.utils.embedding_utils as eu
+        import pdf_extractor.utils.embedding_utils as eu
         assert eu._EMBEDDING_DIM == 768
 
     def test_max_sentences_constant(self):
-        import evi_trace.utils.embedding_utils as eu
+        import pdf_extractor.utils.embedding_utils as eu
         assert eu._MAX_SENTENCES == 10_000
 
     def test_encode_batch_size_constant(self):
-        import evi_trace.utils.embedding_utils as eu
+        import pdf_extractor.utils.embedding_utils as eu
         assert eu._ENCODE_BATCH_SIZE == 64
 
 
@@ -432,7 +430,7 @@ class TestLoadEmbeddingModelSuccess:
         When sentence_transformers IS available, load_embedding_model returns
         the object produced by SentenceTransformer(model_name).
         """
-        import evi_trace.utils.embedding_utils as eu
+        import pdf_extractor.utils.embedding_utils as eu
 
         mock_st_class = unittest.mock.MagicMock()
         mock_model_instance = unittest.mock.MagicMock()
@@ -450,7 +448,7 @@ class TestLoadEmbeddingModelSuccess:
         load_embedding_model() with no arguments passes _BGE_MODEL_NAME to
         SentenceTransformer.
         """
-        import evi_trace.utils.embedding_utils as eu
+        import pdf_extractor.utils.embedding_utils as eu
 
         mock_st_class = unittest.mock.MagicMock()
         mock_st_module = unittest.mock.MagicMock()
@@ -466,7 +464,7 @@ class TestLoadEmbeddingModelSuccess:
         load_embedding_model('custom/model') passes the custom name to
         SentenceTransformer.
         """
-        import evi_trace.utils.embedding_utils as eu
+        import pdf_extractor.utils.embedding_utils as eu
 
         mock_st_class = unittest.mock.MagicMock()
         mock_st_module = unittest.mock.MagicMock()
@@ -519,7 +517,7 @@ class TestL2Normalise:
         Req 5.1: l2_normalise with a zero-row array must return the input
         array unchanged (no faiss call needed, early return).
         """
-        from evi_trace.utils.embedding_utils import l2_normalise
+        from pdf_extractor.utils.embedding_utils import l2_normalise
         arr = np.zeros((0, 768), dtype=np.float32)
         result = l2_normalise(arr)
         assert result.shape == (0, 768)
@@ -532,13 +530,13 @@ class TestL2Normalise:
         """
         # Reload the module with faiss patched as absent
         with unittest.mock.patch.dict(sys.modules, {'faiss': None}):
-            keys_to_evict = [k for k in sys.modules if k == 'evi_trace.utils.embedding_utils']
+            keys_to_evict = [k for k in sys.modules if k == 'pdf_extractor.utils.embedding_utils']
             for k in keys_to_evict:
                 del sys.modules[k]
             import importlib
-            import evi_trace.utils.embedding_utils
-            importlib.reload(evi_trace.utils.embedding_utils)
-            from evi_trace.utils.embedding_utils import l2_normalise as l2n
+            import pdf_extractor.utils.embedding_utils
+            importlib.reload(pdf_extractor.utils.embedding_utils)
+            from pdf_extractor.utils.embedding_utils import l2_normalise as l2n
             arr = np.ones((2, 4), dtype=np.float32)
             with pytest.raises(ImportError, match="pip install"):
                 l2n(arr)
@@ -551,13 +549,13 @@ class TestL2Normalise:
         mock_faiss = MockFaiss()
         with unittest.mock.patch.dict(sys.modules, {'faiss': mock_faiss}):
             # Evict cached module so it picks up the mock
-            keys_to_evict = [k for k in sys.modules if k == 'evi_trace.utils.embedding_utils']
+            keys_to_evict = [k for k in sys.modules if k == 'pdf_extractor.utils.embedding_utils']
             for k in keys_to_evict:
                 del sys.modules[k]
             import importlib
-            import evi_trace.utils.embedding_utils
-            importlib.reload(evi_trace.utils.embedding_utils)
-            from evi_trace.utils.embedding_utils import l2_normalise
+            import pdf_extractor.utils.embedding_utils
+            importlib.reload(pdf_extractor.utils.embedding_utils)
+            from pdf_extractor.utils.embedding_utils import l2_normalise
 
             arr = np.array([[3.0, 4.0], [1.0, 0.0], [0.5, 0.5]], dtype=np.float32)
             result = l2_normalise(arr)
@@ -572,13 +570,13 @@ class TestL2Normalise:
         Req 5.3: ImportError message must contain 'faiss-cpu' as install hint.
         """
         with unittest.mock.patch.dict(sys.modules, {'faiss': None}):
-            keys_to_evict = [k for k in sys.modules if k == 'evi_trace.utils.embedding_utils']
+            keys_to_evict = [k for k in sys.modules if k == 'pdf_extractor.utils.embedding_utils']
             for k in keys_to_evict:
                 del sys.modules[k]
             import importlib
-            import evi_trace.utils.embedding_utils
-            importlib.reload(evi_trace.utils.embedding_utils)
-            from evi_trace.utils.embedding_utils import l2_normalise as l2n
+            import pdf_extractor.utils.embedding_utils
+            importlib.reload(pdf_extractor.utils.embedding_utils)
+            from pdf_extractor.utils.embedding_utils import l2_normalise as l2n
             arr = np.ones((1, 4), dtype=np.float32)
             with pytest.raises(ImportError, match="faiss-cpu"):
                 l2n(arr)
@@ -587,13 +585,13 @@ class TestL2Normalise:
         """l2_normalise must return a float32 array."""
         mock_faiss = MockFaiss()
         with unittest.mock.patch.dict(sys.modules, {'faiss': mock_faiss}):
-            keys_to_evict = [k for k in sys.modules if k == 'evi_trace.utils.embedding_utils']
+            keys_to_evict = [k for k in sys.modules if k == 'pdf_extractor.utils.embedding_utils']
             for k in keys_to_evict:
                 del sys.modules[k]
             import importlib
-            import evi_trace.utils.embedding_utils
-            importlib.reload(evi_trace.utils.embedding_utils)
-            from evi_trace.utils.embedding_utils import l2_normalise
+            import pdf_extractor.utils.embedding_utils
+            importlib.reload(pdf_extractor.utils.embedding_utils)
+            from pdf_extractor.utils.embedding_utils import l2_normalise
 
             arr = np.array([[1.0, 2.0, 3.0]], dtype=np.float32)
             result = l2_normalise(arr)
@@ -613,13 +611,13 @@ class TestBuildFaissIndex:
         raise ImportError with 'pip install' in the message.
         """
         with unittest.mock.patch.dict(sys.modules, {'faiss': None}):
-            keys_to_evict = [k for k in sys.modules if k == 'evi_trace.utils.embedding_utils']
+            keys_to_evict = [k for k in sys.modules if k == 'pdf_extractor.utils.embedding_utils']
             for k in keys_to_evict:
                 del sys.modules[k]
             import importlib
-            import evi_trace.utils.embedding_utils
-            importlib.reload(evi_trace.utils.embedding_utils)
-            from evi_trace.utils.embedding_utils import build_faiss_index
+            import pdf_extractor.utils.embedding_utils
+            importlib.reload(pdf_extractor.utils.embedding_utils)
+            from pdf_extractor.utils.embedding_utils import build_faiss_index
             embeddings = np.ones((5, 4), dtype=np.float32)
             with pytest.raises(ImportError, match="pip install"):
                 build_faiss_index(embeddings)
@@ -640,14 +638,14 @@ class TestBuildFaissIndex:
         mock_faiss.IndexFlatIP = mock_index_flat_ip
 
         with unittest.mock.patch.dict(sys.modules, {'faiss': mock_faiss}):
-            keys_to_evict = [k for k in sys.modules if k == 'evi_trace.utils.embedding_utils']
+            keys_to_evict = [k for k in sys.modules if k == 'pdf_extractor.utils.embedding_utils']
             for k in keys_to_evict:
                 del sys.modules[k]
             import importlib
-            import evi_trace.utils.embedding_utils
-            importlib.reload(evi_trace.utils.embedding_utils)
-            import evi_trace.utils.embedding_utils as eu_local
-            from evi_trace.utils.embedding_utils import build_faiss_index
+            import pdf_extractor.utils.embedding_utils
+            importlib.reload(pdf_extractor.utils.embedding_utils)
+            import pdf_extractor.utils.embedding_utils as eu_local
+            from pdf_extractor.utils.embedding_utils import build_faiss_index
 
             embeddings = np.array(
                 [[1.0, 0.0, 0.0, 0.0],
@@ -674,13 +672,13 @@ class TestBuildFaissIndex:
         mock_faiss.IndexFlatIP = mock_index_flat_ip
 
         with unittest.mock.patch.dict(sys.modules, {'faiss': mock_faiss}):
-            keys_to_evict = [k for k in sys.modules if k == 'evi_trace.utils.embedding_utils']
+            keys_to_evict = [k for k in sys.modules if k == 'pdf_extractor.utils.embedding_utils']
             for k in keys_to_evict:
                 del sys.modules[k]
             import importlib
-            import evi_trace.utils.embedding_utils
-            importlib.reload(evi_trace.utils.embedding_utils)
-            from evi_trace.utils.embedding_utils import build_faiss_index
+            import pdf_extractor.utils.embedding_utils
+            importlib.reload(pdf_extractor.utils.embedding_utils)
+            from pdf_extractor.utils.embedding_utils import build_faiss_index
 
             embeddings = np.ones((3, 768), dtype=np.float32)
             build_faiss_index(embeddings)
@@ -691,13 +689,13 @@ class TestBuildFaissIndex:
         Req 5.3: ImportError message for build_faiss_index must contain 'faiss-cpu'.
         """
         with unittest.mock.patch.dict(sys.modules, {'faiss': None}):
-            keys_to_evict = [k for k in sys.modules if k == 'evi_trace.utils.embedding_utils']
+            keys_to_evict = [k for k in sys.modules if k == 'pdf_extractor.utils.embedding_utils']
             for k in keys_to_evict:
                 del sys.modules[k]
             import importlib
-            import evi_trace.utils.embedding_utils
-            importlib.reload(evi_trace.utils.embedding_utils)
-            from evi_trace.utils.embedding_utils import build_faiss_index
+            import pdf_extractor.utils.embedding_utils
+            importlib.reload(pdf_extractor.utils.embedding_utils)
+            from pdf_extractor.utils.embedding_utils import build_faiss_index
             with pytest.raises(ImportError, match="faiss-cpu"):
                 build_faiss_index(np.ones((2, 4), dtype=np.float32))
 
@@ -726,14 +724,14 @@ class TestBuildFaissIndex:
         mock_faiss_gpu = MockFaissWithGPU()
 
         with unittest.mock.patch.dict(sys.modules, {'faiss': mock_faiss_gpu}):
-            keys_to_evict = [k for k in sys.modules if k == 'evi_trace.utils.embedding_utils']
+            keys_to_evict = [k for k in sys.modules if k == 'pdf_extractor.utils.embedding_utils']
             for k in keys_to_evict:
                 del sys.modules[k]
             import importlib
-            import evi_trace.utils.embedding_utils
-            importlib.reload(evi_trace.utils.embedding_utils)
-            import evi_trace.utils.embedding_utils as eu_local
-            from evi_trace.utils.embedding_utils import build_faiss_index
+            import pdf_extractor.utils.embedding_utils
+            importlib.reload(pdf_extractor.utils.embedding_utils)
+            import pdf_extractor.utils.embedding_utils as eu_local
+            from pdf_extractor.utils.embedding_utils import build_faiss_index
 
             embeddings = np.ones((2, 4), dtype=np.float32)
             with unittest.mock.patch.object(eu_local.logger, 'info') as mock_info:
@@ -762,13 +760,13 @@ class TestEmbedQueryCallsL2Normalise:
         """
         mock_faiss = MockFaiss()
         with unittest.mock.patch.dict(sys.modules, {'faiss': mock_faiss}):
-            keys_to_evict = [k for k in sys.modules if k == 'evi_trace.utils.embedding_utils']
+            keys_to_evict = [k for k in sys.modules if k == 'pdf_extractor.utils.embedding_utils']
             for k in keys_to_evict:
                 del sys.modules[k]
             import importlib
-            import evi_trace.utils.embedding_utils
-            importlib.reload(evi_trace.utils.embedding_utils)
-            import evi_trace.utils.embedding_utils as eu
+            import pdf_extractor.utils.embedding_utils
+            importlib.reload(pdf_extractor.utils.embedding_utils)
+            import pdf_extractor.utils.embedding_utils as eu
 
             model = MockModel(dim=768)
             result = eu.embed_query("test query", model)
@@ -782,13 +780,13 @@ class TestEmbedQueryCallsL2Normalise:
         """
         mock_faiss = MockFaiss()
         with unittest.mock.patch.dict(sys.modules, {'faiss': mock_faiss}):
-            keys_to_evict = [k for k in sys.modules if k == 'evi_trace.utils.embedding_utils']
+            keys_to_evict = [k for k in sys.modules if k == 'pdf_extractor.utils.embedding_utils']
             for k in keys_to_evict:
                 del sys.modules[k]
             import importlib
-            import evi_trace.utils.embedding_utils
-            importlib.reload(evi_trace.utils.embedding_utils)
-            import evi_trace.utils.embedding_utils as eu
+            import pdf_extractor.utils.embedding_utils
+            importlib.reload(pdf_extractor.utils.embedding_utils)
+            import pdf_extractor.utils.embedding_utils as eu
 
             mock_l2 = unittest.mock.MagicMock(side_effect=lambda x: x)  # pass through
             with unittest.mock.patch.object(eu, 'l2_normalise', mock_l2):
@@ -826,10 +824,10 @@ class TestBuildSentenceStoreEmpty:
         """
         mock_faiss = MockFaiss()
         with unittest.mock.patch.dict(sys.modules, {'faiss': mock_faiss}):
-            keys_to_evict = [k for k in sys.modules if k == 'evi_trace.utils.embedding_utils']
+            keys_to_evict = [k for k in sys.modules if k == 'pdf_extractor.utils.embedding_utils']
             for k in keys_to_evict:
                 del sys.modules[k]
-            eu = importlib.import_module('evi_trace.utils.embedding_utils')
+            eu = importlib.import_module('pdf_extractor.utils.embedding_utils')
             importlib.reload(eu)
 
             model = MockModel()
@@ -842,10 +840,10 @@ class TestBuildSentenceStoreEmpty:
         """
         mock_faiss = MockFaiss()
         with unittest.mock.patch.dict(sys.modules, {'faiss': mock_faiss}):
-            keys_to_evict = [k for k in sys.modules if k == 'evi_trace.utils.embedding_utils']
+            keys_to_evict = [k for k in sys.modules if k == 'pdf_extractor.utils.embedding_utils']
             for k in keys_to_evict:
                 del sys.modules[k]
-            eu = importlib.import_module('evi_trace.utils.embedding_utils')
+            eu = importlib.import_module('pdf_extractor.utils.embedding_utils')
             importlib.reload(eu)
 
             model = MockModel()
@@ -859,10 +857,10 @@ class TestBuildSentenceStoreEmpty:
         """
         mock_faiss = MockFaiss()
         with unittest.mock.patch.dict(sys.modules, {'faiss': mock_faiss}):
-            keys_to_evict = [k for k in sys.modules if k == 'evi_trace.utils.embedding_utils']
+            keys_to_evict = [k for k in sys.modules if k == 'pdf_extractor.utils.embedding_utils']
             for k in keys_to_evict:
                 del sys.modules[k]
-            eu = importlib.import_module('evi_trace.utils.embedding_utils')
+            eu = importlib.import_module('pdf_extractor.utils.embedding_utils')
             importlib.reload(eu)
 
             model = MockModel()
@@ -882,10 +880,10 @@ class TestBuildSentenceStoreNonEmpty:
         """
         mock_faiss = MockFaiss()
         with unittest.mock.patch.dict(sys.modules, {'faiss': mock_faiss}):
-            keys_to_evict = [k for k in sys.modules if k == 'evi_trace.utils.embedding_utils']
+            keys_to_evict = [k for k in sys.modules if k == 'pdf_extractor.utils.embedding_utils']
             for k in keys_to_evict:
                 del sys.modules[k]
-            eu = importlib.import_module('evi_trace.utils.embedding_utils')
+            eu = importlib.import_module('pdf_extractor.utils.embedding_utils')
             importlib.reload(eu)
 
             model = MockModel()
@@ -902,10 +900,10 @@ class TestBuildSentenceStoreNonEmpty:
         """
         mock_faiss = MockFaiss()
         with unittest.mock.patch.dict(sys.modules, {'faiss': mock_faiss}):
-            keys_to_evict = [k for k in sys.modules if k == 'evi_trace.utils.embedding_utils']
+            keys_to_evict = [k for k in sys.modules if k == 'pdf_extractor.utils.embedding_utils']
             for k in keys_to_evict:
                 del sys.modules[k]
-            eu = importlib.import_module('evi_trace.utils.embedding_utils')
+            eu = importlib.import_module('pdf_extractor.utils.embedding_utils')
             importlib.reload(eu)
 
             model = MockModel()
@@ -922,10 +920,10 @@ class TestBuildSentenceStoreNonEmpty:
         """Sentences in returned dict match those extracted from records."""
         mock_faiss = MockFaiss()
         with unittest.mock.patch.dict(sys.modules, {'faiss': mock_faiss}):
-            keys_to_evict = [k for k in sys.modules if k == 'evi_trace.utils.embedding_utils']
+            keys_to_evict = [k for k in sys.modules if k == 'pdf_extractor.utils.embedding_utils']
             for k in keys_to_evict:
                 del sys.modules[k]
-            eu = importlib.import_module('evi_trace.utils.embedding_utils')
+            eu = importlib.import_module('pdf_extractor.utils.embedding_utils')
             importlib.reload(eu)
 
             model = MockModel()
@@ -937,10 +935,10 @@ class TestBuildSentenceStoreNonEmpty:
         """Pages in returned dict match those extracted from records."""
         mock_faiss = MockFaiss()
         with unittest.mock.patch.dict(sys.modules, {'faiss': mock_faiss}):
-            keys_to_evict = [k for k in sys.modules if k == 'evi_trace.utils.embedding_utils']
+            keys_to_evict = [k for k in sys.modules if k == 'pdf_extractor.utils.embedding_utils']
             for k in keys_to_evict:
                 del sys.modules[k]
-            eu = importlib.import_module('evi_trace.utils.embedding_utils')
+            eu = importlib.import_module('pdf_extractor.utils.embedding_utils')
             importlib.reload(eu)
 
             model = MockModel()
@@ -959,10 +957,10 @@ class TestBuildSentenceStoreTruncation:
         """
         mock_faiss = MockFaiss()
         with unittest.mock.patch.dict(sys.modules, {'faiss': mock_faiss}):
-            keys_to_evict = [k for k in sys.modules if k == 'evi_trace.utils.embedding_utils']
+            keys_to_evict = [k for k in sys.modules if k == 'pdf_extractor.utils.embedding_utils']
             for k in keys_to_evict:
                 del sys.modules[k]
-            eu = importlib.import_module('evi_trace.utils.embedding_utils')
+            eu = importlib.import_module('pdf_extractor.utils.embedding_utils')
             importlib.reload(eu)
 
             model = MockModel()
@@ -988,10 +986,10 @@ class TestBuildSentenceStoreTruncation:
         """
         mock_faiss = MockFaiss()
         with unittest.mock.patch.dict(sys.modules, {'faiss': mock_faiss}):
-            keys_to_evict = [k for k in sys.modules if k == 'evi_trace.utils.embedding_utils']
+            keys_to_evict = [k for k in sys.modules if k == 'pdf_extractor.utils.embedding_utils']
             for k in keys_to_evict:
                 del sys.modules[k]
-            eu = importlib.import_module('evi_trace.utils.embedding_utils')
+            eu = importlib.import_module('pdf_extractor.utils.embedding_utils')
             importlib.reload(eu)
 
             model = MockModel()
@@ -1011,10 +1009,10 @@ class TestBuildSentenceStoreTruncation:
         """No RuntimeWarning when sentence count equals exactly _MAX_SENTENCES."""
         mock_faiss = MockFaiss()
         with unittest.mock.patch.dict(sys.modules, {'faiss': mock_faiss}):
-            keys_to_evict = [k for k in sys.modules if k == 'evi_trace.utils.embedding_utils']
+            keys_to_evict = [k for k in sys.modules if k == 'pdf_extractor.utils.embedding_utils']
             for k in keys_to_evict:
                 del sys.modules[k]
-            eu = importlib.import_module('evi_trace.utils.embedding_utils')
+            eu = importlib.import_module('pdf_extractor.utils.embedding_utils')
             importlib.reload(eu)
 
             model = MockModel()
@@ -1039,10 +1037,10 @@ class TestBuildSentenceStoreFaissIndex:
         """
         mock_faiss = MockFaiss()
         with unittest.mock.patch.dict(sys.modules, {'faiss': mock_faiss}):
-            keys_to_evict = [k for k in sys.modules if k == 'evi_trace.utils.embedding_utils']
+            keys_to_evict = [k for k in sys.modules if k == 'pdf_extractor.utils.embedding_utils']
             for k in keys_to_evict:
                 del sys.modules[k]
-            eu = importlib.import_module('evi_trace.utils.embedding_utils')
+            eu = importlib.import_module('pdf_extractor.utils.embedding_utils')
             importlib.reload(eu)
 
             model = MockModel()
@@ -1054,10 +1052,10 @@ class TestBuildSentenceStoreFaissIndex:
         """faiss_index is an instance of MockFaissIndex when MockFaiss is used."""
         mock_faiss = MockFaiss()
         with unittest.mock.patch.dict(sys.modules, {'faiss': mock_faiss}):
-            keys_to_evict = [k for k in sys.modules if k == 'evi_trace.utils.embedding_utils']
+            keys_to_evict = [k for k in sys.modules if k == 'pdf_extractor.utils.embedding_utils']
             for k in keys_to_evict:
                 del sys.modules[k]
-            eu = importlib.import_module('evi_trace.utils.embedding_utils')
+            eu = importlib.import_module('pdf_extractor.utils.embedding_utils')
             importlib.reload(eu)
 
             model = MockModel()
@@ -1069,10 +1067,10 @@ class TestBuildSentenceStoreFaissIndex:
         """The FAISS index must contain exactly as many vectors as sentences."""
         mock_faiss = MockFaiss()
         with unittest.mock.patch.dict(sys.modules, {'faiss': mock_faiss}):
-            keys_to_evict = [k for k in sys.modules if k == 'evi_trace.utils.embedding_utils']
+            keys_to_evict = [k for k in sys.modules if k == 'pdf_extractor.utils.embedding_utils']
             for k in keys_to_evict:
                 del sys.modules[k]
-            eu = importlib.import_module('evi_trace.utils.embedding_utils')
+            eu = importlib.import_module('pdf_extractor.utils.embedding_utils')
             importlib.reload(eu)
 
             model = MockModel()
@@ -1091,10 +1089,10 @@ class TestBuildSentenceStorePdfPath:
         """
         mock_faiss = MockFaiss()
         with unittest.mock.patch.dict(sys.modules, {'faiss': mock_faiss}):
-            keys_to_evict = [k for k in sys.modules if k == 'evi_trace.utils.embedding_utils']
+            keys_to_evict = [k for k in sys.modules if k == 'pdf_extractor.utils.embedding_utils']
             for k in keys_to_evict:
                 del sys.modules[k]
-            eu = importlib.import_module('evi_trace.utils.embedding_utils')
+            eu = importlib.import_module('pdf_extractor.utils.embedding_utils')
             importlib.reload(eu)
 
             model = MockModel()
@@ -1106,10 +1104,10 @@ class TestBuildSentenceStorePdfPath:
         """pdf_path is stored verbatim even when sentence_records is empty."""
         mock_faiss = MockFaiss()
         with unittest.mock.patch.dict(sys.modules, {'faiss': mock_faiss}):
-            keys_to_evict = [k for k in sys.modules if k == 'evi_trace.utils.embedding_utils']
+            keys_to_evict = [k for k in sys.modules if k == 'pdf_extractor.utils.embedding_utils']
             for k in keys_to_evict:
                 del sys.modules[k]
-            eu = importlib.import_module('evi_trace.utils.embedding_utils')
+            eu = importlib.import_module('pdf_extractor.utils.embedding_utils')
             importlib.reload(eu)
 
             model = MockModel()
@@ -1128,10 +1126,10 @@ class TestBuildSentenceStoreEmbeddingsNormalised:
         """
         mock_faiss = MockFaiss()
         with unittest.mock.patch.dict(sys.modules, {'faiss': mock_faiss}):
-            keys_to_evict = [k for k in sys.modules if k == 'evi_trace.utils.embedding_utils']
+            keys_to_evict = [k for k in sys.modules if k == 'pdf_extractor.utils.embedding_utils']
             for k in keys_to_evict:
                 del sys.modules[k]
-            eu = importlib.import_module('evi_trace.utils.embedding_utils')
+            eu = importlib.import_module('pdf_extractor.utils.embedding_utils')
             importlib.reload(eu)
 
             model = MockModel()

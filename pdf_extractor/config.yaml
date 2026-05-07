@@ -1,7 +1,7 @@
 log_file: log.txt
 log_level: INFO
 len_filter: 40
-ocr: true
+ocr: false
 ocr_text_quality_threshold: 0.7
 pdfs_path: ""
 output_folder_path: output

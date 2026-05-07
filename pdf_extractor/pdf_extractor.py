@@ -1,16 +1,17 @@
 """
-run.py
-------
-CLI entry point for the EviTrace parser pipeline.
+pdf_extractor.py
+----------------
+CLI entry point for the pdf_extractor parser pipeline.
 
-Resolves one or more PDF sources, extracts text through a three-tier cascade
-(PyMuPDF → Tesseract → PaddleOCR), processes the extracted text into sentence
-records, and writes structured parser artifacts to the output folder.
+Resolves one or more PDF sources, extracts text through a four-tier cascade
+(PyMuPDF → pdfplumber → Tesseract → PaddleOCR), processes the extracted text
+into sentence records, and writes structured parser artifacts to the output
+folder.
 
 Usage
 -----
-    python run.py                          # uses the default config file
-    python run.py --config /path/to/cfg   # explicit config path
+    python -m pdf_extractor.pdf_extractor                          # uses the default config file
+    python -m pdf_extractor.pdf_extractor --config /path/to/cfg   # explicit config path
 """
 
 import argparse
@@ -19,11 +20,11 @@ import os
 import time
 from pathlib import Path
 
-from evi_trace.extraction import extract_pdf
-from evi_trace.processing import sentence_processor
-from evi_trace.utils import path_utils
-from evi_trace.utils.config_utils import load_config
-from evi_trace.utils.logging_utils import setup_logging
+from .extraction import extract_pdf
+from .processing import sentence_processor
+from utils import path_utils
+from utils.config_utils import load_config
+from utils.logging_utils import setup_logging
 
 
 def _save_artifact(output_folder: str, pdf_name: str, artifact: dict) -> str:
@@ -42,7 +43,7 @@ def run_pipeline(config_path: str) -> None:
         log_file=cfg["log_file"],
         console_level=cfg["log_level"],
     )
-    logger.info("EviTrace parser started | config=%s", config_path)
+    logger.info("pdf_extractor started | config=%s", config_path)
 
     # ------------------------------------------------------------------ #
     # Step 1 – Resolve sources                                            #
@@ -100,12 +101,12 @@ def run_pipeline(config_path: str) -> None:
         out_path = _save_artifact(output_folder, pdf_name, artifact)
         logger.info("Artifact saved: %s", out_path)
 
-    logger.info("EviTrace parser complete.")
+    logger.info("pdf_extractor pipeline complete.")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="EviTrace PDF parser pipeline",
+        description="pdf_extractor PDF parser pipeline",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(

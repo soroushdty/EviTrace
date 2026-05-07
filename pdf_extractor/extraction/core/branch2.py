@@ -1,10 +1,10 @@
 """
-evi_trace/extraction/core/branch2.py
+pdf_extractor/extraction/core/branch2.py
 -------------------------------
 PyMuPDF extraction backend.
 
-Migrated verbatim from ``evi_trace.extraction.py::extract_with_pymupdf``.
-Block and font-meta construction uses :mod:`evi_trace.extraction.schemas`
+Migrated verbatim from ``pdf_extractor/extraction::extract_with_pymupdf``.
+Block and font-meta construction uses :mod:`pdf_extractor.extraction.schemas`
 factory functions instead of raw dict literals.
 
 ``fitz`` is imported lazily inside the function body — no import-time
@@ -20,10 +20,10 @@ def extract_with_pymupdf(pdf_path: str) -> tuple:
     Opens *pdf_path* with ``fitz.open``, iterates over every page, and
     collects two data structures:
 
-    * **blocks** – one :class:`~evi_trace.extraction.schemas.BlockDict` per
+    * **blocks** – one :class:`~pdf_extractor.extraction.schemas.BlockDict` per
       block.  The text of a block is formed by joining the text of all
       spans that belong to that block.
-    * **font_metadata** – one :class:`~evi_trace.extraction.schemas.FontMetaDict`
+    * **font_metadata** – one :class:`~pdf_extractor.extraction.schemas.FontMetaDict`
       per span across the whole document.
 
     Parameters

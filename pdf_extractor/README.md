@@ -16,12 +16,12 @@ artifacts suitable for downstream evidence matching.
 
 ```text
 run_pipeline()
- ├── evi_trace.utils.config_utils.load_config()            # Step 1 – load parser config
- ├── evi_trace.utils.path_utils.list_pdf_files_from_source() # Step 2 – resolve the PDF source
+ ├── pdf_extractor.utils.config_utils.load_config()            # Step 1 – load parser config
+ ├── utils.path_utils.list_pdf_files_from_source() # Step 2 – resolve the PDF source
  └── for each PDF:
-      ├── evi_trace.extraction.extract_pdf()           # Step 3 – extract text (cascade)
-  ├── evi_trace.processing.sentence_processor.process_sentences() # Step 4 – sentence segmentation
-  ├── evi_trace.processing.sentence_processor.build_full_text()   # Step 4 – assemble full text
+      ├── pdf_extractor.extraction.extract_pdf()           # Step 3 – extract text (cascade)
+  ├── pdf_extractor.processing.sentence_processor.process_sentences() # Step 4 – sentence segmentation
+  ├── pdf_extractor.processing.sentence_processor.build_full_text()   # Step 4 – assemble full text
       └── write <stem>.json to output folder     # Step 5 – save artifact
 ```
 
@@ -29,18 +29,18 @@ run_pipeline()
 
 ## Module Descriptions
 
-### `evi_trace/cli.py`
+### `pdf_extractor/pdf_extractor.py`
 
 CLI entry point for the parser pipeline. Orchestrates the four-tier extraction
 cascade (PyMuPDF → pdfplumber → Tesseract → PaddleOCR), sentence processing,
 and JSON artifact output.
 
 ```bash
-python -m evi_trace.cli                # uses the project-root default config
-python -m evi_trace.cli --config /path/to/cfg
+python -m pdf_extractor.pdf_extractor                # uses the project-root default config
+python -m pdf_extractor.pdf_extractor --config /path/to/cfg
 ```
 
-### `evi_trace/utils/path_utils.py`
+### `utils/path_utils.py`
 
 Centralized path-resolution helpers. Supports local file/folder paths and URLs
 (including Google Drive folder URLs via `gdown`).
@@ -49,10 +49,10 @@ Centralized path-resolution helpers. Supports local file/folder paths and URLs
 - `create_output_folder` — creates or resolves the output folder
 - `resolve_project_path` — resolves config and output paths relative to the project root
 
-### `evi_trace/extraction/`
+### `pdf_extractor/extraction/`
 
 Package providing a four-tier PDF text extraction cascade. The public entry
-point is `evi_trace.extraction.extract_pdf(pdf_path, config)`.
+point is `pdf_extractor.extraction.extract_pdf(pdf_path, config)`.
 
 - **Core tier** — PyMuPDF (fast, lossless, with font metadata and bboxes) and
   pdfplumber run in parallel; the higher-quality result is selected
@@ -65,7 +65,7 @@ point is `evi_trace.extraction.extract_pdf(pdf_path, config)`.
 Quality is measured by the alphabetic-ratio heuristic. OCR libraries are
 imported lazily.
 
-### `evi_trace/processing/sentence_processor.py`
+### `pdf_extractor/processing/sentence_processor.py`
 
 Text normalisation and sentence segmentation:
 
@@ -74,7 +74,7 @@ Text normalisation and sentence segmentation:
 - `process_sentences` — segments blocks into filtered sentence records with page/bbox metadata
 - `build_full_text` — assembles full-document text and per-page text dicts
 
-### `evi_trace/utils/text_utils.py`
+### `pdf_extractor/utils/text_utils.py`
 
 Text normalisation and search utilities for PDF quality control:
 
@@ -85,7 +85,7 @@ Text normalisation and search utilities for PDF quality control:
 - `semantic_search` — FAISS-based cosine-similarity search over a pre-built
   sentence store; delegates to `embed_query_fn` for query encoding
 
-### `evi_trace/utils/embedding_utils.py`
+### `pdf_extractor/utils/embedding_utils.py`
 
 Embedding engine for semantic QC (Metrics Tier 3). All heavy dependencies
 (`sentence-transformers`, `faiss`, `torch`) are imported lazily so the module
@@ -99,7 +99,7 @@ can be imported without them installed:
   `span_bboxes`, `embeddings`, and `faiss_index`
 - `embed_query` — encodes a single query string with optional retrieval prefix
 
-### `evi_trace/utils/layout_utils.py`
+### `pdf_extractor/utils/layout_utils.py`
 
 Layout-analysis helpers derived from PyMuPDF font-span metadata:
 
@@ -108,7 +108,7 @@ Layout-analysis helpers derived from PyMuPDF font-span metadata:
 - `location_cross_check` — returns `(found_location, location_drift)` by
   comparing the detected section heading against a claimed location string
 
-### `evi_trace/utils/logging_utils.py`
+### `utils/logging_utils.py`
 
 Idempotent logging setup with a file handler (always DEBUG) and a console
 handler (configurable level). Safe to call multiple times.

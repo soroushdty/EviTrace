@@ -170,7 +170,7 @@ _RE_SENTENCE_SPLIT = re.compile(r'(?<=[.!?])\s+(?=[A-Z])')
 def process_sentences(text_blocks_with_pages: list, len_filter: int) -> list:
     """Segment, filter, and normalise text blocks into sentence-level records.
 
-    Takes the raw output of ``evi_trace.extraction.extract_pdf`` (a list of
+    Takes the raw output of ``pdf_extractor.extraction.extract_pdf`` (a list of
     enriched block dicts) and returns sentence records with page and
     anchor metadata suitable for embedding and hallucination verification.
 
@@ -188,13 +188,13 @@ def process_sentences(text_blocks_with_pages: list, len_filter: int) -> list:
 
     The ``page_index`` carried by each surviving sentence is the page index
     of the text block it originated from — this is required by
-    ``evi_trace/utils/embedding_utils`` and ``evi_trace/utils/text_utils``.
+    ``pdf_extractor/utils/embedding_utils`` and ``pdf_extractor/utils/text_utils``.
 
     Parameters
     ----------
     text_blocks_with_pages : list[dict]
         Raw block dicts as returned by
-        ``evi_trace.extraction.extract_pdf``.
+        ``pdf_extractor.extraction.extract_pdf``.
     len_filter : int
         Minimum character length a sentence must have to survive filtering.
         Sentences strictly shorter than this value are discarded.
@@ -256,7 +256,7 @@ def build_full_text(text_blocks_with_pages: list) -> tuple:
     """Assemble raw text blocks into document-level and page-level structures.
 
     Produces the two data structures consumed by the two-pass exact-string-
-    match location logic in ``evi_trace/utils/text_utils``:
+    match location logic in ``pdf_extractor/utils/text_utils``:
 
     * ``full_pdf_text`` – a single string formed by joining all text blocks
       with a single space.  Used as the haystack for whole-document
@@ -268,14 +268,14 @@ def build_full_text(text_blocks_with_pages: list) -> tuple:
 
     .. important::
         No normalisation is applied to the text blocks.  The location logic
-        in ``evi_trace/utils/text_utils`` operates on the original extracted text so
+        in ``pdf_extractor/utils/text_utils`` operates on the original extracted text so
         that it can recover the exact surrounding context of a matched sentence.
 
     Parameters
     ----------
     text_blocks_with_pages : list[dict]
         Raw block dicts as returned by
-        ``evi_trace.extraction.extract_pdf``.
+        ``pdf_extractor.extraction.extract_pdf``.
 
     Returns
     -------

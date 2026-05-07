@@ -1,7 +1,7 @@
 """
-evi_trace/extraction/quality_control
+pdf_extractor/extraction/quality_control
 ------------------------------
-Quality Control (QC) module for the EviTrace PDF text extraction pipeline.
+Quality Control (QC) module for the pdf_extractor PDF text extraction pipeline.
 
 Orchestrates a deterministic pipeline of artifact generation, rating,
 inter-rater agreement calculation, adjudication, and reconciliation over

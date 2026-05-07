@@ -1,1 +1,1 @@
-# evi_trace/extraction/tier2 package
+# pdf_extractor/extraction/tier2 package

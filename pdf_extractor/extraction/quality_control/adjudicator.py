@@ -15,7 +15,7 @@ import logging
 
 from . import reconciler
 
-logger = logging.getLogger("evi_trace")
+logger = logging.getLogger("pdf_extractor")
 
 
 def _parse_pymupdf_blocks(pymupdf_artifact: dict) -> list[dict]:

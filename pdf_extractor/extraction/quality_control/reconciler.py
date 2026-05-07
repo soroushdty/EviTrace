@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import logging
 
-logger = logging.getLogger("evi_trace")
+logger = logging.getLogger("pdf_extractor")
 
 PLACEHOLDER_NOTICE: str = (
     "Reconciliation logic is not yet implemented. "

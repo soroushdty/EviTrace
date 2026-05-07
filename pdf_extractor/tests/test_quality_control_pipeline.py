@@ -17,8 +17,8 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from evi_trace.extraction.quality_control.quality_control import evi_trace.cli as run_quality_control
-from evi_trace.extraction.quality_control import BranchOutput, QCContext
+from pdf_extractor.extraction.quality_control.quality_control import run_quality_control
+from pdf_extractor.extraction.quality_control import BranchOutput, QCContext
 
 
 # ---------------------------------------------------------------------------
@@ -74,7 +74,7 @@ def test_pipeline_propagates_exceptions(module_name):
     error = RuntimeError("test error")
 
     with patch(
-        f"evi_trace.extraction.quality_control.quality_control.{module_name}"
+        f"pdf_extractor.extraction.quality_control.quality_control.{module_name}"
     ) as mock_mod:
         if module_name == "artifact_generator":
             mock_mod.build_canonical_artifacts.side_effect = error
@@ -157,10 +157,10 @@ class TestPipelineOrchestration:
         manager = MagicMock()
 
         with (
-            patch("evi_trace.extraction.quality_control.quality_control.artifact_generator") as mock_arts,
-            patch("evi_trace.extraction.quality_control.quality_control.rater") as mock_obs,
-            patch("evi_trace.extraction.quality_control.quality_control.iaa_calculator") as mock_inv,
-            patch("evi_trace.extraction.quality_control.quality_control.adjudicator") as mock_adj,
+            patch("pdf_extractor.extraction.quality_control.quality_control.artifact_generator") as mock_arts,
+            patch("pdf_extractor.extraction.quality_control.quality_control.rater") as mock_obs,
+            patch("pdf_extractor.extraction.quality_control.quality_control.iaa_calculator") as mock_inv,
+            patch("pdf_extractor.extraction.quality_control.quality_control.adjudicator") as mock_adj,
         ):
             mock_arts.build_canonical_artifacts.return_value = canonical_arts
             mock_obs.observe.side_effect = [grobid_obs, pymupdf_obs]
@@ -194,10 +194,10 @@ class TestPipelineOrchestration:
         unified = self._make_mock_unified_output()
 
         with (
-            patch("evi_trace.extraction.quality_control.quality_control.artifact_generator") as mock_arts,
-            patch("evi_trace.extraction.quality_control.quality_control.rater") as mock_obs,
-            patch("evi_trace.extraction.quality_control.quality_control.iaa_calculator") as mock_inv,
-            patch("evi_trace.extraction.quality_control.quality_control.adjudicator") as mock_adj,
+            patch("pdf_extractor.extraction.quality_control.quality_control.artifact_generator") as mock_arts,
+            patch("pdf_extractor.extraction.quality_control.quality_control.rater") as mock_obs,
+            patch("pdf_extractor.extraction.quality_control.quality_control.iaa_calculator") as mock_inv,
+            patch("pdf_extractor.extraction.quality_control.quality_control.adjudicator") as mock_adj,
         ):
             mock_arts.build_canonical_artifacts.return_value = canonical_arts
             mock_obs.observe.side_effect = [grobid_obs, pymupdf_obs]
@@ -221,10 +221,10 @@ class TestPipelineOrchestration:
         unified = self._make_mock_unified_output()
 
         with (
-            patch("evi_trace.extraction.quality_control.quality_control.artifact_generator") as mock_arts,
-            patch("evi_trace.extraction.quality_control.quality_control.rater") as mock_obs,
-            patch("evi_trace.extraction.quality_control.quality_control.iaa_calculator") as mock_inv,
-            patch("evi_trace.extraction.quality_control.quality_control.adjudicator") as mock_adj,
+            patch("pdf_extractor.extraction.quality_control.quality_control.artifact_generator") as mock_arts,
+            patch("pdf_extractor.extraction.quality_control.quality_control.rater") as mock_obs,
+            patch("pdf_extractor.extraction.quality_control.quality_control.iaa_calculator") as mock_inv,
+            patch("pdf_extractor.extraction.quality_control.quality_control.adjudicator") as mock_adj,
         ):
             mock_arts.build_canonical_artifacts.return_value = canonical_arts
             mock_obs.observe.side_effect = [grobid_obs, pymupdf_obs]
@@ -251,10 +251,10 @@ class TestPipelineOrchestration:
         unified = self._make_mock_unified_output()
 
         with (
-            patch("evi_trace.extraction.quality_control.quality_control.artifact_generator") as mock_arts,
-            patch("evi_trace.extraction.quality_control.quality_control.rater") as mock_obs,
-            patch("evi_trace.extraction.quality_control.quality_control.iaa_calculator") as mock_inv,
-            patch("evi_trace.extraction.quality_control.quality_control.adjudicator") as mock_adj,
+            patch("pdf_extractor.extraction.quality_control.quality_control.artifact_generator") as mock_arts,
+            patch("pdf_extractor.extraction.quality_control.quality_control.rater") as mock_obs,
+            patch("pdf_extractor.extraction.quality_control.quality_control.iaa_calculator") as mock_inv,
+            patch("pdf_extractor.extraction.quality_control.quality_control.adjudicator") as mock_adj,
         ):
             mock_arts.build_canonical_artifacts.return_value = canonical_arts
             mock_obs.observe.side_effect = [grobid_obs, pymupdf_obs]

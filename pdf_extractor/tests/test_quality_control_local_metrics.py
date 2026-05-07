@@ -1,7 +1,7 @@
 """
 tests/test_quality_control_local_metrics.py
 ============================================
-Tests for evi_trace/extraction/quality_control/local_metrics.py
+Tests for pdf_extractor/extraction/quality_control/local_metrics.py
 
 Covers all 13 test cases for LocalQCReport and the 8 Tier 1 Local_QC_Metrics:
 
@@ -29,8 +29,8 @@ import pytest
 # ---------------------------------------------------------------------------
 
 def test_import_local_qc_report():
-    """LocalQCReport must be importable from evi_trace.extraction.quality_control."""
-    from evi_trace.extraction.quality_control import LocalQCReport  # noqa: F401
+    """LocalQCReport must be importable from pdf_extractor.extraction.quality_control."""
+    from pdf_extractor.extraction.quality_control import LocalQCReport  # noqa: F401
     assert LocalQCReport is not None
 
 
@@ -40,7 +40,7 @@ def test_import_local_qc_report():
 
 def _make_report(**kwargs):
     """Create a LocalQCReport with sensible defaults, overriding with kwargs."""
-    from evi_trace.extraction.quality_control import LocalQCReport
+    from pdf_extractor.extraction.quality_control import LocalQCReport
     defaults = {
         "config": {},
         "blocks": [],
@@ -428,7 +428,7 @@ def test_metric8_not_triggered_on_clean_text():
 
 def test_all_eight_metric_records_have_correct_fields():
     """All 8 metrics produce LocalQCMetricRecord instances with the required fields."""
-    from evi_trace.extraction.quality_control import LocalQCMetricRecord
+    from pdf_extractor.extraction.quality_control import LocalQCMetricRecord
 
     report = _make_report()
     report.passes_check()
@@ -568,12 +568,12 @@ def test_config_thresholds_are_respected_for_long_sentence_fraction():
 
 def test_local_qc_report_is_subclass_of_quality_report():
     """LocalQCReport must be a subclass of QualityReport."""
-    from evi_trace.extraction.quality_control import LocalQCReport, QualityReport
+    from pdf_extractor.extraction.quality_control import LocalQCReport, QualityReport
     assert issubclass(LocalQCReport, QualityReport)
 
 
 def test_local_qc_report_is_dataclass():
     """LocalQCReport must be a dataclass."""
     import dataclasses
-    from evi_trace.extraction.quality_control import LocalQCReport
+    from pdf_extractor.extraction.quality_control import LocalQCReport
     assert dataclasses.is_dataclass(LocalQCReport)

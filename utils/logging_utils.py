@@ -68,7 +68,7 @@ def get_logger(name: str) -> logging.Logger:
     return logging.getLogger(name)
 
 
-def get_root_logger() -> logging.Logger:
+def get_root_logger(root_logger_name: str = _ROOT_LOGGER_NAME) -> logging.Logger:
     """Get the root EviTrace logger instance.
 
     Returns
@@ -76,7 +76,7 @@ def get_root_logger() -> logging.Logger:
     logging.Logger
         The root ``"evi_trace"`` logger.
     """
-    return logging.getLogger(_ROOT_LOGGER_NAME)
+    return logging.getLogger(root_logger_name)
 
 
 # ============================================================================
@@ -157,6 +157,7 @@ def setup_logging(
     console_level: str = "INFO",
     file_level: int = logging.DEBUG,
     overwrite: bool = True,
+    root_logger_name: str = _ROOT_LOGGER_NAME,
 ) -> logging.Logger:
     """Initialise logging for the EviTrace parser pipeline.
 
@@ -211,7 +212,7 @@ def setup_logging(
     resolved_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Obtain (or create) the named logger
-    logger = logging.getLogger(_ROOT_LOGGER_NAME)
+    logger = logging.getLogger(root_logger_name)
 
     # Remove any handlers previously added by this function to avoid
     # duplicate output on repeated runs.

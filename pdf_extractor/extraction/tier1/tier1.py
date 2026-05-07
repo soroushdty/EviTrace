@@ -1,12 +1,12 @@
 """
-evi_trace/extraction/tier1/tier1.py
+pdf_extractor/extraction/tier1/tier1.py
 ------------------------------
 pdfplumber extraction backend.
 
 Migrated from root-level ``tier1.py``.  Return type changed from ``str``
 to ``list[BlockDict]``; each page becomes one
-:class:`~evi_trace.extraction.schemas.BlockDict` via
-:func:`~evi_trace.extraction.schemas.make_block` with ``block_bbox=None`` and
+:class:`~pdf_extractor.extraction.schemas.BlockDict` via
+:func:`~pdf_extractor.extraction.schemas.make_block` with ``block_bbox=None`` and
 ``spans=[]``.
 
 ``[PAGE n]`` and ``[TABLE]`` / ``[/TABLE]`` markers are preserved in the
@@ -64,7 +64,7 @@ def _keep_char(obj: dict, bboxes: list) -> bool:
 def extract_with_pdfplumber(pdf_path: Path) -> list[schemas.BlockDict]:
     """Extract text from a PDF using pdfplumber.
 
-    Each page in the PDF becomes one :class:`~evi_trace.extraction.schemas.BlockDict`
+    Each page in the PDF becomes one :class:`~pdf_extractor.extraction.schemas.BlockDict`
     whose ``text`` field contains the page content prefixed with a
     ``[PAGE n]`` marker (1-based).  Tables are wrapped in
     ``[TABLE]`` / ``[/TABLE]`` markers.

@@ -1,1 +1,1 @@
-"""Core extraction backends for the EviTrace parser."""
+"""Core extraction backends for the pdf_extractor parser."""

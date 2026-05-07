@@ -1,5 +1,5 @@
 """
-evi_trace/extraction/quality_control/models.py
+pdf_extractor/extraction/quality_control/models.py
 -----------------------------------------
 Shared dataclass models for the QC pipeline.
 
