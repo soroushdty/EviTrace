@@ -1,5 +1,5 @@
 """
-pdf_extractor/extraction/quality_control/local_metrics.py
+quality_control/local_metrics.py
 ------------------------------------------------
 Concrete LocalQCReport dataclass implementing all 8 Metrics Tier 1
 (Local_QC_Metrics) checks for the pdf_extractor QC pipeline.
@@ -69,12 +69,12 @@ class LocalQCReport(QualityReport):
     # Public interface
     # ------------------------------------------------------------------
 
-    def passes_check(self, pdf=None) -> bool:  # noqa: ARG002  (pdf unused here)
+    def passes_check(self, source=None) -> bool:  # noqa: ARG002  (source unused here)
         """Compute all 8 Tier 1 metrics, populate metric_records, return True if none triggered.
 
         Parameters
         ----------
-        pdf:
+        source:
             Unused placeholder for interface compatibility with the base class.
 
         Returns

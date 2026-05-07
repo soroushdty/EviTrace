@@ -21,12 +21,12 @@ import pytest
 
 def test_local_qc_metric_record_importable():
     """LocalQCMetricRecord must be importable from the public package."""
-    from pdf_extractor.extraction.quality_control import LocalQCMetricRecord  # noqa: F401
+    from quality_control import LocalQCMetricRecord  # noqa: F401
 
 
 def test_local_qc_metric_record_in_all():
     """LocalQCMetricRecord must appear in __all__ of the quality_control package."""
-    import pdf_extractor.extraction.quality_control as qc
+    import quality_control as qc
     assert "LocalQCMetricRecord" in qc.__all__
 
 
@@ -36,7 +36,7 @@ def test_local_qc_metric_record_in_all():
 
 def test_local_qc_metric_record_basic_instantiation():
     """Creates a valid instance with float computed_value and float threshold."""
-    from pdf_extractor.extraction.quality_control import LocalQCMetricRecord
+    from quality_control import LocalQCMetricRecord
 
     rec = LocalQCMetricRecord(
         metric_name="min_chars_per_page",
@@ -52,7 +52,7 @@ def test_local_qc_metric_record_basic_instantiation():
 
 def test_local_qc_metric_record_int_values():
     """computed_value and threshold accept int values."""
-    from pdf_extractor.extraction.quality_control import LocalQCMetricRecord
+    from quality_control import LocalQCMetricRecord
 
     rec = LocalQCMetricRecord(
         metric_name="page_count",
@@ -67,7 +67,7 @@ def test_local_qc_metric_record_int_values():
 
 def test_local_qc_metric_record_bool_computed_value():
     """computed_value accepts bool (boolean checks)."""
-    from pdf_extractor.extraction.quality_control import LocalQCMetricRecord
+    from quality_control import LocalQCMetricRecord
 
     rec = LocalQCMetricRecord(
         metric_name="has_text",
@@ -81,7 +81,7 @@ def test_local_qc_metric_record_bool_computed_value():
 
 def test_local_qc_metric_record_none_threshold():
     """threshold can be None for boolean checks."""
-    from pdf_extractor.extraction.quality_control import LocalQCMetricRecord
+    from quality_control import LocalQCMetricRecord
 
     rec = LocalQCMetricRecord(
         metric_name="weird_char_ratio",
@@ -94,7 +94,7 @@ def test_local_qc_metric_record_none_threshold():
 
 def test_local_qc_metric_record_triggered_true():
     """triggered=True when metric fires (issue detected)."""
-    from pdf_extractor.extraction.quality_control import LocalQCMetricRecord
+    from quality_control import LocalQCMetricRecord
 
     rec = LocalQCMetricRecord(
         metric_name="weird_char_ratio",
@@ -111,7 +111,7 @@ def test_local_qc_metric_record_triggered_true():
 
 def test_local_qc_metric_record_field_annotations():
     """Verify field names exist as expected on the dataclass."""
-    from pdf_extractor.extraction.quality_control import LocalQCMetricRecord
+    from quality_control import LocalQCMetricRecord
     import dataclasses
 
     field_names = {f.name for f in dataclasses.fields(LocalQCMetricRecord)}
@@ -123,7 +123,7 @@ def test_local_qc_metric_record_field_annotations():
 
 def test_local_qc_metric_record_is_dataclass():
     """LocalQCMetricRecord must be a dataclass."""
-    from pdf_extractor.extraction.quality_control import LocalQCMetricRecord
+    from quality_control import LocalQCMetricRecord
     import dataclasses
 
     assert dataclasses.is_dataclass(LocalQCMetricRecord)

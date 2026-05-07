@@ -1,5 +1,5 @@
 """
-pdf_extractor/extraction/quality_control/models.py
+quality_control/models.py
 -----------------------------------------
 Shared dataclass models for the QC pipeline.
 
@@ -79,6 +79,11 @@ class BranchOutput:
     payload: Any
     status: str | None
 
+    @property
+    def agent(self) -> str:
+        """Alias for ``extractor`` — use this name in multi-agent contexts."""
+        return self.extractor
+
 
 @dataclass
 class QualityMetrics:
@@ -96,7 +101,7 @@ class QualityMetrics:
 
     status: str | None = None
 
-    def passes_check(self, pdf: Any) -> bool:
+    def passes_check(self, source: Any = None) -> bool:
         """Return True if this branch passes the quality check.
 
         Subclasses must override this method with their actual criteria.
@@ -121,7 +126,12 @@ class QualityReport(QualityMetrics):
     extractor: str = ""
     branch: int = 0
 
-    def passes_check(self, pdf: Any) -> bool:  # noqa: ARG002
+    @property
+    def agent(self) -> str:
+        """Alias for ``extractor`` — use this name in multi-agent contexts."""
+        return self.extractor
+
+    def passes_check(self, source: Any = None) -> bool:  # noqa: ARG002
         """Default: unconditionally pass all branches with no checks applied."""
         self.status = "pass"
         return True
@@ -190,6 +200,11 @@ class AdjudicationRules:
     primary_extractor: str = ""
     confidence: float = 0.0
     rationale: str = ""
+
+    @property
+    def primary_agent(self) -> str:
+        """Alias for ``primary_extractor`` — use this name in multi-agent contexts."""
+        return self.primary_extractor
 
     @abstractmethod
     def adjudicate(
@@ -301,7 +316,8 @@ class QCContext:
     """
 
     branches: list[BranchOutput]
-    reports: list[QualityReport] = field(default_factory=list)
+    reports: list[QualityMetrics] = field(default_factory=list)
     iaa_metrics: InterRaterMetrics | None = None
     decision: AdjudicationRules | None = None
     unified: UnifiedRecord | None = None
+    metrics_hierarchy: dict = field(default_factory=dict)
