@@ -1,0 +1,322 @@
+# Task 1: Add Optional `extraction_manifest.json`
+
+Create a new module that can generate an optional `extraction_manifest.json`.
+
+The manifest should summarize extraction metadata, quality-control outputs, and optional semantic QC results.
+
+Implement this in a manner consistent with current quality_control module structure.
+## Important Constraints
+* Do not trigger any fallback mechanism.
+* Use placeholders/scaffolds where future QC logic will be inserted.
+* Make sure the end-to-end pipeline runs without errors.
+
+## Suggested Manifest Module
+
+Create a new module quality_control/extraction_manifest.py
+
+
+## Manifest Should Include document every single step done in one run of the quality control module (run that trigerred the extraction_manifest module). The goal is to create an auditable, detailed, and reproducable manifest.
+
+
+## Acceptance Criteria
+
+* Manifest generation is optional and controlled by config.
+* Pipeline still works when manifest generation is disabled.
+* Manifest can be generated without semantic QC dependencies.
+* Manifest includes placeholders for future fallback/adjudication logic.
+* Manifest output is valid JSON.
+* Tests cover manifest enabled and disabled paths.
+
+---
+
+
+# Task 2: Add Optional Semantic QC Layer
+
+Implement an optional semantic adjudication layer for comparing outputs from multiple PDF extraction backends.
+
+Suggested module:
+
+```text
+quality_control/semantic_qc.py
+```
+
+or:
+
+```text
+semantic_qc.py
+```
+
+This module may use the existing `embedder.py` functionality, but it must be optional.
+
+The basic parser pipeline must run without:
+
+```text
+FAISS
+Torch
+sentence-transformers
+GPU
+downloaded embedding models
+```
+
+## Suggested Function
+
+```python
+def compare_extractor_outputs(
+    primary_blocks: list[dict],
+    candidate_blocks: list[dict],
+    model=None,
+    semantic_threshold: float = 0.85,
+    len_filter: int = 40,
+) -> dict:
+    ...
+```
+
+## Behavior
+
+The function should:
+
+1. Process both block sets into sentences using:
+
+```python
+sentence_processor.process_sentences
+```
+
+2. Compare sentences first by normalized exact matching.
+3. Optionally compare remaining unmatched sentences semantically using embeddings/FAISS.
+4. Return extractor agreement metrics.
+
+## Return Schema
+
+```python
+{
+    "primary_sentence_count": int,
+    "candidate_sentence_count": int,
+    "exact_match_count": int,
+    "near_match_count": int,
+    "unmatched_primary_count": int,
+    "unmatched_candidate_count": int,
+    "agreement_rate": float,
+    "semantic_threshold": float,
+    "examples": {
+        "unmatched_primary": [],
+        "unmatched_candidate": [],
+        "near_matches": []
+    }
+}
+```
+
+## Useful Semantic QC Metrics
+
+| Metric                         | Meaning                                                                                  |
+| ------------------------------ | ---------------------------------------------------------------------------------------- |
+| Extractor agreement rate       | Percentage of sentences from extractor A that have exact or near matches in extractor B  |
+| Missing-sentence rate          | Sentences present in PyMuPDF/pdfplumber/OCR but absent from GROBID                       |
+| Page semantic coverage         | Whether each page’s content appears semantically represented                             |
+| Section coverage               | Whether abstract/introduction/methods/results-like text survives                         |
+| Evidence recoverability        | Whether known evidence-like sentences are retrievable from the chosen canonical output   |
+| Duplicate/glued text detection | Whether one extractor outputs huge chunks that semantically cover many smaller sentences |
+| Fallback confidence            | Whether OCR output is meaningfully better than broken native text                        |
+
+## Important Limitation
+
+Semantic QC should support future adjudication, but should not yet drive fallback selection.
+
+Example future adjudication scenarios:
+
+```text
+If GROBID has section structure but misses page 7,
+and PyMuPDF/pdfplumber agree on page 7 text,
+patch page 7 from PyMuPDF/pdfplumber.
+```
+
+```text
+If PyMuPDF text is garbled but Tesseract sentences semantically match pdfplumber/GROBID nearby content,
+prefer OCR for that page.
+```
+
+For now, these should remain scaffolded and not active.
+
+---
+
+# Task 3: Add Config Options
+
+Add config options for manifest generation and semantic QC.
+
+If the project uses `config.yaml`, add YAML equivalents. If it uses JSON, use JSON equivalents.
+
+Suggested options:
+
+```json
+{
+  "write_extraction_manifest": false,
+  "semantic_qc": false,
+  "semantic_qc_threshold": 0.85,
+  "semantic_qc_max_sentences": 10000,
+  "semantic_qc_model": "BAAI/bge-base-en-v1.5"
+}
+```
+
+## Behavior
+
+If `semantic_qc` is false:
+
+* Do not load embedding model.
+* Do not build FAISS index.
+* Do not import or require heavy semantic dependencies.
+* Parser should run normally.
+
+If `semantic_qc` is true:
+
+* Build sentence stores for extractor outputs that need comparison.
+* Compute agreement and missingness metrics.
+* Include semantic QC results in the per-PDF parser JSON under:
+
+```json
+{
+  "semantic_qc": {
+    "enabled": true,
+    "comparisons": {}
+  }
+}
+```
+
+If dependencies are missing:
+
+* Raise a clear optional-dependency error.
+* Error message should explain which package is missing and how to install semantic-QC dependencies.
+
+---
+
+# Task 4: Task-Specific Evaluation Metrics Scaffold
+
+Generic PDF quality is not enough.
+
+The parsing module should eventually be evaluated based on whether it preserves evidence needed by the downstream evidence-matching module.
+
+For now, create a scaffold only.
+
+This task-specific QC should eventually be generated from user input via an LLM API call because it differs per extraction task. Do not implement the LLM call yet.
+
+## Scaffolded Task-Quality Metrics
+
+Include placeholders for:
+
+| Metric                  | What to measure                                                                       |
+| ----------------------- | ------------------------------------------------------------------------------------- |
+| Field recall            | Did the GROBID-based pipeline find the same reported fields as the full-PDF pipeline? |
+| Critical-field recall   | Recall for dataset, sample size, model type, outcomes, metrics, limitations, etc.     |
+| Evidence validity       | Do cited location IDs actually support the extracted value?                           |
+| Evidence compactness    | How many tokens or sentences are sent per field/chunk?                                |
+| Cost reduction          | Input/output token reduction compared with the full-PDF flow                          |
+| Manual QC rate          | How often does a paper require fallback or human review?                              |
+| Interobserver agreement | Agreement between human reviewers on whether extracted evidence is valid              |
+| Pipeline agreement      | Agreement between the old full-PDF pipeline and the new evidence-filtered pipeline    |
+
+## Acceptance Criteria
+
+* Task-specific QC scaffold exists.
+* No LLM API call is implemented yet.
+* Scaffold clearly indicates that user/task-specific criteria will be generated later.
+* parser output can include this scaffold without errors.
+
+---
+
+# Definition of “Good Enough” Extraction
+
+Use this as the conceptual target for future QC and validation logic.
+
+GROBID extraction can be considered good enough when:
+
+* At least 95% of pages with body text have usable GROBID text.
+* Abstract, introduction, and main body are detected.
+* References and back matter are separable from body evidence.
+* At least 90–95% of high-priority fields match the old full-PDF pipeline on a validation set.
+* Every extracted value has at least one valid sentence, table, or figure location.
+* Long-sentence rate stays below the chosen threshold.
+* Coordinates are available for evidence items that will be cited or traced.
+* Table and figure mentions are either captured directly or flagged for fallback.
+
+Do not enforce all of these thresholds yet unless existing data makes it safe. Use them as documented targets and future acceptance criteria.
+
+---
+
+# Tests Required
+
+Add tests for:
+
+1. Correct production import behavior:
+
+   * `run.py` must not import `tests.text_extractor`.
+   * `extract_pdf()` call must work with the root module signature.
+
+2. Manifest generation:
+
+   * Manifest disabled path.
+   * Manifest enabled path.
+   * Valid JSON output.
+   * Semantic QC disabled path does not require heavy dependencies.
+
+3. Text matching utilities:
+
+   * `normalise_ws()`
+   * `normalise_full()`
+   * normalized exact matching
+   * punctuation-insensitive matching where applicable
+
+4. Semantic QC:
+
+   * disabled path
+   * missing optional dependencies produce clear error
+   * mocked semantic near-match behavior
+   * agreement-rate calculation
+   * no model downloads during tests
+   * no GPU requirement
+
+5. Pipeline integration:
+
+   * End-to-end parser run succeeds with semantic QC disabled.
+   * End-to-end parser run succeeds with manifest enabled.
+   * QC scaffold appears in output JSON.
+   * No fallback or OCR adjudication is triggered yet.
+
+---
+
+# Non-Goals
+
+Do not implement these yet:
+
+* Full fallback extraction system.
+* OCR fallback decision logic.
+* Active page patching from alternate extractors.
+* LLM-generated task-specific QC criteria.
+* Downstream spreadsheet hallucination verification.
+* `route_row()` or `verify_row()` migration into parser core.
+* Required FAISS/Torch/sentence-transformers dependency for normal parser runs.
+
+---
+
+# Final Deliverable
+
+Generate a Kiro spec with:
+
+1. Overview
+2. Current problems
+3. Proposed architecture
+4. Files/modules to create or modify
+5. Config changes
+6. Detailed implementation requirements
+7. Testing plan
+8. Acceptance criteria
+9. Non-goals
+10. Migration notes
+
+The spec should prioritize:
+
+* Correct production imports
+* Optional semantic dependencies
+* Clean separation between parser QC and downstream verifier logic
+* End-to-end pipeline stability
+* Scaffolded future fallback/adjudication without activating it yet
+
+```
+```
