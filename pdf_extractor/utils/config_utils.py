@@ -59,6 +59,18 @@ _QC_DEFAULTS: dict = {
             "references_in_body_threshold": 0.05,
             "weird_char_ratio_threshold": 0.05,
         },
+        "grobid": {
+            "url": "http://localhost:8070",
+            "timeout": 120,
+            "consolidate_header": 0,
+            "consolidate_citations": 0,
+            "generate_ids": True,
+            "segment_sentences": True,
+            "include_raw_citations": True,
+            "include_raw_affiliations": False,
+            "tei_coordinates": True,
+            "max_retries": 2,
+        },
     }
 }
 
