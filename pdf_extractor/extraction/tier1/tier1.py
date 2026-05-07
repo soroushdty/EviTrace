@@ -21,6 +21,27 @@ from pathlib import Path
 
 from .. import schemas
 
+_TABLE_SETTINGS = {
+    "vertical_strategy": "lines",
+    "horizontal_strategy": "lines",
+    "snap_tolerance": 3,
+    "join_tolerance": 3,
+    "edge_min_length": 3,
+    "min_words_vertical": 3,
+    "min_words_horizontal": 1,
+    "intersection_tolerance": 3,
+    "text_tolerance": 3,
+    "text_x_tolerance": 3,
+    "text_y_tolerance": 3,
+}
+
+# Fallback for borderless / text-aligned tables (e.g. whitespace-separated columns)
+_TABLE_SETTINGS_TEXT = {
+    **_TABLE_SETTINGS,
+    "vertical_strategy": "text",
+    "horizontal_strategy": "text",
+}
+
 
 def _ensure_pdfplumber() -> None:
     """Install pdfplumber if it is not already importable."""
@@ -32,6 +53,14 @@ def _ensure_pdfplumber() -> None:
         )
 
 
+def _keep_char(obj: dict, bboxes: list) -> bool:
+    """Return False for chars that fall inside any table bounding box."""
+    if obj.get("object_type") != "char":
+        return True
+    cx, cy = obj["x0"], obj["top"]
+    return not any(x0 <= cx <= x1 and top <= cy <= bottom for x0, top, x1, bottom in bboxes)
+
+
 def extract_with_pdfplumber(pdf_path: Path) -> list[schemas.BlockDict]:
     """Extract text from a PDF using pdfplumber.
 
@@ -39,6 +68,11 @@ def extract_with_pdfplumber(pdf_path: Path) -> list[schemas.BlockDict]:
     whose ``text`` field contains the page content prefixed with a
     ``[PAGE n]`` marker (1-based).  Tables are wrapped in
     ``[TABLE]`` / ``[/TABLE]`` markers.
+
+    Uses layout-aware extraction (``layout=True``) to preserve spatial
+    structure. Table regions are excluded from body text to prevent
+    content duplication. Falls back to text-alignment table detection
+    when no ruled lines are found.
 
     Parameters
     ----------
@@ -64,16 +98,40 @@ def extract_with_pdfplumber(pdf_path: Path) -> list[schemas.BlockDict]:
 
         with pdfplumber.open(pdf_path) as pdf:
             for i, page in enumerate(pdf.pages, 1):
-                text = page.extract_text() or ""
+                # Primary: line-ruled table detection; fallback: text-alignment strategy
+                tables = page.find_tables(_TABLE_SETTINGS)
+                if not tables:
+                    tables = page.find_tables(_TABLE_SETTINGS_TEXT)
 
-                # Extract tables as plain text so tabular results aren't lost.
+                table_bboxes = [t.bbox for t in tables]
+
+                # Exclude table regions from body text to avoid duplicating content
+                if table_bboxes:
+                    non_table = page.filter(
+                        lambda obj, bboxes=table_bboxes: _keep_char(obj, bboxes)
+                    )
+                    text = non_table.extract_text(
+                        layout=True,
+                        x_tolerance=3,
+                        y_tolerance=3,
+                        dedupe_chars=True,
+                    ) or ""
+                else:
+                    text = page.extract_text(
+                        layout=True,
+                        x_tolerance=3,
+                        y_tolerance=3,
+                        dedupe_chars=True,
+                    ) or ""
+
                 table_blocks: list[str] = []
-                for table in page.extract_tables() or []:
-                    if not table:
+                for table in tables:
+                    data = table.extract()
+                    if not data:
                         continue
                     rows = [
                         "\t".join(str(cell or "").strip() for cell in row)
-                        for row in table
+                        for row in data
                     ]
                     table_blocks.append("[TABLE]\n" + "\n".join(rows) + "\n[/TABLE]")
 
