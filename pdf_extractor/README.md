@@ -1,14 +1,10 @@
 # EviTrace Text Extractor Module
 
-A standalone PDF parsing module designed as the
-foundation for the EviTrace evidence-matching system.
+A standalone PDF parsing module designed as the foundation for the EviTrace evidence-matching system.
 
 ## Overview
 
-EviTrace Parser resolves a single PDF source, extracts text through a
-four-tier cascade (PyMuPDF → pdfplumber → Tesseract → PaddleOCR), processes
-the extracted text into clean sentence records, and writes structured JSON
-artifacts suitable for downstream evidence matching.
+EviTrace Parser resolves a single PDF source, extracts text through a four-tier cascade (PyMuPDF → pdfplumber → Tesseract → PaddleOCR), processes the extracted text into clean sentence records, and writes structured JSON artifacts suitable for downstream evidence matching.
 
 ---
 
@@ -31,9 +27,7 @@ run_pipeline()
 
 ### `pdf_extractor/pdf_extractor.py`
 
-CLI entry point for the parser pipeline. Orchestrates the four-tier extraction
-cascade (PyMuPDF → pdfplumber → Tesseract → PaddleOCR), sentence processing,
-and JSON artifact output.
+CLI entry point for the parser pipeline. Orchestrates the four-tier extraction cascade (PyMuPDF → pdfplumber → Tesseract → PaddleOCR), sentence processing, and JSON artifact output.
 
 ```bash
 python -m pdf_extractor.pdf_extractor                # uses the project-root default config
@@ -112,6 +106,27 @@ Layout-analysis helpers derived from PyMuPDF font-span metadata:
 
 Idempotent logging setup with a file handler (always DEBUG) and a console
 handler (configurable level). Safe to call multiple times.
+
+---
+
+## Quality Control Defaults
+
+The QC pipeline ships with three ready-to-use default classes. You can run the
+pipeline without writing any subclass — the defaults provide simple, reasonable
+behaviour out of the box, and each can be replaced independently when you need
+custom logic.
+
+| Default class          | Inherits from       | Default behaviour                                                                                                                                               |
+| ---------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `QualityReport`        | `QualityMetrics`    | Passes every branch unconditionally (`status = "pass"`). Override `passes_check()` to add real criteria.                                                        |
+| `InterRaterReport`     | `InterRaterMetrics` | Pairwise pass/fail agreement: `1.0` if both branches share the same status, `0.0` otherwise. Override `compute()` for weighted or continuous agreement metrics. |
+| `AdjudicationDecision` | `AdjudicationRules` | Elects the extractor with the most passing branches; confidence = fraction of passes. Override `adjudicate()` for weighted scoring or tie-breaking rules.       |
+
+**Three levels of customisation:**
+
+1. **Config only** — adjust thresholds in `config.yaml` under `quality_control.local_metrics`; `LocalQCReport` (the `QualityReport` subclass used by the rater) reads them automatically.
+2. **Subclass one layer** — subclass whichever of the three classes you need and pass it to the relevant QC module; leave the others as defaults.
+3. **Full custom** — subclass all three and wire them into `QCContext` for complete control over rating, agreement, and adjudication.
 
 ---
 

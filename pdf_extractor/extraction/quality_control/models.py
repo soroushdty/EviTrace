@@ -23,10 +23,21 @@ QualityReport
     ``QualityMetrics`` and carries the actual metrics and pass/fail status.
 
 InterRaterMetrics
-    Pairwise inter-rater agreement metrics produced by the IAA Calculator.
+    Abstract base class for inter-rater agreement metrics.  Users subclass
+    this with custom metric fields and implement ``compute``.
+
+InterRaterReport
+    Default concrete inter-rater report.  Inherits from ``InterRaterMetrics``
+    and carries pairwise agreement scores.
+
+AdjudicationRules
+    Abstract base class for adjudication logic.  Users subclass this with
+    custom decision fields and implement ``adjudicate``.
 
 AdjudicationDecision
-    Decision produced by the Adjudicator: which extractor to prefer and why.
+    Default concrete adjudication decision.  Inherits from
+    ``AdjudicationRules`` and carries the preferred extractor, confidence,
+    and rationale.
 
 UnifiedRecord
     Final reconciled output produced by the Reconciler.
@@ -40,7 +51,9 @@ QCContext
 
 from __future__ import annotations
 
+from abc import abstractmethod
 from dataclasses import dataclass, field
+from itertools import combinations
 from typing import Any
 
 
@@ -108,10 +121,35 @@ class QualityReport(QualityMetrics):
     extractor: str = ""
     branch: int = 0
 
+    def passes_check(self, pdf: Any) -> bool:  # noqa: ARG002
+        """Default: unconditionally pass all branches with no checks applied."""
+        self.status = "pass"
+        return True
+
 
 @dataclass
 class InterRaterMetrics:
-    """Pairwise inter-rater agreement metrics.
+    """Abstract base class for inter-rater agreement metrics.
+
+    Users subclass this with custom metric fields and implement ``compute``,
+    which populates those fields from a list of quality reports.  All reports
+    within a run must use the same ``InterRaterReport`` subclass so that
+    comparisons are consistent.
+    """
+
+    @abstractmethod
+    def compute(self, reports: list[QualityMetrics]) -> None:
+        """Populate metric fields from the given quality reports.
+
+        Subclasses must override this method with their actual computation.
+        """
+
+
+@dataclass
+class InterRaterReport(InterRaterMetrics):
+    """Default concrete inter-rater report produced by the IAA Calculator.
+
+    Inherits the ``compute`` interface from ``InterRaterMetrics``.
 
     Attributes
     ----------
@@ -121,10 +159,23 @@ class InterRaterMetrics:
 
     pairwise: dict = field(default_factory=dict)
 
+    def compute(self, reports: list[QualityMetrics]) -> None:
+        """Default: pairwise pass/fail agreement (1.0 = agree, 0.0 = disagree)."""
+        indexed = list(enumerate(reports))
+        for (i, a), (j, b) in combinations(indexed, 2):
+            name_a = getattr(a, "extractor", str(i))
+            name_b = getattr(b, "extractor", str(j))
+            self.pairwise[f"{name_a}_vs_{name_b}"] = 1.0 if a.status == b.status else 0.0
+
 
 @dataclass
-class AdjudicationDecision:
-    """Decision produced by the Adjudicator.
+class AdjudicationRules:
+    """Abstract base class for adjudication logic.
+
+    Users subclass this with custom decision fields and implement
+    ``adjudicate``, which populates those fields from quality reports and
+    inter-rater metrics.  The base class carries the three canonical decision
+    fields so that the rest of the pipeline can always read them.
 
     Attributes
     ----------
@@ -139,6 +190,45 @@ class AdjudicationDecision:
     primary_extractor: str = ""
     confidence: float = 0.0
     rationale: str = ""
+
+    @abstractmethod
+    def adjudicate(
+        self,
+        reports: list[QualityMetrics],
+        metrics: InterRaterMetrics,
+    ) -> None:
+        """Populate decision fields from reports and inter-rater metrics.
+
+        Subclasses must override this method with their actual adjudication
+        logic.
+        """
+
+
+@dataclass
+class AdjudicationDecision(AdjudicationRules):
+    """Default concrete adjudication decision produced by the Adjudicator.
+
+    Inherits ``primary_extractor``, ``confidence``, ``rationale``, and the
+    ``adjudicate`` interface from ``AdjudicationRules``.
+    """
+
+    def adjudicate(
+        self,
+        reports: list[QualityMetrics],
+        metrics: InterRaterMetrics,  # noqa: ARG002
+    ) -> None:
+        """Default: elect the extractor with the most passing branches."""
+        pass_counts: dict[str, int] = {}
+        for i, r in enumerate(reports):
+            name = getattr(r, "extractor", str(i))
+            pass_counts[name] = pass_counts.get(name, 0) + (1 if r.status == "pass" else 0)
+        if not pass_counts:
+            self.rationale = "no reports available"
+            return
+        best = max(pass_counts, key=lambda k: pass_counts[k])
+        self.primary_extractor = best
+        self.confidence = pass_counts[best] / len(reports)
+        self.rationale = f"{best} selected: {pass_counts[best]}/{len(reports)} branches passed"
 
 
 @dataclass
@@ -213,5 +303,5 @@ class QCContext:
     branches: list[BranchOutput]
     reports: list[QualityReport] = field(default_factory=list)
     iaa_metrics: InterRaterMetrics | None = None
-    decision: AdjudicationDecision | None = None
+    decision: AdjudicationRules | None = None
     unified: UnifiedRecord | None = None

@@ -94,6 +94,18 @@ chunk 5: cached should be high if same model, or if synthesis warmup succeeded
 | `outputs/qc_report.csv`          | Fields flagged for manual review, low confidence, or not reported |
 | `manifest.json`                  | Progress checkpoint, safe to re-run after a crash                 |
 
+## PDF extraction quality control
+
+The `pdf_extractor` module runs a separate QC pipeline before extraction results
+reach this pipeline. It ships with three default classes (`QualityReport`,
+`InterRaterReport`, `AdjudicationDecision`) that work out of the box with no
+configuration required. Thresholds are tunable via
+`pdf_extractor/config.yaml` under `quality_control.local_metrics`, and each
+class can be replaced with a custom subclass for domain-specific rating,
+inter-rater agreement, or adjudication logic. See
+[`pdf_extractor/README.md`](pdf_extractor/README.md#quality-control-defaults)
+for details.
+
 ## Architecture
 
 ```text
