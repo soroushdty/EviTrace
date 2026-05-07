@@ -54,7 +54,7 @@ def test_adjudicator_evaluates_and_delegates(
     document_id: str, grobid_id: str, pymupdf_id: str
 ) -> None:
     """**Validates: Requirements 5.2**
-    
+
     Adjudicator evaluates quality of both extractors and delegates to Repair
     with adjudication decisions.
     """
@@ -72,11 +72,11 @@ def test_adjudicator_evaluates_and_delegates(
 
         # Result should be what repair.reconcile returned
         assert result is known_result
-        
+
         # Verify repair.reconcile was called with adjudication decisions
         mock_reconcile.assert_called_once()
         call_args = mock_reconcile.call_args[0]
-        
+
         # 6th argument should be adjudication_decisions dict
         adjudication_decisions = call_args[5]
         assert isinstance(adjudication_decisions, dict)
@@ -136,13 +136,13 @@ class TestAdjudicator:
             assert call_args[0][2] is grobid_obs
             assert call_args[0][3] is pymupdf_obs
             assert call_args[0][4] is inv_obj
-            
+
             # The 6th argument should be adjudication_decisions dict (not config)
             adjudication_decisions = call_args[0][5]
             assert isinstance(adjudication_decisions, dict)
             assert "primary_extractor" in adjudication_decisions
             assert "confidence" in adjudication_decisions
             assert "rationale" in adjudication_decisions
-            
+
             # The 7th argument should be config
             assert call_args[0][6] is config
