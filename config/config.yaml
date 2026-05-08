@@ -41,14 +41,14 @@ retry:
 
 # Paths
 pdfs_path: "pdfs"
-output_folder_path: "output"
+output_folder_path: "outputs"
 extraction_map_path: "extraction_map.json"
 
 # Logging configuration
-log_file: "log.txt"
+log_file: "run.log"
 log_level: "DEBUG"
 
 # Extraction and OCR settings
 len_filter: 40
-ocr: true
+ocr: false
 ocr_text_quality_threshold: 0.7
