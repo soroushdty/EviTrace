@@ -9,9 +9,17 @@ from pdf_extractor import extract_pdf_text
 from validator import reconstruct_fields
 from utils.logging_utils import get_logger
 from utils.path_utils import OUTPUT_DIR
-from manifest import save_manifest, save_pdf_output
+from manifest import save_manifest
 
 logger = get_logger(__name__)
+
+
+def _save_pdf_output(pdf_name: str, fields: list[dict]) -> None:
+    OUTPUT_DIR.mkdir(exist_ok=True)
+    out = OUTPUT_DIR / f"{pdf_name}.extracted.json"
+    with open(out, "w", encoding="utf-8") as f:
+        json.dump(fields, f, indent=2)
+    logger.info(f"Saved -> {out.name}")
 
 
 async def process_pdf(
@@ -118,7 +126,7 @@ async def process_pdf(
     all_fields = prior_context + final_fields
     all_fields.sort(key=lambda x: x["field_index"])
 
-    save_pdf_output(pdf_name, all_fields)
+    _save_pdf_output(pdf_name, all_fields)
 
     async with manifest_lock:
         manifest[pdf_name] = {"status": "complete"}
