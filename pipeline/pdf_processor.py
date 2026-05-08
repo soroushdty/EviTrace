@@ -1,12 +1,11 @@
 """Per-PDF processing logic."""
 import asyncio
 import json
-from pathlib import Path
 from typing import Optional
 
 from agents.openai.api_client import extract_chunk, warm_pdf_cache
-from pdf_extractor import extract_pdf_text
-from .validator import reconstruct_fields
+from quality_control import QCContext
+from .validator import reconstruct_fields, validate_qc_context_input
 from utils.logging_utils import get_logger
 from utils.path_utils import OUTPUT_DIR
 from .manifest import save_manifest
@@ -31,25 +30,6 @@ def _load_completed_result(pdf_name: str, manifest: dict) -> Optional[list[dict]
         with open(out, encoding="utf-8") as f:
             return json.load(f)
     return None
-
-
-async def _extract_text(
-    pdf_path: Path,
-    pdf_name: str,
-    manifest: dict,
-    manifest_lock: asyncio.Lock,
-) -> Optional[str]:
-    """Extract raw text from a PDF file; record failure in manifest and return None on error."""
-    try:
-        pdf_text = extract_pdf_text(pdf_path)
-        logger.info(f"TEXT  {pdf_name} ({len(pdf_text):,} chars)")
-        return pdf_text
-    except Exception as exc:
-        logger.error(f"FAIL  {pdf_name} -- PDF extraction: {exc}")
-        async with manifest_lock:
-            manifest[pdf_name] = {"status": "failed_pdf_extraction", "error": str(exc)}
-            save_manifest(manifest)
-        return None
 
 
 async def _run_parallel_chunks(
@@ -106,7 +86,7 @@ async def _run_parallel_chunks(
 
 
 async def process_pdf(
-    pdf_path: Path,
+    qc_context: QCContext,
     chunk_fields: dict[int, list[dict]],
     field_lookup: dict[int, dict],
     api_semaphore: asyncio.Semaphore,
@@ -115,7 +95,9 @@ async def process_pdf(
     openai_config: dict,
 ) -> Optional[list[dict]]:
     """Process one PDF end-to-end. Returns extracted field list on success, None on failure."""
-    pdf_name = pdf_path.stem
+    validate_qc_context_input(qc_context)
+    pdf_name = qc_context.unified.document_id
+    pdf_text = qc_context.unified.content["exact_text"]
 
     # Step 1: skip already-complete PDFs.
     completed = _load_completed_result(pdf_name, manifest)
@@ -123,7 +105,7 @@ async def process_pdf(
         logger.info(f"SKIP  {pdf_name} (already complete)")
         return completed
 
-    logger.info(f"START {pdf_name}")
+    logger.info(f"START {pdf_name} ({len(pdf_text):,} chars)")
 
     chunk_model            = openai_config["chunk_model"]
     enable_prewarm         = openai_config["enable_cache_prewarm"]
@@ -131,12 +113,7 @@ async def process_pdf(
     synthesis_model        = openai_config["synthesis_model"]
     prewarm_synthesis_diff = openai_config.get("prewarm_synthesis_if_model_diff", True)
 
-    # Step 2: extract PDF text locally.
-    pdf_text = await _extract_text(pdf_path, pdf_name, manifest, manifest_lock)
-    if pdf_text is None:
-        return None
-
-    # Step 3: run parallel extraction chunks (with optional cache warmup).
+    # Step 2: run parallel extraction chunks (with optional cache warmup).
     raw_results = await _run_parallel_chunks(
         pdf_text, chunk_fields, api_semaphore, pdf_name,
         num_chunks, enable_prewarm, chunk_model, synthesis_model,
@@ -145,13 +122,13 @@ async def process_pdf(
     if raw_results is None:
         return None
 
-    # Step 4: reconstruct prior-context for synthesis.
+    # Step 3: reconstruct prior-context for synthesis.
     prior_context: list[dict] = []
     for chunk_result in raw_results:
         prior_context.extend(reconstruct_fields(chunk_result, field_lookup))  # type: ignore[arg-type]
     prior_context.sort(key=lambda x: x["field_index"])
 
-    # Step 5: run synthesis chunk.
+    # Step 4: run synthesis chunk.
     synthesis_chunk = num_chunks
     try:
         final_compact = await extract_chunk(
@@ -166,7 +143,7 @@ async def process_pdf(
             save_manifest(manifest)
         return None
 
-    # Step 6: merge, sort, save, and mark complete.
+    # Step 5: merge, sort, save, and mark complete.
     all_fields = prior_context + final_fields
     all_fields.sort(key=lambda x: x["field_index"])
 

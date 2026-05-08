@@ -359,7 +359,7 @@ def test_config_defaults(tmp_path):
     Expected to FAIL on unfixed code with KeyError — these keys are absent
     from _QC_DEFAULTS.
     """
-    from pdf_extractor.utils.config_utils import load_config
+    from utils.config_utils import load_config
 
     # Write a minimal valid config YAML
     cfg_file = tmp_path / "test_config.yaml"

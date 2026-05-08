@@ -19,7 +19,7 @@ import pytest
 from hypothesis import given, settings, HealthCheck
 from hypothesis import strategies as st
 
-from pdf_extractor.utils.config_utils import (
+from utils.config_utils import (
     _QC_DEFAULTS,
     _deep_merge,
     get_qc_config,
