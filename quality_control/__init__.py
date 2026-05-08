@@ -10,11 +10,13 @@ workflows, or any other branched-output use case.
 Module files
 ------------
 - quality_control.py      — generic ``run_pipeline`` + PDF-specific ``run_quality_control``
-- artifact_generator.py   — canonical artifact generation (PDF, pre-QC)
 - rater.py                — per-branch quality scoring
 - iaa_calculator.py       — inter-rater agreement computation
 - adjudicator.py          — quality-based selection / adjudication
 - reconciler.py           — output reconciliation into UnifiedRecord
+
+Note: artifact_generator.py (canonical artifact generation, PDF-specific pre-QC)
+      is located in pdf_extractor/ as it deals with GROBID and PyMuPDF formats.
 
 Public API
 ----------

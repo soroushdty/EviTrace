@@ -43,9 +43,9 @@ Concrete Tier 1 quality checks implemented by `LocalQCReport`.
 - Reads thresholds from `config["quality_control"]["local_metrics"]`.
 - Produces one `LocalQCMetricRecord` per metric.
 
-### `quality_control/artifact_generator.py`
+### `pdf_extractor/artifact_generator.py`
 
-Builds canonical in-memory artifacts for the two extractor branches.
+Builds canonical in-memory artifacts for the two extractor branches (located in `pdf_extractor/` as it is PDF-specific).
 
 - Canonicalizes GROBID TEI XML and PyMuPDF JSON into deterministic content strings.
 - Computes stable SHA-256 artifact IDs.

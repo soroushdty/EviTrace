@@ -30,7 +30,7 @@ import logging
 import re
 from typing import Callable
 
-from . import artifact_generator, rater, iaa_calculator, adjudicator
+from . import rater, iaa_calculator, adjudicator
 from .local_metrics import LocalQCReport
 from .models import (
     AdjudicationDecision,
@@ -43,6 +43,7 @@ from .models import (
     QualityReport,
     UnifiedRecord,
 )
+from pdf_extractor import artifact_generator
 from pdf_extractor.utils.text_utils import exact_match_search, semantic_search
 
 logger = logging.getLogger("pdf_extractor")

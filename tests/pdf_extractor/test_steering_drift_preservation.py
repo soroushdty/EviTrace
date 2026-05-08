@@ -24,7 +24,7 @@ from hypothesis import strategies as st
 
 import pdf_extractor.extraction
 from pdf_extractor.extraction import schemas
-from quality_control.artifact_generator import build_canonical_artifacts
+from pdf_extractor.artifact_generator import build_canonical_artifacts
 
 
 # ---------------------------------------------------------------------------

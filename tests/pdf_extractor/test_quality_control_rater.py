@@ -182,7 +182,7 @@ class TestObserver:
 
     def test_observer_does_not_call_artifacts_module(self, monkeypatch):
         """observe must not call any function from the artifact_generator module."""
-        import quality_control.artifact_generator as artifact_generator_mod
+        import pdf_extractor.artifact_generator as artifact_generator_mod
 
         called = []
 
