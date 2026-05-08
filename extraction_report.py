@@ -1,4 +1,4 @@
-"""Generate QC report after the pipeline completes."""
+"""Generate extraction report after the pipeline completes."""
 import csv
 from collections import defaultdict
 from pathlib import Path

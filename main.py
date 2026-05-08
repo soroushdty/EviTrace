@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 import pipeline
-from qc_report import generate_qc_report
+from extraction_report import generate_qc_report
 from utils.config_utils import load_openai_config, load_local_config
 from utils.path_utils import PDF_DIR
 from utils.logging_utils import get_logger, setup_logging
