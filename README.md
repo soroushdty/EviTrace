@@ -96,15 +96,7 @@ chunk 5: cached should be high if same model, or if synthesis warmup succeeded
 
 ## PDF extraction quality control
 
-The `pdf_extractor` module runs a separate QC pipeline before extraction results
-reach this pipeline. It ships with three default classes (`QualityReport`,
-`InterRaterReport`, `AdjudicationDecision`) that work out of the box with no
-configuration required. Thresholds are tunable via
-`pdf_extractor/config.yaml` under `quality_control.local_metrics`, and each
-class can be replaced with a custom subclass for domain-specific rating,
-inter-rater agreement, or adjudication logic. See
-[`pdf_extractor/README.md`](pdf_extractor/README.md#quality-control-defaults)
-for details.
+Quality control lives in the standalone [quality_control](quality_control/) module. The root pipeline uses it as the bridge between branch extraction and downstream reconciliation. for the module structure, workflow, and configurable QC stages, see [../quality_control/README.md](../quality_control/README.md).
 
 ## Architecture
 
