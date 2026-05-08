@@ -4,12 +4,12 @@ import json
 from pathlib import Path
 from typing import Optional
 
-from api_client import extract_chunk, warm_pdf_cache
+from agents.openai.api_client import extract_chunk, warm_pdf_cache
 from pdf_extractor import extract_pdf_text
-from validator import reconstruct_fields
+from .validator import reconstruct_fields
 from utils.logging_utils import get_logger
 from utils.path_utils import OUTPUT_DIR
-from manifest import save_manifest
+from .manifest import save_manifest
 
 logger = get_logger(__name__)
 
@@ -125,11 +125,11 @@ async def process_pdf(
 
     logger.info(f"START {pdf_name}")
 
-    chunk_model              = openai_config["chunk_model"]
-    enable_prewarm           = openai_config["enable_cache_prewarm"]
-    num_chunks               = openai_config["num_chunks"]
-    synthesis_model          = openai_config["synthesis_model"]
-    prewarm_synthesis_diff   = openai_config.get("prewarm_synthesis_if_model_diff", True)
+    chunk_model            = openai_config["chunk_model"]
+    enable_prewarm         = openai_config["enable_cache_prewarm"]
+    num_chunks             = openai_config["num_chunks"]
+    synthesis_model        = openai_config["synthesis_model"]
+    prewarm_synthesis_diff = openai_config.get("prewarm_synthesis_if_model_diff", True)
 
     # Step 2: extract PDF text locally.
     pdf_text = await _extract_text(pdf_path, pdf_name, manifest, manifest_lock)

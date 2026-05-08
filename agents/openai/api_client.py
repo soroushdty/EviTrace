@@ -7,6 +7,9 @@ from typing import Any, Optional
 from openai import APIConnectionError, APIStatusError, APITimeoutError, AsyncOpenAI, RateLimitError
 
 from utils.config_utils import load_openai_config
+from .prompts import SYSTEM_PROMPT, build_cache_warmup_message, build_user_message
+from pipeline.validator import ValidationError, validate_chunk_output
+from utils.logging_utils import get_logger, log_cache_usage
 
 _openai_config = load_openai_config()
 
@@ -21,9 +24,6 @@ PROMPT_CACHE_RETENTION: str = _openai_config["prompt_cache_retention"]
 RETRY_BASE_DELAY: int = _openai_config["retry_base_delay"]
 SYNTHESIS_MODEL: str = _openai_config["synthesis_model"]
 TEMPERATURE: float | None = _openai_config["temperature"]
-from prompts import SYSTEM_PROMPT, build_cache_warmup_message, build_user_message
-from validator import ValidationError, validate_chunk_output
-from utils.logging_utils import get_logger, log_cache_usage
 
 logger = get_logger(__name__)
 
