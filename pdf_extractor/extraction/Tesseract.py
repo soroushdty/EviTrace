@@ -1,9 +1,8 @@
 """
-pdf_extractor/extraction/tier2/tier2.py
-------------------------------
+pdf_extractor/extraction/Tesseract.py
+-------------------------------------
 Tesseract OCR extraction backend.
 
-Migrated from ``pdf_extractor/extraction::extract_with_tesseract``.
 Block construction uses :func:`~pdf_extractor.extraction.schemas.make_block`.
 
 ``pytesseract`` and ``pdf2image`` are installed lazily inside the

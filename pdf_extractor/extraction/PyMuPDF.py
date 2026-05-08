@@ -1,9 +1,8 @@
 """
-pdf_extractor/extraction/core/branch2.py
--------------------------------
+pdf_extractor/extraction/PyMuPDF.py
+-----------------------------------
 PyMuPDF extraction backend.
 
-Migrated verbatim from ``pdf_extractor/extraction::extract_with_pymupdf``.
 Block and font-meta construction uses :mod:`pdf_extractor.extraction.schemas`
 factory functions instead of raw dict literals.
 

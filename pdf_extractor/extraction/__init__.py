@@ -20,10 +20,10 @@ Public API
 from __future__ import annotations
 
 from . import schemas
-from .core.branch2 import extract_with_pymupdf
-from .tier1.tier1 import extract_with_pdfplumber
-from .tier2.tier2 import extract_with_tesseract
-from .tier3.tier3 import extract_with_paddleocr
+from .PyMuPDF import extract_with_pymupdf
+from .pdfplumber import extract_with_pdfplumber
+from .Tesseract import extract_with_tesseract
+from .PaddleOCR import extract_with_paddleocr
 
 
 def _compute_quality_score(blocks: list, embed_model=None) -> float:

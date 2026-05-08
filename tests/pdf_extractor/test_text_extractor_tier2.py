@@ -1,7 +1,7 @@
 """
 tests/test_text_extractor_tier2.py
 ------------------------------------
-Property-based tests for ``pdf_extractor.extraction.tier2.tier2`` (Tesseract backend).
+Property-based tests for ``pdf_extractor.extraction.Tesseract`` (Tesseract backend).
 
 Properties covered:
   6 (Tesseract half): OCR backend output conforms to BlockDict schema with null geometry
@@ -14,7 +14,7 @@ import pytest
 from hypothesis import given, settings, strategies as st
 
 from pdf_extractor.extraction import schemas
-from pdf_extractor.extraction.tier2 import tier2
+from pdf_extractor.extraction import Tesseract as tier2
 
 pytestmark = pytest.mark.slow
 

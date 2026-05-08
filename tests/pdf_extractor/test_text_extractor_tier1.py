@@ -1,7 +1,7 @@
 """
 tests/test_text_extractor_tier1.py
 ------------------------------------
-Property-based tests for ``pdf_extractor.extraction.tier1.tier1`` (pdfplumber backend).
+Property-based tests for ``pdf_extractor.extraction.pdfplumber`` (pdfplumber backend).
 
 Properties covered:
   7. pdfplumber backend output conforms to BlockDict schema with null geometry
@@ -16,7 +16,7 @@ import pytest
 from hypothesis import given, settings, strategies as st
 
 from pdf_extractor.extraction import schemas
-from pdf_extractor.extraction.tier1 import tier1
+from pdf_extractor.extraction import pdfplumber as tier1
 
 pytestmark = pytest.mark.slow
 

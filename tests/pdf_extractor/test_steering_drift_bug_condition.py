@@ -237,7 +237,7 @@ def test_tier1_function_name():
     currently named extract_pdf_text.
     """
     try:
-        from pdf_extractor.extraction.tier1.tier1 import extract_with_pdfplumber  # type: ignore[attr-defined]
+        from pdf_extractor.extraction.pdfplumber import extract_with_pdfplumber  # type: ignore[attr-defined]
     except ImportError as exc:
         pytest.fail(
             f"ImportError: {exc}. "
@@ -324,7 +324,7 @@ def test_branch2_span_construction():
             del sys.modules[mod_name]
 
     with patch.dict("sys.modules", {"fitz": fitz_mock}):
-        from pdf_extractor.extraction.core import branch2 as b2_fresh
+        from pdf_extractor.extraction import PyMuPDF as b2_fresh
         blocks, font_metadata = b2_fresh.extract_with_pymupdf("dummy.pdf")
 
     assert blocks, "No blocks returned from extract_with_pymupdf mock. Check mock setup."

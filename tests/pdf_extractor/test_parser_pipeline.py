@@ -6,7 +6,7 @@ Basic smoke tests for the parser pipeline.
 
 import pytest
 
-from pdf_extractor.extraction.tier1.tier1 import parse_document
+from pdf_extractor.extraction.pdfplumber import parse_document
 
 
 def test_parse_document_returns_dict():

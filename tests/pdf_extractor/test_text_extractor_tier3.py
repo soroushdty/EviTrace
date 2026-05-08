@@ -1,7 +1,7 @@
 """
 tests/test_text_extractor_tier3.py
 ------------------------------------
-Property-based tests for ``pdf_extractor.extraction.tier3.tier3`` (PaddleOCR backend).
+Property-based tests for ``pdf_extractor.extraction.PaddleOCR`` (PaddleOCR backend).
 
 Properties covered:
   6 (PaddleOCR half): OCR backend output conforms to BlockDict schema with null geometry
@@ -14,7 +14,7 @@ import pytest
 from hypothesis import given, settings, strategies as st
 
 from pdf_extractor.extraction import schemas
-from pdf_extractor.extraction.tier3 import tier3
+from pdf_extractor.extraction import PaddleOCR as tier3
 
 pytestmark = pytest.mark.slow
 

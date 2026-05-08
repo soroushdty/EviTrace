@@ -1,9 +1,8 @@
 """
-pdf_extractor/extraction/tier3/tier3.py
-------------------------------
+pdf_extractor/extraction/PaddleOCR.py
+-------------------------------------
 PaddleOCR extraction backend.
 
-Migrated from ``pdf_extractor/extraction::extract_with_paddleocr``.
 Block construction uses :func:`~pdf_extractor.extraction.schemas.make_block`.
 
 ``paddleocr``, ``paddlepaddle``, and ``pdf2image`` are installed lazily

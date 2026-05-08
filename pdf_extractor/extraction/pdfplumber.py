@@ -1,10 +1,9 @@
 """
-pdf_extractor/extraction/tier1/tier1.py
-------------------------------
+pdf_extractor/extraction/pdfplumber.py
+--------------------------------------
 pdfplumber extraction backend.
 
-Migrated from root-level ``tier1.py``.  Return type changed from ``str``
-to ``list[BlockDict]``; each page becomes one
+Return type is ``list[BlockDict]``; each page becomes one
 :class:`~pdf_extractor.extraction.schemas.BlockDict` via
 :func:`~pdf_extractor.extraction.schemas.make_block` with ``block_bbox=None`` and
 ``spans=[]``.
