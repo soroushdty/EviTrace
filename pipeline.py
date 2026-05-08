@@ -12,6 +12,7 @@ from utils.logging_utils import get_logger
 
 from extraction_map import load_chunk_fields, _build_field_lookup
 import pdf_processor
+from manifest import load_manifest
 
 logger = get_logger(__name__)
 
@@ -35,7 +36,7 @@ async def run_pipeline(pdf_paths: List[Path]) -> List[dict]:
     """
     chunk_fields = load_chunk_fields()
     field_lookup = _build_field_lookup()
-    manifest = pdf_processor.load_manifest()
+    manifest = load_manifest()
     manifest_lock = asyncio.Lock()
     api_semaphore = asyncio.Semaphore(GLOBAL_API_LIMIT)
     pdf_semaphore = asyncio.Semaphore(PDF_CONCURRENCY)
