@@ -2,21 +2,19 @@
 
 > Automated, evidence-grounded attribute extraction from scientific PDFs.
 
-EviTrace ingests scientific papers as PDFs and produces a structured,
-auditable per-paper JSON containing the extracted answers for a fixed
-extraction map of fields (study identification, cohort and data source,
-graph structure, model architecture, evaluation, reviewer critique, etc.).
+EviTrace ingests biomedical papers as PDFs and produces a structured,
+auditable per-paper JSON containing the extracted answers for a user-defined
+extraction map.
 
 The pipeline combines:
 
-1. A multi-backend **PDF text extractor** (PyMuPDF, pdfplumber, GROBID,
-   Tesseract, PaddleOCR).
+1. A multi-backend **PDF text extractor** (GROBID, PyMuPDF, pdfplumber, PaddleOCR).
 2. A **quality-control / adjudication** stage that compares extractor
    branches and produces a single reconciled record.
-3. A **chunked OpenAI extraction agent** with prompt-cache prewarm and
+3. An ** extraction agent** with prompt-cache prewarm and
    strict JSON-Schema structured outputs.
-4. A **synthesis chunk** that reads the prior extracted fields as
-   read-only context and produces the reviewer/critique fields.
+4. A **synthesis layer** using the prior extracted fields as
+   read-only context to produce synthesized field (e.g. reviewer/critique fields).
 
 ---
 
@@ -40,16 +38,13 @@ The pipeline combines:
 
 ## General Information
 
-EviTrace is a research tool for performing scoping reviews of scientific
-literature. Its primary use case is the structured extraction of design,
-methodology, and evaluation attributes from papers about clinical
-temporal knowledge graphs, but the pipeline is general enough to be
-re-targeted at any extraction map (`extraction_map.json`) defined over a
-set of domains and fields.
+EviTrace is a research tool for performing reviews of scientific
+literature, with a focus on biomedical papers. the pipeline is general enough
+to be used for the structured extraction of data with any user-defined set of domains and fields.
 
 The repository is organised as a pipeline of **independent, swappable
-modules** so that the PDF extractor, the QC layer, and the OpenAI agent
-can each be reused outside the end-to-end scoping-review workflow.
+modules** so that the PDF extractor, the Quality Control layer, and the LLM agent
+can each be reused outside the end-to-end review workflow.
 
 ---
 
@@ -83,7 +78,7 @@ can each be reused outside the end-to-end scoping-review workflow.
 - Optional: a running [GROBID](https://github.com/kermitt2/grobid)
   instance for the GROBID branch of the QC pipeline (default URL
   `http://localhost:8070`)
-- Optional: Tesseract / PaddleOCR system dependencies if you want the
+- Optional: PaddleOCR system dependencies if you want the
   OCR fallback tiers in the PDF extractor
 
 ### Install
