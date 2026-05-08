@@ -224,3 +224,5 @@ __marimo__/
 output/
 log.txt
 pdfs/*
+.claude/
+CLAUDE.md
