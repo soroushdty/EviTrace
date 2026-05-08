@@ -223,6 +223,6 @@ __marimo__/
 # soroush
 output/
 log.txt
-pdfs/*
+pdfs/
 .claude/
 CLAUDE.md

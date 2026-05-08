@@ -26,7 +26,10 @@ def _load_local_settings() -> dict:
     Returns a dict of local config keys. Supports both top-level keys
     and a nested `local:` mapping for backward compatibility.
     """
-    cfg_path = PROJECT_ROOT / "config.yaml"
+    # Prefer config/config.yaml, fall back to repo-root config.yaml
+    cfg_path = PROJECT_ROOT / "config" / "config.yaml"
+    if not cfg_path.exists():
+        cfg_path = PROJECT_ROOT / "config.yaml"
     if not cfg_path.exists():
         return {}
     try:
@@ -41,7 +44,11 @@ def _load_local_settings() -> dict:
 
 _LOCAL_SETTINGS = _load_local_settings()
 
-EXTRACTION_MAP: Path = BASE_DIR / _LOCAL_SETTINGS.get("extraction_map_path", "extraction_map.json")
+_extraction_candidate = BASE_DIR / _LOCAL_SETTINGS.get("extraction_map_path", "extraction_map.json")
+if not _extraction_candidate.exists():
+    _extraction_candidate = BASE_DIR / "config" / _LOCAL_SETTINGS.get("extraction_map_path", "extraction_map.json")
+
+EXTRACTION_MAP: Path = _extraction_candidate
 """Path to the extraction field definitions mapping."""
 
 PDF_DIR: Path = BASE_DIR / _LOCAL_SETTINGS.get("pdfs_path", "pdfs")

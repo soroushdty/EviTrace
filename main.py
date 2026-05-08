@@ -12,7 +12,7 @@ import asyncio
 import sys
 from pathlib import Path
 
-import orchestrator
+import pipeline
 from qc_report import generate_qc_report
 from utils.config_utils import load_openai_config, load_local_config
 from utils.path_utils import PDF_DIR
@@ -55,11 +55,11 @@ async def main() -> None:
 
     # Runtime override of concurrency without editing config files.
     if args.concurrency is not None:
-        orchestrator.PDF_CONCURRENCY = args.concurrency
+        pipeline.PDF_CONCURRENCY = args.concurrency
         logger.info(f"PDF concurrency overridden to {args.concurrency}")
 
     if args.no_cache_prewarm:
-        orchestrator.ENABLE_CACHE_PREWARM = False
+        pipeline.ENABLE_CACHE_PREWARM = False
         logger.info("Cache prewarm disabled by CLI flag")
 
     # Validate API key.
@@ -79,19 +79,19 @@ async def main() -> None:
         sys.exit(1)
 
     logger.info(f"Found {len(pdf_paths)} PDFs in {pdf_dir}")
-    logger.info(f"PDF concurrency     : {orchestrator.PDF_CONCURRENCY}")
-    logger.info(f"API concurrency     : {orchestrator.GLOBAL_API_LIMIT}")
-    logger.info(f"Chunk model         : {orchestrator.CHUNK_MODEL}")
-    logger.info(f"Synthesis model     : {orchestrator.SYNTHESIS_MODEL}")
-    logger.info(f"Cache prewarm       : {orchestrator.ENABLE_CACHE_PREWARM}")
+    logger.info(f"PDF concurrency     : {pipeline.PDF_CONCURRENCY}")
+    logger.info(f"API concurrency     : {pipeline.GLOBAL_API_LIMIT}")
+    logger.info(f"Chunk model         : {pipeline.CHUNK_MODEL}")
+    logger.info(f"Synthesis model     : {pipeline.SYNTHESIS_MODEL}")
+    logger.info(f"Cache prewarm       : {pipeline.ENABLE_CACHE_PREWARM}")
     logger.info(f"Cache key prefix    : {cfg['prompt_cache_key_prefix']}")
     logger.info(f"Cache retention     : {cfg['prompt_cache_retention'] or 'default'}")
-    logger.info(f"Synthesis prewarm   : {orchestrator.PREWARM_SYNTHESIS_IF_MODEL_DIFF}")
+    logger.info(f"Synthesis prewarm   : {pipeline.PREWARM_SYNTHESIS_IF_MODEL_DIFF}")
     from utils.path_utils import OUTPUT_DIR
     OUTPUT_DIR.mkdir(exist_ok=True)
 
     # Run pipeline.
-    results = await orchestrator.run_pipeline(pdf_paths)
+    results = await pipeline.run_pipeline(pdf_paths)
 
     if not results:
         logger.error("No PDFs were successfully processed.")

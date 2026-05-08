@@ -537,7 +537,7 @@
     "definition": "Categorical tags applied to author-reported limitations using a controlled vocabulary.",
     "reviewer_question": "Which standard limitation categories do the authors mention?",
     "format": "Categorical (multi-select; controlled vocabulary)",
-    "categories_or_examples": "single-center/limited generalizability; no external validation; selection bias; left-censoring of history; right-censoring of follow-up; coarse temporal binning; restricted modalities; computational burden; class imbalance; ontology dependence; retrospective documentation bias; small sample; missing data; lack of clinician validation; weak baseline comparison; no calibration assessment; label leakage risk; cross-setting discontinuity; static graph after construction; first-visit/cold-start problem; not deployment-ready; scalability concerns; irregular sampling not handled; causal interpretation not justified; other; none reported"
+    "categories_or_examples": "single-center/limited generalizability; no external validation; selection bias; left-censoring of history; right-censoring of follow-up; coarse temporal binning; restricted modalities; computational burden; class imbalance; ontology dependence; retrospective documentation bias; small sample; missing data; lack of clinician validation; weak baseline comparison; no calibration assessment; label leakage risk; cross-setting discontinuity; static graph after construction; first-visit/cold-start problem; not-deployment-ready; scalability concerns; irregular sampling not handled; causal interpretation not justified; other; none reported"
   },
   {
     "field_index": 61,
