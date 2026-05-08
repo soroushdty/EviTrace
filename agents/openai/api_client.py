@@ -7,6 +7,9 @@ from typing import Any, Optional
 from openai import APIConnectionError, APIStatusError, APITimeoutError, AsyncOpenAI, RateLimitError
 
 from utils.config_utils import load_openai_config
+from .prompts import SYSTEM_PROMPT, build_cache_warmup_message, build_user_message
+from pipeline.validator import ValidationError, validate_chunk_output
+from utils.logging_utils import get_logger, log_cache_usage
 
 _openai_config = load_openai_config()
 
@@ -21,9 +24,6 @@ PROMPT_CACHE_RETENTION: str = _openai_config["prompt_cache_retention"]
 RETRY_BASE_DELAY: int = _openai_config["retry_base_delay"]
 SYNTHESIS_MODEL: str = _openai_config["synthesis_model"]
 TEMPERATURE: float | None = _openai_config["temperature"]
-from prompts import SYSTEM_PROMPT, build_cache_warmup_message, build_user_message
-from validator import ValidationError, validate_chunk_output
-from utils.logging_utils import get_logger, log_cache_usage
 
 logger = get_logger(__name__)
 
@@ -111,6 +111,8 @@ def _response_text(response: Any) -> str:
         return response.model_dump_json()
     except Exception:
         return json.dumps(response, default=str)
+
+
 def _base_request_kwargs(model: str, pdf_text: str, user_msg: str, max_output_tokens: int) -> dict[str, Any]:
     request_kwargs: dict[str, Any] = {
         "model": model,
@@ -130,6 +132,70 @@ def _base_request_kwargs(model: str, pdf_text: str, user_msg: str, max_output_to
     if PROMPT_CACHE_RETENTION:
         request_kwargs["prompt_cache_retention"] = PROMPT_CACHE_RETENTION
     return request_kwargs
+
+
+def _chunk_model_and_tokens(chunk_num: int) -> tuple[str, int]:
+    """Return (model, max_output_tokens) for the given chunk number."""
+    model = SYNTHESIS_MODEL if chunk_num == 5 else CHUNK_MODEL
+    return model, CHUNK_MAX_TOKENS[chunk_num]
+
+
+async def _call_api_with_retries(
+    request_kwargs: dict[str, Any],
+    semaphore: asyncio.Semaphore,
+    tag: str,
+    *,
+    required: bool = True,
+) -> Any:
+    """Execute an OpenAI Responses API call with exponential-backoff retries.
+
+    Args:
+        request_kwargs: Fully-built kwargs for _client.responses.create.
+        semaphore:      Global API concurrency gate.
+        tag:            Log prefix for this call (e.g. "[paper | chunk 2 | gpt-5]").
+        required:       When False, log a warning and return None after exhausting
+                        retries instead of raising (used for cache warmup).
+
+    Returns:
+        Raw API response object, or None if required=False and all attempts failed.
+
+    Raises:
+        RuntimeError: If required=True and all retry attempts are exhausted.
+    """
+    last_exc: Exception = RuntimeError("No attempts made")
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            async with semaphore:
+                response = await _client.responses.create(**request_kwargs)
+            log_cache_usage(response, tag)
+            logger.info(f"{tag} ok (attempt {attempt})")
+            return response
+
+        except (RateLimitError, APIStatusError, APIConnectionError, APITimeoutError) as exc:
+            delay = RETRY_BASE_DELAY * (2 ** (attempt - 1))
+            logger.warning(
+                f"{tag} API issue (attempt {attempt}/{MAX_RETRIES}), "
+                f"sleeping {delay}s -- {exc}"
+            )
+            await asyncio.sleep(delay)
+            last_exc = exc
+
+        except Exception as exc:
+            if required:
+                logger.error(f"{tag} unexpected error: {exc}")
+                raise
+            logger.warning(f"{tag} unexpected failure: {exc}")
+            last_exc = exc
+            break
+
+    if required:
+        raise RuntimeError(
+            f"{tag} failed after {MAX_RETRIES} attempts. Last error: {last_exc}"
+        ) from last_exc
+
+    logger.warning(f"{tag} failed; continuing without guaranteed prewarm")
+    return None
 
 
 async def warm_pdf_cache(
@@ -154,33 +220,8 @@ async def warm_pdf_cache(
         user_msg=user_msg,
         max_output_tokens=CACHE_WARMUP_MAX_TOKENS,
     )
-
-    last_exc: Exception | None = None
-    for attempt in range(1, MAX_RETRIES + 1):
-        try:
-            async with semaphore:
-                response = await _client.responses.create(**request_kwargs)
-            log_cache_usage(response, tag)
-            logger.info(f"{tag} ok (attempt {attempt})")
-            return True
-        except (RateLimitError, APIStatusError, APIConnectionError, APITimeoutError) as exc:
-            delay = RETRY_BASE_DELAY * (2 ** (attempt - 1))
-            logger.warning(
-                f"{tag} OpenAI/API issue (attempt {attempt}/{MAX_RETRIES}), "
-                f"sleeping {delay}s -- {exc}"
-            )
-            await asyncio.sleep(delay)
-            last_exc = exc
-        except Exception as exc:
-            logger.warning(f"{tag} unexpected warmup failure: {exc}")
-            last_exc = exc
-            break
-
-    if required:
-        raise RuntimeError(f"{tag} failed after warmup attempts: {last_exc}") from last_exc
-
-    logger.warning(f"{tag} failed; continuing without guaranteed prewarm")
-    return False
+    response = await _call_api_with_retries(request_kwargs, semaphore, tag, required=required)
+    return response is not None
 
 
 async def extract_chunk(
@@ -205,8 +246,7 @@ async def extract_chunk(
     Returns:
         Validated list of extraction dicts for this chunk's fields.
     """
-    model = SYNTHESIS_MODEL if chunk_num == 5 else CHUNK_MODEL
-    max_tokens = CHUNK_MAX_TOKENS[chunk_num]
+    model, max_tokens = _chunk_model_and_tokens(chunk_num)
     expected_idx = _expected_indices(chunk_fields)
     user_msg = build_user_message(pdf_text, chunk_fields, prior_context)
     tag = f"[{pdf_name} | chunk {chunk_num} | {model}]"

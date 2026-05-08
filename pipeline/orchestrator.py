@@ -1,8 +1,4 @@
-"""Pipeline runner adapted from the original orchestrator.
-
-Exposes `run_pipeline(pdf_paths)` and module-level runtime constants
-so callers (e.g., `main.py`) can inspect concurrency/model settings.
-"""
+"""Pipeline orchestrator — exposes run_pipeline() and module-level runtime constants."""
 import asyncio
 from pathlib import Path
 from typing import List
@@ -10,9 +6,9 @@ from typing import List
 from utils.config_utils import load_openai_config
 from utils.logging_utils import get_logger
 
-from extraction_map import load_chunk_fields, _build_field_lookup
-import pdf_processor
-from manifest import load_manifest
+from .extraction_map import load_chunk_fields, _build_field_lookup
+from . import pdf_processor
+from .manifest import load_manifest
 
 logger = get_logger(__name__)
 
@@ -28,23 +24,39 @@ PREWARM_SYNTHESIS_IF_MODEL_DIFF: bool = _openai_config["prewarm_synthesis_if_mod
 SYNTHESIS_MODEL: str = _openai_config["synthesis_model"]
 
 
-async def run_pipeline(pdf_paths: List[Path]) -> List[dict]:
-    """Process all PDFs with PDF_CONCURRENCY parallel workers.
+async def run_pipeline(
+    pdf_paths: List[Path],
+    *,
+    pdf_concurrency: int | None = None,
+    enable_cache_prewarm: bool | None = None,
+) -> List[dict]:
+    """Process all PDFs with parallel workers.
+
+    Args:
+        pdf_paths:           PDFs to process.
+        pdf_concurrency:     Override PDF_CONCURRENCY from config. None = use config.
+        enable_cache_prewarm: Override ENABLE_CACHE_PREWARM from config. None = use config.
 
     Returns:
         List of {"pdf": filename, "fields": [...]} for every successful paper.
     """
+    effective_concurrency = pdf_concurrency if pdf_concurrency is not None else PDF_CONCURRENCY
+    effective_prewarm = enable_cache_prewarm if enable_cache_prewarm is not None else ENABLE_CACHE_PREWARM
+
+    # Propagate runtime overrides into the config dict passed to each PDF worker.
+    runtime_config = {**_openai_config, "enable_cache_prewarm": effective_prewarm}
+
     chunk_fields = load_chunk_fields()
     field_lookup = _build_field_lookup()
     manifest = load_manifest()
     manifest_lock = asyncio.Lock()
     api_semaphore = asyncio.Semaphore(GLOBAL_API_LIMIT)
-    pdf_semaphore = asyncio.Semaphore(PDF_CONCURRENCY)
+    pdf_semaphore = asyncio.Semaphore(effective_concurrency)
 
     async def _bounded(pdf_path: Path):
         async with pdf_semaphore:
             return await pdf_processor.process_pdf(
-                pdf_path, chunk_fields, field_lookup, api_semaphore, manifest, manifest_lock, _openai_config
+                pdf_path, chunk_fields, field_lookup, api_semaphore, manifest, manifest_lock, runtime_config
             )
 
     results = await asyncio.gather(
