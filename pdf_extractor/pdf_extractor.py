@@ -111,7 +111,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--config",
-        default=path_utils.resolve_project_path("config.yaml"),
+        default=path_utils.resolve_project_path("config/config.yaml"),
         metavar="PATH",
         help="Path to the pipeline config file",
     )
