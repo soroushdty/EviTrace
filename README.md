@@ -366,8 +366,6 @@ Behaviour subject to change as the research evolves.
 - [PyMuPDF](https://pymupdf.readthedocs.io/) and
   [pdfplumber](https://github.com/jsvine/pdfplumber) for the native
   text and layout extractors.
-- [OpenAI Responses API](https://platform.openai.com/docs/api-reference/responses)
-  for prompt caching and structured outputs.
 
 ---
 
