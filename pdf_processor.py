@@ -1,9 +1,4 @@
-"""Per-PDF processing logic extracted from the original orchestrator.
-
-Expose:
-- load_manifest
-- process_pdf
-"""
+"""Per-PDF processing logic."""
 import asyncio
 import json
 from pathlib import Path
@@ -13,21 +8,10 @@ from api_client import extract_chunk, warm_pdf_cache
 from pdf_extractor import extract_pdf_text
 from validator import reconstruct_fields
 from utils.logging_utils import get_logger
-from utils.path_utils import MANIFEST_FILE, OUTPUT_DIR
+from utils.path_utils import OUTPUT_DIR
+from manifest import save_manifest
 
 logger = get_logger(__name__)
-
-
-def load_manifest() -> dict:
-    if MANIFEST_FILE.exists():
-        with open(MANIFEST_FILE, encoding="utf-8") as f:
-            return json.load(f)
-    return {}
-
-
-def _save_manifest(manifest: dict) -> None:
-    with open(MANIFEST_FILE, "w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=2)
 
 
 def _save_pdf_output(pdf_name: str, fields: list[dict]) -> None:
@@ -76,7 +60,7 @@ async def process_pdf(
         logger.error(f"FAIL  {pdf_name} -- PDF extraction: {exc}")
         async with manifest_lock:
             manifest[pdf_name] = {"status": "failed_pdf_extraction", "error": str(exc)}
-            _save_manifest(manifest)
+            save_manifest(manifest)
         return None
 
     # Step 2: warm shared PDF prefix for the chunk model.
@@ -114,7 +98,7 @@ async def process_pdf(
                 "status": "failed_chunks",
                 "failed_chunks": list(failed.keys()),
             }
-            _save_manifest(manifest)
+            save_manifest(manifest)
         return None
 
     # Step 4: reconstruct compact results and combine as prior context.
@@ -135,7 +119,7 @@ async def process_pdf(
         logger.error(f"FAIL  {pdf_name} -- chunk {NUM_CHUNKS} (synthesis): {exc}")
         async with manifest_lock:
             manifest[pdf_name] = {"status": f"failed_chunk_{NUM_CHUNKS}", "error": str(exc)}
-            _save_manifest(manifest)
+            save_manifest(manifest)
         return None
 
     # Step 6: merge, sort, save.
@@ -146,7 +130,7 @@ async def process_pdf(
 
     async with manifest_lock:
         manifest[pdf_name] = {"status": "complete"}
-        _save_manifest(manifest)
+        save_manifest(manifest)
 
     logger.info(f"DONE  {pdf_name} -- {len(all_fields)} fields extracted")
     return all_fields
