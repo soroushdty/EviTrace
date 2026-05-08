@@ -190,7 +190,7 @@ def test_load_config_valid_yaml_returns_merged_dict(tmp_path):
 
     Preservation: this behaviour must survive all structural fixes.
     """
-    from pdf_extractor.utils.config_utils import load_config
+    from utils.config_utils import load_config
 
     cfg_file = tmp_path / "config.yaml"
     cfg_file.write_text(
@@ -220,7 +220,7 @@ def test_load_config_unknown_keys_raises_value_error(tmp_path):
 
     Preservation: this behaviour must survive all structural fixes.
     """
-    from pdf_extractor.utils.config_utils import load_config
+    from utils.config_utils import load_config
 
     cfg_file = tmp_path / "config.yaml"
     cfg_file.write_text(

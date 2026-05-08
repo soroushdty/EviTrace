@@ -1,4 +1,4 @@
-"""Extraction map helpers moved out of the orchestrator.
+"""Extraction map helpers
 
 Provides:
 - _infer_chunk_field_ranges

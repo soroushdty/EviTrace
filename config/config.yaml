@@ -41,14 +41,63 @@ retry:
 
 # Paths
 pdfs_path: "pdfs"
-output_folder_path: "output"
+output_folder_path: "outputs"
 extraction_map_path: "extraction_map.json"
 
 # Logging configuration
-log_file: "log.txt"
+log_file: "run.log"
 log_level: "DEBUG"
 
 # Extraction and OCR settings
 len_filter: 40
-ocr: true
+ocr: false
 ocr_text_quality_threshold: 0.7
+
+# Quality control pipeline configuration
+quality_control:
+  discard_failed_branches: false
+  status_field_location: "both"
+  # GROBID extractor settings
+  grobid:
+    url: "http://localhost:8070"
+    timeout: 120
+    consolidate_header: 0
+    consolidate_citations: 0
+    generate_ids: true
+    segment_sentences: true
+    include_raw_citations: true
+    include_raw_affiliations: false
+    tei_coordinates: true
+    max_retries: 2
+  # Semantic quality scoring
+  semantic_qc:
+    enabled: false
+    model_name: "BAAI/bge-base-en-v1.5"
+    query_prefix: "Represent this sentence for searching relevant passages: "
+    similarity_threshold: 0.85
+    max_sentences: 10000
+  # Local heuristic quality metrics
+  local_metrics:
+    min_chars_per_page: 100
+    grobid_vs_native_ratio_threshold: 0.6
+    long_sentence_word_threshold: 120
+    long_sentence_max_fraction: 0.12
+    expected_sections: ["abstract", "introduction", "methods", "results"]
+    caption_table_figure_check_enabled: true
+    coordinate_coverage_threshold: 0.1
+    references_in_body_threshold: 0.05
+    weird_char_ratio_threshold: 0.05
+  # QC pipeline stage configuration
+  artifact_generator:
+    export_to_disk: false
+    output_dir: "output/qc_artifacts"
+  rater:
+    attributes: []
+  iaa_calculator:
+    thresholds: {}
+    agreement_metrics: []
+  adjudicator:
+    strategy: "placeholder"
+  reconciler:
+    enable_tei_export: false
+    enable_annotation_export: false

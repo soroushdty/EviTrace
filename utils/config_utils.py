@@ -8,11 +8,86 @@ This module handles loading and orchestrating configuration from:
 
 from __future__ import annotations
 
+import copy
 import os
 from pathlib import Path
 import yaml
 
 from .path_utils import resolve_project_path
+
+# ============================================================================
+# Quality control configuration defaults and helpers
+# ============================================================================
+
+_QC_DEFAULTS: dict = {
+    "quality_control": {
+        "discard_failed_branches": False,
+        "status_field_location": "both",
+        "artifact_generator": {"export_to_disk": False, "output_dir": "output/qc_artifacts"},
+        "rater": {"attributes": []},
+        "iaa_calculator": {"thresholds": {}, "agreement_metrics": []},
+        "adjudicator": {"strategy": "placeholder"},
+        "reconciler": {"enable_tei_export": False, "enable_annotation_export": False},
+        "semantic_qc": {
+            "enabled": False,
+            "model_name": "BAAI/bge-base-en-v1.5",
+            "query_prefix": "Represent this sentence for searching relevant passages: ",
+            "similarity_threshold": 0.85,
+            "max_sentences": 10000,
+        },
+        "local_metrics": {
+            "min_chars_per_page": 100,
+            "grobid_vs_native_ratio_threshold": 0.6,
+            "long_sentence_word_threshold": 120,
+            "long_sentence_max_fraction": 0.12,
+            "expected_sections": ["abstract", "introduction", "methods", "results"],
+            "caption_table_figure_check_enabled": True,
+            "coordinate_coverage_threshold": 0.1,
+            "references_in_body_threshold": 0.05,
+            "weird_char_ratio_threshold": 0.05,
+        },
+        "grobid": {
+            "url": "http://localhost:8070",
+            "timeout": 120,
+            "consolidate_header": 0,
+            "consolidate_citations": 0,
+            "generate_ids": True,
+            "segment_sentences": True,
+            "include_raw_citations": True,
+            "include_raw_affiliations": False,
+            "tei_coordinates": True,
+            "max_retries": 2,
+        },
+    }
+}
+
+
+def _deep_merge(base: dict, override: dict) -> dict:
+    """Return base deep-merged with override; override values win. Neither is mutated."""
+    result = copy.deepcopy(base)
+    for key, override_val in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(override_val, dict):
+            result[key] = _deep_merge(result[key], override_val)
+        else:
+            result[key] = copy.deepcopy(override_val)
+    return result
+
+
+def get_qc_config(config: dict) -> dict:
+    """Extract the quality_control sub-dict from a loaded config."""
+    return config["quality_control"]
+
+
+def load_qc_config(config_path: str | None = None) -> dict:
+    """Load the quality_control section from config.yaml, deep-merged with defaults.
+
+    Returns a dict with a top-level 'quality_control' key as expected by
+    run_quality_control().
+    """
+    raw = _load_config_yaml(config_path)
+    user_qc = {"quality_control": raw.get("quality_control", {}) or {}}
+    return _deep_merge(_QC_DEFAULTS, user_qc)
+
 
 # ============================================================================
 # Defaults and required keys for local (EviTrace parser) configuration
@@ -30,6 +105,11 @@ _LOCAL_DEFAULTS: dict = {
 _LOCAL_REQUIRED: frozenset[str] = frozenset({"pdfs_path"})
 _LOCAL_ALLOWED_TOP_LEVEL_KEYS: frozenset[str] = frozenset(
     {*_LOCAL_DEFAULTS.keys(), *_LOCAL_REQUIRED, "extraction_map_path"}
+)
+# All legitimate top-level keys across any supported config layout.
+# Used to detect typos; anything outside this set raises ValueError.
+_ALL_KNOWN_TOP_LEVEL_KEYS: frozenset[str] = _LOCAL_ALLOWED_TOP_LEVEL_KEYS | frozenset(
+    {"openai", "extraction", "concurrency", "retry", "quality_control", "local"}
 )
 
 
@@ -254,6 +334,11 @@ def load_local_config(config_path: str | None = None) -> dict:
         resolved to an absolute path.
     """
     cfg_yaml = _load_config_yaml(config_path)
+
+    unknown_top = set(cfg_yaml) - _ALL_KNOWN_TOP_LEVEL_KEYS
+    if unknown_top:
+        raise ValueError(f"Unknown config keys: {sorted(unknown_top)}")
+
     raw = cfg_yaml.get("local")
     if raw is None:
         raw = {key: value for key, value in cfg_yaml.items() if key in _LOCAL_ALLOWED_TOP_LEVEL_KEYS}
@@ -264,6 +349,9 @@ def load_local_config(config_path: str | None = None) -> dict:
         raise ValueError(f"Unknown local config keys: {sorted(unknown)}")
 
     cfg = {**_LOCAL_DEFAULTS, **raw}
+
+    user_qc = {"quality_control": cfg_yaml.get("quality_control", {}) or {}}
+    cfg["quality_control"] = _deep_merge(_QC_DEFAULTS, user_qc)["quality_control"]
 
     pdfs_path: str = cfg.get("pdfs_path", "")
     if not isinstance(pdfs_path, str) or not pdfs_path.strip():
