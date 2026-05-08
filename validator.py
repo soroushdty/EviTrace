@@ -41,6 +41,54 @@ def _unwrap_top_level(data: Any) -> list[dict]:
     )
 
 
+def _parse_response_json(raw: str) -> list[dict]:
+    """Parse raw API text to a validated list of extraction dicts."""
+    try:
+        parsed = json.loads(clean_json_string(raw))
+    except json.JSONDecodeError as exc:
+        raise ValidationError(
+            f"JSON parse failed: {exc}\n"
+            f"Raw output (first 500 chars):\n{raw[:500]}"
+        ) from exc
+    return _unwrap_top_level(parsed)
+
+
+def _validate_extraction_item(i: int, obj: Any, actual_indices: list[int]) -> None:
+    """Validate a single extraction object and append its index to actual_indices."""
+    if not isinstance(obj, dict):
+        raise ValidationError(f"Item {i} is not a dict: {obj!r}")
+
+    missing = REQUIRED_KEYS - obj.keys()
+    extra = obj.keys() - REQUIRED_KEYS
+    if missing:
+        raise ValidationError(f"Item {i} is missing keys: {missing}")
+    if extra:
+        raise ValidationError(f"Item {i} has unexpected keys: {extra}")
+
+    conf = obj.get("c", "")
+    if conf not in ALLOWED_CONFIDENCE:
+        raise ValidationError(
+            f"Item {i} has invalid confidence value '{conf}'. "
+            f"Allowed: {sorted(ALLOWED_CONFIDENCE)}"
+        )
+
+    if not isinstance(obj["i"], int):
+        raise ValidationError(
+            f"Item {i}: i must be an integer, got {obj['i']!r}"
+        )
+
+    # Structured Outputs asks for a string. This cleanup keeps downstream CSV
+    # and JSON consistent if a compatible/non-strict model emits a number.
+    if not isinstance(obj["v"], str):
+        obj["v"] = str(obj["v"])
+
+    for key in ("v", "e", "c"):
+        if not isinstance(obj[key], str):
+            raise ValidationError(f"Item {i}: {key} must be a string, got {obj[key]!r}")
+
+    actual_indices.append(obj["i"])
+
+
 def validate_chunk_output(raw: str, expected_indices: list[int]) -> list[dict]:
     """
     Parse and validate a subagent's raw text output.
@@ -55,61 +103,18 @@ def validate_chunk_output(raw: str, expected_indices: list[int]) -> list[dict]:
     Raises:
         ValidationError: With a descriptive message for targeted retry logging.
     """
-    # -- Parse ----------------------------------------------------------------
-    try:
-        parsed = json.loads(clean_json_string(raw))
-    except json.JSONDecodeError as exc:
-        raise ValidationError(
-            f"JSON parse failed: {exc}\n"
-            f"Raw output (first 500 chars):\n{raw[:500]}"
-        ) from exc
+    data = _parse_response_json(raw)
 
-    data = _unwrap_top_level(parsed)
-
-    # -- Length ---------------------------------------------------------------
     if len(data) != len(expected_indices):
         raise ValidationError(
             f"Expected {len(expected_indices)} objects, got {len(data)}.\n"
             f"Expected field indices: {expected_indices}"
         )
 
-    # -- Per-object checks ----------------------------------------------------
     actual_indices: list[int] = []
     for i, obj in enumerate(data):
-        if not isinstance(obj, dict):
-            raise ValidationError(f"Item {i} is not a dict: {obj!r}")
+        _validate_extraction_item(i, obj, actual_indices)
 
-        missing = REQUIRED_KEYS - obj.keys()
-        extra = obj.keys() - REQUIRED_KEYS
-        if missing:
-            raise ValidationError(f"Item {i} is missing keys: {missing}")
-        if extra:
-            raise ValidationError(f"Item {i} has unexpected keys: {extra}")
-
-        conf = obj.get("c", "")
-        if conf not in ALLOWED_CONFIDENCE:
-            raise ValidationError(
-                f"Item {i} has invalid confidence value '{conf}'. "
-                f"Allowed: {sorted(ALLOWED_CONFIDENCE)}"
-            )
-
-        if not isinstance(obj["i"], int):
-            raise ValidationError(
-                f"Item {i}: i must be an integer, got {obj['i']!r}"
-            )
-
-        # Structured Outputs asks for a string. This cleanup keeps downstream CSV
-        # and JSON consistent if a compatible/non-strict model emits a number.
-        if not isinstance(obj["v"], str):
-            obj["v"] = str(obj["v"])
-
-        for key in ("v", "e", "c"):
-            if not isinstance(obj[key], str):
-                raise ValidationError(f"Item {i}: {key} must be a string, got {obj[key]!r}")
-
-        actual_indices.append(obj["i"])
-
-    # -- Index match ----------------------------------------------------------
     if sorted(actual_indices) != sorted(expected_indices):
         raise ValidationError(
             f"Field index mismatch.\n"
