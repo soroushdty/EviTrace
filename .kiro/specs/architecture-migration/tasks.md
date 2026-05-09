@@ -74,7 +74,7 @@
   - _Requirements: 1.1, 1.2, 1.3, 1.4_
   - _Boundary: quality_control/models_
 
-- [ ] 3.2 (P) Test new QC data model components
+- [x] 3.2 (P) Test new QC data model components
   - All four new dataclasses construct with default values, producing empty lists/None fields
   - `UnifiedRecord` with all three new layers set (non-None) is constructible
   - `UnifiedRecord.content` remains accessible alongside the new typed fields
@@ -86,7 +86,7 @@
 ---
 
 - [ ] 4. Foundation: Config extensions (P)
-- [ ] 4.1 (P) Extend _QC_DEFAULTS and config.yaml
+- [x] 4.1 (P) Extend _QC_DEFAULTS and config.yaml
   - Add `"text_processor"` top-level key to `_QC_DEFAULTS` in `utils/config_utils.py` with all sub-keys and documented defaults
   - Add `"scan_detection"`, `"ocr"`, `"text_fidelity"`, `"section_verification"` sub-keys inside `"quality_control"` in `_QC_DEFAULTS`
   - Add matching YAML blocks to `config/config.yaml` with inline comments documenting valid values

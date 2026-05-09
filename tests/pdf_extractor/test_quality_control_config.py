@@ -24,6 +24,7 @@ from utils.config_utils import (
     _deep_merge,
     get_qc_config,
     load_config,
+    load_qc_config,
 )
 
 
@@ -457,3 +458,303 @@ class TestLocalMetricsDefaults:
         cfg = load_config(cfg_file)
         qc = get_qc_config(cfg)
         assert "semantic_qc" in qc
+
+
+# ---------------------------------------------------------------------------
+# Task 4.1: text_processor top-level key in _QC_DEFAULTS (Requirement 9)
+# ---------------------------------------------------------------------------
+
+class TestTextProcessorDefaults:
+    """**Validates: Requirement 9**
+
+    _QC_DEFAULTS must expose a top-level 'text_processor' key with all
+    sub-keys documented in the design spec.  load_qc_config() must surface
+    these defaults even when the caller omits text_processor from config.yaml.
+    """
+
+    # --- presence in _QC_DEFAULTS ---
+
+    def test_text_processor_key_in_qc_defaults(self):
+        """text_processor must be a top-level key in _QC_DEFAULTS."""
+        assert "text_processor" in _QC_DEFAULTS
+
+    def test_text_processor_class_default(self):
+        """class must default to 'utils.text_processor.TextProcessor'."""
+        assert _QC_DEFAULTS["text_processor"]["class"] == "utils.text_processor.TextProcessor"
+
+    def test_text_processor_sentence_tokenizer_backend_default(self):
+        """sentence_tokenizer.backend must default to 'scispacy'."""
+        assert _QC_DEFAULTS["text_processor"]["sentence_tokenizer"]["backend"] == "scispacy"
+
+    def test_text_processor_word_tokenizer_backend_default(self):
+        """word_tokenizer.backend must default to 'simple'."""
+        assert _QC_DEFAULTS["text_processor"]["word_tokenizer"]["backend"] == "simple"
+
+    def test_text_processor_normalizer_backend_default(self):
+        """normalizer.backend must default to 'nfkc'."""
+        assert _QC_DEFAULTS["text_processor"]["normalizer"]["backend"] == "nfkc"
+
+    # --- load_qc_config surfaces text_processor ---
+
+    def test_load_qc_config_includes_text_processor(self, tmp_path):
+        """load_qc_config must include text_processor even when absent from YAML."""
+        cfg_file = _write_config(tmp_path, {"pdfs_path": "data/pdfs"})
+        cfg = load_qc_config(str(cfg_file))
+        assert "text_processor" in cfg
+
+    def test_load_qc_config_text_processor_class_default(self, tmp_path):
+        cfg_file = _write_config(tmp_path, {"pdfs_path": "data/pdfs"})
+        cfg = load_qc_config(str(cfg_file))
+        assert cfg["text_processor"]["class"] == "utils.text_processor.TextProcessor"
+
+    def test_load_qc_config_text_processor_sentence_backend_default(self, tmp_path):
+        cfg_file = _write_config(tmp_path, {"pdfs_path": "data/pdfs"})
+        cfg = load_qc_config(str(cfg_file))
+        assert cfg["text_processor"]["sentence_tokenizer"]["backend"] == "scispacy"
+
+    # --- deep-merge: user value wins ---
+
+    def test_text_processor_user_class_overrides(self, tmp_path):
+        cfg_file = _write_config(tmp_path, {
+            "pdfs_path": "data/pdfs",
+            "text_processor": {"class": "my.module.MyTextProcessor"},
+        })
+        cfg = load_qc_config(str(cfg_file))
+        assert cfg["text_processor"]["class"] == "my.module.MyTextProcessor"
+
+    def test_text_processor_partial_override_preserves_other_defaults(self, tmp_path):
+        """Overriding class must not wipe out sentence_tokenizer defaults."""
+        cfg_file = _write_config(tmp_path, {
+            "pdfs_path": "data/pdfs",
+            "text_processor": {"class": "my.module.MyTextProcessor"},
+        })
+        cfg = load_qc_config(str(cfg_file))
+        assert cfg["text_processor"]["sentence_tokenizer"]["backend"] == "scispacy"
+
+
+# ---------------------------------------------------------------------------
+# Task 4.1: new quality_control sub-keys in _QC_DEFAULTS (Requirement 9)
+# ---------------------------------------------------------------------------
+
+class TestQCNewSubkeyDefaults:
+    """**Validates: Requirement 9**
+
+    _QC_DEFAULTS['quality_control'] must expose scan_detection, ocr,
+    text_fidelity, and section_verification sub-keys with correct defaults.
+    load_qc_config() must surface them when omitted from config.yaml.
+    """
+
+    def _load_qc(self, tmp_path, extra_yaml: dict | None = None) -> dict:
+        data: dict = {"pdfs_path": "data/pdfs"}
+        if extra_yaml:
+            data.update(extra_yaml)
+        cfg_file = _write_config(tmp_path, data)
+        return load_qc_config(str(cfg_file))
+
+    # --- scan_detection ---
+
+    def test_scan_detection_in_qc_defaults(self):
+        assert "scan_detection" in _QC_DEFAULTS["quality_control"]
+
+    def test_scan_detection_text_density_threshold_default(self):
+        assert _QC_DEFAULTS["quality_control"]["scan_detection"]["text_density_threshold"] == 50
+
+    def test_scan_detection_alpha_ratio_threshold_default(self):
+        assert _QC_DEFAULTS["quality_control"]["scan_detection"]["alpha_ratio_threshold"] == 0.60
+
+    def test_scan_detection_image_dominance_threshold_default(self):
+        assert _QC_DEFAULTS["quality_control"]["scan_detection"]["image_dominance_threshold"] == 0.85
+
+    def test_load_qc_config_scan_detection_present_when_absent(self, tmp_path):
+        cfg = self._load_qc(tmp_path)
+        assert "scan_detection" in cfg["quality_control"]
+
+    def test_load_qc_config_scan_detection_text_density_threshold(self, tmp_path):
+        cfg = self._load_qc(tmp_path)
+        assert cfg["quality_control"]["scan_detection"]["text_density_threshold"] == 50
+
+    def test_load_qc_config_scan_detection_alpha_ratio_threshold(self, tmp_path):
+        cfg = self._load_qc(tmp_path)
+        assert cfg["quality_control"]["scan_detection"]["alpha_ratio_threshold"] == 0.60
+
+    def test_load_qc_config_scan_detection_image_dominance_threshold(self, tmp_path):
+        cfg = self._load_qc(tmp_path)
+        assert cfg["quality_control"]["scan_detection"]["image_dominance_threshold"] == 0.85
+
+    # --- ocr ---
+
+    def test_ocr_in_qc_defaults(self):
+        assert "ocr" in _QC_DEFAULTS["quality_control"]
+
+    def test_ocr_rasterization_dpi_default(self):
+        assert _QC_DEFAULTS["quality_control"]["ocr"]["rasterization_dpi"] == 150
+
+    def test_load_qc_config_ocr_rasterization_dpi(self, tmp_path):
+        cfg = self._load_qc(tmp_path)
+        assert cfg["quality_control"]["ocr"]["rasterization_dpi"] == 150
+
+    # --- text_fidelity ---
+
+    def test_text_fidelity_in_qc_defaults(self):
+        assert "text_fidelity" in _QC_DEFAULTS["quality_control"]
+
+    def test_text_fidelity_edit_distance_threshold_default(self):
+        assert _QC_DEFAULTS["quality_control"]["text_fidelity"]["edit_distance_threshold"] == 0.10
+
+    def test_load_qc_config_text_fidelity_edit_distance_threshold(self, tmp_path):
+        cfg = self._load_qc(tmp_path)
+        assert cfg["quality_control"]["text_fidelity"]["edit_distance_threshold"] == 0.10
+
+    # --- section_verification ---
+
+    def test_section_verification_in_qc_defaults(self):
+        assert "section_verification" in _QC_DEFAULTS["quality_control"]
+
+    def test_section_verification_font_size_tolerance_default(self):
+        assert _QC_DEFAULTS["quality_control"]["section_verification"]["font_size_tolerance"] == 1.0
+
+    def test_load_qc_config_section_verification_font_size_tolerance(self, tmp_path):
+        cfg = self._load_qc(tmp_path)
+        assert cfg["quality_control"]["section_verification"]["font_size_tolerance"] == 1.0
+
+    # --- deep-merge for new sub-keys ---
+
+    def test_scan_detection_user_override_text_density(self, tmp_path):
+        cfg = self._load_qc(tmp_path, {"quality_control": {
+            "scan_detection": {"text_density_threshold": 30}
+        }})
+        assert cfg["quality_control"]["scan_detection"]["text_density_threshold"] == 30
+
+    def test_scan_detection_partial_override_preserves_alpha_ratio(self, tmp_path):
+        cfg = self._load_qc(tmp_path, {"quality_control": {
+            "scan_detection": {"text_density_threshold": 30}
+        }})
+        assert cfg["quality_control"]["scan_detection"]["alpha_ratio_threshold"] == 0.60
+
+    def test_text_fidelity_user_override(self, tmp_path):
+        cfg = self._load_qc(tmp_path, {"quality_control": {
+            "text_fidelity": {"edit_distance_threshold": 0.20}
+        }})
+        assert cfg["quality_control"]["text_fidelity"]["edit_distance_threshold"] == 0.20
+
+    def test_section_verification_user_override(self, tmp_path):
+        cfg = self._load_qc(tmp_path, {"quality_control": {
+            "section_verification": {"font_size_tolerance": 2.5}
+        }})
+        assert cfg["quality_control"]["section_verification"]["font_size_tolerance"] == 2.5
+
+    def test_ocr_user_override_rasterization_dpi(self, tmp_path):
+        cfg = self._load_qc(tmp_path, {"quality_control": {
+            "ocr": {"rasterization_dpi": 300}
+        }})
+        assert cfg["quality_control"]["ocr"]["rasterization_dpi"] == 300
+
+
+# ---------------------------------------------------------------------------
+# Task 4.1: backward compatibility — existing config.yaml without new keys
+# ---------------------------------------------------------------------------
+
+class TestBackwardCompatibility:
+    """**Validates: Requirement 9 (backward compat clause)**
+
+    Loading a config.yaml that omits all migration-introduced keys must NOT
+    raise and must still provide defaults for every new key.
+    """
+
+    def _minimal_cfg_file(self, tmp_path) -> str:
+        """Write a minimal config with none of the new keys."""
+        data = {
+            "pdfs_path": "data/pdfs",
+            "quality_control": {
+                "discard_failed_branches": False,
+                "grobid": {"url": "http://localhost:8070"},
+            },
+        }
+        return _write_config(tmp_path, data)
+
+    def test_load_qc_config_does_not_raise_for_old_yaml(self, tmp_path):
+        cfg_file = self._minimal_cfg_file(tmp_path)
+        # Must not raise
+        cfg = load_qc_config(cfg_file)
+        assert cfg is not None
+
+    def test_load_qc_config_provides_scan_detection_for_old_yaml(self, tmp_path):
+        cfg_file = self._minimal_cfg_file(tmp_path)
+        cfg = load_qc_config(cfg_file)
+        assert "scan_detection" in cfg["quality_control"]
+
+    def test_load_qc_config_provides_text_fidelity_for_old_yaml(self, tmp_path):
+        cfg_file = self._minimal_cfg_file(tmp_path)
+        cfg = load_qc_config(cfg_file)
+        assert "text_fidelity" in cfg["quality_control"]
+
+    def test_load_qc_config_provides_section_verification_for_old_yaml(self, tmp_path):
+        cfg_file = self._minimal_cfg_file(tmp_path)
+        cfg = load_qc_config(cfg_file)
+        assert "section_verification" in cfg["quality_control"]
+
+    def test_load_qc_config_provides_ocr_for_old_yaml(self, tmp_path):
+        cfg_file = self._minimal_cfg_file(tmp_path)
+        cfg = load_qc_config(cfg_file)
+        assert "ocr" in cfg["quality_control"]
+
+    def test_load_qc_config_provides_text_processor_for_old_yaml(self, tmp_path):
+        cfg_file = self._minimal_cfg_file(tmp_path)
+        cfg = load_qc_config(cfg_file)
+        assert "text_processor" in cfg
+
+    def test_grobid_config_preserved_alongside_new_defaults(self, tmp_path):
+        """User-supplied grobid config must survive alongside new defaults."""
+        cfg_file = self._minimal_cfg_file(tmp_path)
+        cfg = load_qc_config(cfg_file)
+        assert cfg["quality_control"]["grobid"]["url"] == "http://localhost:8070"
+
+
+# ---------------------------------------------------------------------------
+# Task 4.1: TextProcessor() with empty config dict does not raise
+# ---------------------------------------------------------------------------
+
+class TestTextProcessorEmptyConfig:
+    """**Validates: Requirement 9**
+
+    Instantiating TextProcessor() with an empty config dict ({}) must use all
+    defaults without raising.  This exercises the backward-compat path in
+    TextProcessor.__init__ itself (not just the config layer).
+    """
+
+    def test_text_processor_default_instantiation(self):
+        """TextProcessor() with no arguments must not raise."""
+        from utils.text_processor import TextProcessor
+        tp = TextProcessor()
+        assert tp is not None
+
+    def test_text_processor_empty_dict_instantiation(self):
+        """TextProcessor({}) must not raise."""
+        from utils.text_processor import TextProcessor
+        tp = TextProcessor(config={})
+        assert tp is not None
+
+    def test_text_processor_norm_backend_default(self):
+        """Default normalizer backend is 'nfkc'."""
+        from utils.text_processor import TextProcessor
+        tp = TextProcessor(config={})
+        assert tp._norm_backend == "nfkc"
+
+    def test_text_processor_word_tokenizer_backend_default(self):
+        """Default word tokenizer backend is 'simple'."""
+        from utils.text_processor import TextProcessor
+        tp = TextProcessor(config={})
+        assert tp._wt_backend == "simple"
+
+    def test_text_processor_normalize_works_after_empty_init(self):
+        """normalize() must work without error after empty-config init."""
+        from utils.text_processor import TextProcessor
+        tp = TextProcessor(config={})
+        result = tp.normalize("Hello   World")
+        assert result == "Hello World"
+
+    def test_text_processor_compare_works_after_empty_init(self):
+        """compare() must return 1.0 for identical strings."""
+        from utils.text_processor import TextProcessor
+        tp = TextProcessor(config={})
+        assert tp.compare("hello", "hello") == 1.0

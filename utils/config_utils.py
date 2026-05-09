@@ -20,6 +20,19 @@ from .path_utils import resolve_project_path
 # ============================================================================
 
 _QC_DEFAULTS: dict = {
+    # Top-level text_processor configuration (Requirement 9)
+    # class: fully-qualified class path resolved via importlib
+    # sentence_tokenizer.backend: valid values — "scispacy" | "wtpsplit" | "nltk_punkt" | "spacy_sentencizer" | "stanza"
+    # word_tokenizer.backend: valid values — "simple" | "spacy" | "nltk"
+    # normalizer.backend: valid values — "nfc" | "nfkc"
+    "text_processor": {
+        "class": "utils.text_processor.TextProcessor",
+        "sentence_tokenizer": {"backend": "scispacy", "model": "en_core_sci_lg"},
+        "word_tokenizer": {"backend": "simple"},
+        "normalizer": {"backend": "nfkc"},
+        "comparison": {"metric": "levenshtein", "threshold": 0.85},
+        "ocr_cleaning": {"weird_char_threshold": 0.05},
+    },
     "quality_control": {
         "discard_failed_branches": False,
         "status_field_location": "both",
@@ -58,7 +71,31 @@ _QC_DEFAULTS: dict = {
             "tei_coordinates": True,
             "max_retries": 2,
         },
-    }
+        # Scan detection thresholds (Requirement 9 / design §scan_detector)
+        # text_density_threshold: minimum word count for a native page (integer, ≥ 0)
+        # alpha_ratio_threshold: minimum ratio of alphabetic chars in cleaned text (float, 0.0–1.0)
+        # image_dominance_threshold: maximum image-area fraction before page is flagged scanned (float, 0.0–1.0)
+        "scan_detection": {
+            "text_density_threshold": 50,
+            "alpha_ratio_threshold": 0.60,
+            "image_dominance_threshold": 0.85,
+        },
+        # OCR rasterization settings (Requirement 9)
+        # rasterization_dpi: DPI used when rasterizing a page for PaddleOCR (integer, e.g. 150 | 300)
+        "ocr": {
+            "rasterization_dpi": 150,
+        },
+        # Text fidelity concern settings (Requirement 9)
+        # edit_distance_threshold: normalized Levenshtein distance above which texts are "divergent" (float, 0.0–1.0)
+        "text_fidelity": {
+            "edit_distance_threshold": 0.10,
+        },
+        # Section verification concern settings (Requirement 9)
+        # font_size_tolerance: allowable font-size delta when verifying section headings (float, points)
+        "section_verification": {
+            "font_size_tolerance": 1.0,
+        },
+    },
 }
 
 
@@ -79,14 +116,19 @@ def get_qc_config(config: dict) -> dict:
 
 
 def load_qc_config(config_path: str | None = None) -> dict:
-    """Load the quality_control section from config.yaml, deep-merged with defaults.
+    """Load quality_control and text_processor sections from config.yaml, deep-merged with defaults.
 
-    Returns a dict with a top-level 'quality_control' key as expected by
-    run_quality_control().
+    Returns a dict with 'quality_control' and 'text_processor' top-level keys.
+    Missing keys are filled in from _QC_DEFAULTS so that callers always receive
+    the full documented default set regardless of what is present in config.yaml
+    (Requirement 9 backward-compatibility guarantee).
     """
     raw = _load_config_yaml(config_path)
-    user_qc = {"quality_control": raw.get("quality_control", {}) or {}}
-    return _deep_merge(_QC_DEFAULTS, user_qc)
+    user_cfg = {
+        "quality_control": raw.get("quality_control", {}) or {},
+        "text_processor": raw.get("text_processor", {}) or {},
+    }
+    return _deep_merge(_QC_DEFAULTS, user_cfg)
 
 
 # ============================================================================
@@ -109,7 +151,7 @@ _LOCAL_ALLOWED_TOP_LEVEL_KEYS: frozenset[str] = frozenset(
 # All legitimate top-level keys across any supported config layout.
 # Used to detect typos; anything outside this set raises ValueError.
 _ALL_KNOWN_TOP_LEVEL_KEYS: frozenset[str] = _LOCAL_ALLOWED_TOP_LEVEL_KEYS | frozenset(
-    {"openai", "extraction", "concurrency", "retry", "quality_control", "local"}
+    {"openai", "extraction", "concurrency", "retry", "quality_control", "local", "text_processor"}
 )
 
 

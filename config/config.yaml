@@ -53,6 +53,27 @@ len_filter: 40
 ocr: false
 ocr_text_quality_threshold: 0.7
 
+# Text processor configuration
+# class: fully-qualified class path resolved via importlib
+#   valid values: "utils.text_processor.TextProcessor" (default) or any SentenceSegment subclass path
+text_processor:
+  class: "utils.text_processor.TextProcessor"
+  # sentence_tokenizer.backend: "scispacy" (default) | "wtpsplit" | "nltk_punkt" | "spacy_sentencizer" | "stanza"
+  sentence_tokenizer:
+    backend: "scispacy"
+    model: "en_core_sci_lg"
+  # word_tokenizer.backend: "simple" (default) | "spacy" | "nltk"
+  word_tokenizer:
+    backend: "simple"
+  # normalizer.backend: "nfc" | "nfkc" (default)
+  normalizer:
+    backend: "nfkc"
+  comparison:
+    metric: "levenshtein"      # only supported metric
+    threshold: 0.85            # float 0.0–1.0; texts above this ratio are considered similar
+  ocr_cleaning:
+    weird_char_threshold: 0.05 # float 0.0–1.0; fraction of weird chars triggering clean_ocr
+
 # Quality control pipeline configuration
 quality_control:
   discard_failed_branches: false
@@ -101,3 +122,23 @@ quality_control:
   reconciler:
     enable_tei_export: false
     enable_annotation_export: false
+  # Per-page scan detection thresholds (Requirement 9 / design §scan_detector)
+  # text_density_threshold: minimum word count for a page to be classified as native (integer, >= 0)
+  # alpha_ratio_threshold: minimum fraction of alphabetic characters in cleaned text (float, 0.0-1.0)
+  # image_dominance_threshold: max image-area fraction before page is flagged as scanned (float, 0.0-1.0)
+  scan_detection:
+    text_density_threshold: 50
+    alpha_ratio_threshold: 0.60
+    image_dominance_threshold: 0.85
+  # OCR rasterization settings (Requirement 9)
+  # rasterization_dpi: DPI used when rasterizing a page for PaddleOCR (integer; e.g. 150 | 300)
+  ocr:
+    rasterization_dpi: 150
+  # Text fidelity concern settings (Requirement 9)
+  # edit_distance_threshold: normalized Levenshtein distance above which texts are "divergent" (float, 0.0-1.0)
+  text_fidelity:
+    edit_distance_threshold: 0.10
+  # Section verification concern settings (Requirement 9)
+  # font_size_tolerance: allowable font-size delta (in points) when verifying section headings (float)
+  section_verification:
+    font_size_tolerance: 1.0
