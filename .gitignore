@@ -221,8 +221,5 @@ __marimo__/
 
 
 # soroush
-output/
-log.txt
-pdfs/
-.claude/
-CLAUDE.md
+output*/
+input*/

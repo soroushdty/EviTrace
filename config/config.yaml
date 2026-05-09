@@ -43,7 +43,7 @@ retry:
   base_delay_seconds: 5 # Actual delay = base * 2^(attempt - 1)
 
 # Paths
-pdfs_path: "pdfs"
+pdfs_path: "input"
 output_folder_path: "outputs"
 extraction_map_path: "extraction_map.json"
 
