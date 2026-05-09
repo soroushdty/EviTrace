@@ -14,7 +14,7 @@
   - _Requirements: 4_
   - _Boundary: pdf_extractor/extraction_
 
-- [ ] 1.2 Update test files that reference Tesseract
+- [x] 1.2 Update test files that reference Tesseract
   - Remove all imports, mocks, and references to `extract_with_tesseract` from `test_text_extractor_tier2.py`
   - Verify `test_text_extractor_tier1.py` and `test_text_extractor_tier3.py` contain no Tesseract references
   - All three extractor test files pass with no Tesseract-related failures

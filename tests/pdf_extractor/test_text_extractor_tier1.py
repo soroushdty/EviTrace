@@ -64,7 +64,7 @@ def test_tier1_output_conforms_to_blockdict_schema(page_texts):
     mock_pdfplumber = _build_mock_pdfplumber(page_texts)
 
     with patch.dict(sys.modules, {"pdfplumber": mock_pdfplumber}):
-        blocks = tier1.extract_pdf_text(Path("fake.pdf"))
+        blocks = tier1.extract_with_pdfplumber(Path("fake.pdf"))
 
     # Every block must pass validate_blocks without raising.
     schemas.validate_blocks(blocks)
@@ -92,7 +92,7 @@ def test_tier1_embeds_page_markers(page_count, page_texts):
     mock_pdfplumber = _build_mock_pdfplumber(texts)
 
     with patch.dict(sys.modules, {"pdfplumber": mock_pdfplumber}):
-        blocks = tier1.extract_pdf_text(Path("fake.pdf"))
+        blocks = tier1.extract_with_pdfplumber(Path("fake.pdf"))
 
     assert len(blocks) == page_count, (
         f"Expected {page_count} blocks, got {len(blocks)}"
