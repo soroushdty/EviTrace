@@ -28,6 +28,9 @@ extraction:
   # Number of extraction chunks
   # Chunk 1-N: extraction, Chunk N+1: synthesis/review
   num_chunks: 3
+  max_evidence_items_per_chunk: 250
+  max_evidence_chars_per_chunk: 60000
+  evidence_cache_dir: "outputs/evidence_cache"
 
 # Concurrency settings
 concurrency:
@@ -90,6 +93,27 @@ quality_control:
     include_raw_affiliations: false
     tei_coordinates: true
     max_retries: 2
+  grobid_integration:
+    enabled: true
+    failure_behavior: "fallback" # fallback | manifest_fail
+    crop_figures: true
+    crop_tables: true
+  addons:
+    grobid_quantities:
+      enabled: false
+      url: ""
+      endpoint: "/service/process"
+      timeout: 20
+    datastet:
+      enabled: false
+      url: ""
+      endpoint: "/service/processDataseerSentence"
+      timeout: 20
+    entity_fishing:
+      enabled: false
+      url: ""
+      endpoint: "/service/disambiguate"
+      timeout: 20
   # Semantic quality scoring
   semantic_qc:
     enabled: false

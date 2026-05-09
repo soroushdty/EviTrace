@@ -35,13 +35,29 @@ def _build_qc_context(
     qc_config: dict,
 ) -> QCContext:
     """Run GROBID + PyMuPDF extraction and full QC pipeline for one PDF."""
-    tei_xml, _ = extract_with_grobid(str(pdf_path))
+    tei_xml = ""
+    grobid_failure_behavior = (
+        qc_config.get("quality_control", {})
+        .get("grobid_integration", {})
+        .get("failure_behavior", "fallback")
+    )
+    try:
+        tei_xml, _ = extract_with_grobid(str(pdf_path))
+    except Exception:
+        if grobid_failure_behavior == "manifest_fail":
+            raise
+        logger.warning("GROBID failed for %s; continuing with fallback mode", pdf_name)
+        tei_xml = ""
     pymupdf_blocks, _ = extract_with_pymupdf(str(pdf_path))
     branches = [
         BranchOutput(extractor="grobid",  branch=0, payload=tei_xml,       status=None),
         BranchOutput(extractor="pymupdf", branch=1, payload=pymupdf_blocks, status=None),
     ]
-    return run_quality_control(branches, pdf_name, qc_config)
+    ctx = run_quality_control(branches, pdf_name, qc_config)
+    if ctx.unified is not None and isinstance(ctx.unified.content, dict):
+        ctx.unified.content["source_pdf_path"] = str(pdf_path)
+        ctx.unified.content["grobid_tei_xml"] = tei_xml
+    return ctx
 
 
 async def run_pipeline(
@@ -65,6 +81,8 @@ async def run_pipeline(
 
     # Propagate runtime overrides into the config dict passed to each PDF worker.
     runtime_config = {**_openai_config, "enable_cache_prewarm": effective_prewarm}
+    runtime_config.update(_qc_config.get("quality_control", {}).get("grobid_integration", {}))
+    runtime_config["addons"] = _qc_config.get("quality_control", {}).get("addons", {})
 
     chunk_fields = load_chunk_fields()
     field_lookup = _build_field_lookup()

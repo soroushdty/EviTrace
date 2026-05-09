@@ -71,6 +71,17 @@ _QC_DEFAULTS: dict = {
             "tei_coordinates": True,
             "max_retries": 2,
         },
+        "grobid_integration": {
+            "enabled": True,
+            "failure_behavior": "fallback",
+            "crop_figures": True,
+            "crop_tables": True,
+        },
+        "addons": {
+            "grobid_quantities": {"enabled": False, "url": "", "endpoint": "/service/process", "timeout": 20},
+            "datastet": {"enabled": False, "url": "", "endpoint": "/service/processDataseerSentence", "timeout": 20},
+            "entity_fishing": {"enabled": False, "url": "", "endpoint": "/service/disambiguate", "timeout": 20},
+        },
         # Scan detection thresholds (Requirement 9 / design §scan_detector)
         # text_density_threshold: minimum word count for a native page (integer, ≥ 0)
         # alpha_ratio_threshold: minimum ratio of alphabetic chars in cleaned text (float, 0.0–1.0)
@@ -203,6 +214,7 @@ def load_openai_config(config_path: str | None = None) -> dict:
     extraction_cfg = cfg_yaml.get("extraction", {})
     concurrency_cfg = cfg_yaml.get("concurrency", {})
     retry_cfg = cfg_yaml.get("retry", {})
+    grobid_integration_cfg = cfg_yaml.get("quality_control", {}).get("grobid_integration", {})
 
     # API credentials
     api_key = os.environ.get("OPENAI_API_KEY", "") or openai_cfg.get("api_key", "")
@@ -268,6 +280,10 @@ def load_openai_config(config_path: str | None = None) -> dict:
         "global_api_limit": global_api_limit,
         "max_retries": max_retries,
         "retry_base_delay": retry_base_delay,
+        "max_evidence_items_per_chunk": int(extraction_cfg.get("max_evidence_items_per_chunk", 250)),
+        "max_evidence_chars_per_chunk": int(extraction_cfg.get("max_evidence_chars_per_chunk", 60000)),
+        "evidence_cache_dir": extraction_cfg.get("evidence_cache_dir", "outputs/evidence_cache"),
+        "grobid_failure_behavior": grobid_integration_cfg.get("failure_behavior", "fallback"),
     }
 
 

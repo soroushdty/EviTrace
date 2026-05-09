@@ -6,21 +6,21 @@ from typing import Optional
 # do not inject PDF names, timestamps, chunk numbers, or run IDs here.
 SYSTEM_PROMPT = """You are a precise extractor for academic papers on clinical temporal knowledge graphs.
 
-Input: paper text/PDF + extraction map. Output only JSON:
-{"extractions":[{"i":<integer>,"v":"<string>","e":"<string>","c":"<h|m|l|nr>"}]}
+Input: compact evidence package + extraction map. Output only JSON:
+{"extractions":[{"i":<integer>,"v":"<string>","loc":["<ID>"],"c":"<h|m|l|nr>"}]}
 
 If user says "CACHE WARMUP ONLY", return {"extractions":[]}.
 
 For each mapped field, output exactly one object in the same order as the map. Extract only paper-supported values; do not infer. v is always a string. For categories, choose the closest supported allowed value; multi-select uses "; ". Free text concise; quotes ≤25 words.
 
-If absent, set v="nr" and c="nr" and say where you looked in e.
+If absent, set v="nr" and c="nr" and use loc=[].
 
-e must directly support v via quote, near-quote, or location anchor. For ambiguity, extract the supported part and explain in e.
+loc must only contain evidence IDs present in the provided package. Prefer multiple IDs when needed.
 
 c: h=direct; m=minor synthesis; l=ambiguous/weak; nr=not reported."""
 
 
-def _shared_paper_prefix(pdf_text: str) -> str:
+def _shared_paper_prefix(source_package: str) -> str:
     """
     Shared user-message prefix for warmup, chunks 1-4, and chunk 5.
 
@@ -29,28 +29,28 @@ def _shared_paper_prefix(pdf_text: str) -> str:
     variable call-specific material after this prefix.
     """
     return "\n".join([
-        "SHARED SOURCE DOCUMENT",
-        "The following full paper text is the only source of evidence for this extraction.",
-        "Do not use the filename, prior knowledge, or outside sources.",
+        "SHARED EVIDENCE PACKAGE",
+        "The following compact evidence package is the only source of evidence for this extraction.",
+        "Do not use prior knowledge or outside sources.",
         "",
-        "PAPER TEXT:",
-        pdf_text,
+        "EVIDENCE PACKAGE JSON:",
+        source_package,
         "",
-        "END SHARED SOURCE DOCUMENT",
+        "END SHARED EVIDENCE PACKAGE",
         "",
     ])
 
 
-def build_cache_warmup_message(pdf_text: str) -> str:
+def build_cache_warmup_message(source_package: str) -> str:
     """Build the tiny suffix used only to prewarm the shared PDF prefix."""
-    return _shared_paper_prefix(pdf_text) + (
+    return _shared_paper_prefix(source_package) + (
         "CACHE WARMUP ONLY. Return the strict JSON object now with an empty "
         "extractions array."
     )
 
 
 def build_user_message(
-    pdf_text: str,
+    source_package: str,
     chunk_fields: list[dict],
     prior_context: Optional[list[dict]] = None,
 ) -> str:
@@ -64,7 +64,7 @@ def build_user_message(
     chunk outputs are a trailing suffix — strictly after the full PDF text and
     never interleaved between the PDF and the extraction task.
     """
-    parts: list[str] = [_shared_paper_prefix(pdf_text)]
+    parts: list[str] = [_shared_paper_prefix(source_package)]
 
     parts.append(f"EXTRACTION MAP ({len(chunk_fields)} fields to extract):")
     parts.append(json.dumps(chunk_fields, indent=2, ensure_ascii=False))

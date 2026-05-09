@@ -23,6 +23,7 @@ PROMPT_CACHE_KEY_PREFIX: str = _openai_config["prompt_cache_key_prefix"]
 PROMPT_CACHE_RETENTION: str = _openai_config["prompt_cache_retention"]
 RETRY_BASE_DELAY: int = _openai_config["retry_base_delay"]
 SYNTHESIS_MODEL: str = _openai_config["synthesis_model"]
+NUM_CHUNKS: int = _openai_config["num_chunks"]
 TEMPERATURE: float | None = _openai_config["temperature"]
 
 logger = get_logger(__name__)
@@ -62,13 +63,16 @@ def _json_schema_format() -> dict[str, Any]:
                         "properties": {
                             "i": {"type": "integer"},
                             "v": {"type": "string"},
-                            "e": {"type": "string"},
+                            "loc": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
                             "c": {
                                 "type": "string",
                                 "enum": ["h", "m", "l", "nr"],
                             },
                         },
-                        "required": ["i", "v", "e", "c"],
+                        "required": ["i", "v", "loc", "c"],
                     },
                 },
             },
@@ -77,9 +81,9 @@ def _json_schema_format() -> dict[str, Any]:
     }
 
 
-def paper_cache_key(pdf_text: str) -> str:
-    """Return a stable per-paper prompt_cache_key derived from extracted text."""
-    digest = hashlib.sha256(pdf_text.encode("utf-8")).hexdigest()[:16]
+def paper_cache_key(source_package: str) -> str:
+    """Return a stable per-paper prompt_cache_key derived from source package."""
+    digest = hashlib.sha256(source_package.encode("utf-8")).hexdigest()[:16]
     prefix = PROMPT_CACHE_KEY_PREFIX.strip() or "scoping-review-v1"
     return f"{prefix}:{digest}"
 
@@ -113,7 +117,7 @@ def _response_text(response: Any) -> str:
         return json.dumps(response, default=str)
 
 
-def _base_request_kwargs(model: str, pdf_text: str, user_msg: str, max_output_tokens: int) -> dict[str, Any]:
+def _base_request_kwargs(model: str, source_package: str, user_msg: str, max_output_tokens: int) -> dict[str, Any]:
     request_kwargs: dict[str, Any] = {
         "model": model,
         "input": [
@@ -122,7 +126,7 @@ def _base_request_kwargs(model: str, pdf_text: str, user_msg: str, max_output_to
         ],
         "max_output_tokens": max_output_tokens,
         "text": {"format": _json_schema_format()},
-        "prompt_cache_key": paper_cache_key(pdf_text),
+        "prompt_cache_key": paper_cache_key(source_package),
     }
     # Some models reject the temperature parameter entirely. Omit it unless
     # OPENAI_TEMPERATURE is explicitly set in the environment.
@@ -136,7 +140,7 @@ def _base_request_kwargs(model: str, pdf_text: str, user_msg: str, max_output_to
 
 def _chunk_model_and_tokens(chunk_num: int) -> tuple[str, int]:
     """Return (model, max_output_tokens) for the given chunk number."""
-    model = SYNTHESIS_MODEL if chunk_num == 5 else CHUNK_MODEL
+    model = SYNTHESIS_MODEL if chunk_num == NUM_CHUNKS else CHUNK_MODEL
     return model, CHUNK_MAX_TOKENS[chunk_num]
 
 
@@ -199,7 +203,7 @@ async def _call_api_with_retries(
 
 
 async def warm_pdf_cache(
-    pdf_text: str,
+    source_package: str,
     semaphore: asyncio.Semaphore,
     pdf_name: str = "unknown",
     model: str = CHUNK_MODEL,
@@ -213,10 +217,10 @@ async def warm_pdf_cache(
     cache warmup is unavailable for the selected model/account.
     """
     tag = f"[{pdf_name} | warmup | {model}]"
-    user_msg = build_cache_warmup_message(pdf_text)
+    user_msg = build_cache_warmup_message(source_package)
     request_kwargs = _base_request_kwargs(
         model=model,
-        pdf_text=pdf_text,
+        source_package=source_package,
         user_msg=user_msg,
         max_output_tokens=CACHE_WARMUP_MAX_TOKENS,
     )
@@ -226,9 +230,10 @@ async def warm_pdf_cache(
 
 async def extract_chunk(
     chunk_num: int,
-    pdf_text: str,
+    source_package: str,
     chunk_fields: list[dict],
     semaphore: asyncio.Semaphore,
+    valid_location_ids: set[str] | None = None,
     prior_context: Optional[list[dict]] = None,
     pdf_name: str = "unknown",
 ) -> list[dict]:
@@ -237,7 +242,7 @@ async def extract_chunk(
 
     Args:
         chunk_num:     Chunk number from 1 to NUM_CHUNKS.
-        pdf_text:      Full paper text extracted once upstream.
+        source_package: Compact evidence package extracted once upstream.
         chunk_fields:  Extraction-map objects scoped to this chunk.
         semaphore:     Global API concurrency gate.
         prior_context: For the final synthesis chunk: combined output of prior chunks.
@@ -248,12 +253,12 @@ async def extract_chunk(
     """
     model, max_tokens = _chunk_model_and_tokens(chunk_num)
     expected_idx = _expected_indices(chunk_fields)
-    user_msg = build_user_message(pdf_text, chunk_fields, prior_context)
+    user_msg = build_user_message(source_package, chunk_fields, prior_context)
     tag = f"[{pdf_name} | chunk {chunk_num} | {model}]"
 
     request_kwargs = _base_request_kwargs(
         model=model,
-        pdf_text=pdf_text,
+        source_package=source_package,
         user_msg=user_msg,
         max_output_tokens=max_tokens,
     )
@@ -267,7 +272,7 @@ async def extract_chunk(
 
             log_cache_usage(response, tag)
             raw = _response_text(response)
-            result = validate_chunk_output(raw, expected_idx)
+            result = validate_chunk_output(raw, expected_idx, valid_location_ids=valid_location_ids)
             logger.info(f"{tag} ok (attempt {attempt})")
             return result
 
