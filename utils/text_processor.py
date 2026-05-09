@@ -99,7 +99,7 @@ class TextProcessor:
         # SentenceSegment subclasses call super().__init__() which skips this
         # block so they don't re-enter the wiring logic.
         st_cfg = cfg.get("sentence_tokenizer", {})
-        st_backend = st_cfg.get("backend", "scispacy")
+        st_backend = st_cfg.get("backend", "nltk_punkt")  # TODO: Planned to be fixed in the future (spacy/numpy incompatibility)
         self._segmenter = self._resolve_sentence_segmenter(st_backend)
 
         # Store the full config for sub-class / future use.
@@ -434,11 +434,12 @@ class SpacySentencizerSegment(SentenceSegment):
                 nlp = spacy.blank("en")
                 nlp.add_pipe("sentencizer")
                 self._model = nlp
-            except ImportError:
+            except ImportError as exc:
                 raise ImportError(
                     "spaCy is not installed. Install it with:\n"
-                    "  pip install spacy"
-                )
+                    "  pip install spacy\n"
+                    f"Underlying error: {exc}"
+                ) from exc
         doc = self._model(text)
         return [sent.text for sent in doc.sents]
 

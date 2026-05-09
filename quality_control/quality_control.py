@@ -144,8 +144,7 @@ def _load_text_processor(config: dict) -> object:
     fully-qualified import path (eg. "utils.text_processor.TextProcessor").
     If absent, defaults to utils.text_processor.TextProcessor.
     """
-    qc_cfg = (config or {}).get("quality_control", {})
-    tp_cfg = qc_cfg.get("text_processor", {}) if isinstance(qc_cfg, dict) else {}
+    tp_cfg = (config or {}).get("text_processor", {})
     class_path = tp_cfg.get("class", "utils.text_processor.TextProcessor")
     try:
         module_name, class_name = class_path.rsplit(".", 1)

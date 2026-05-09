@@ -72,7 +72,7 @@ def _make_tp():
     """Construct a minimal TextProcessor (no optional backends needed)."""
     from utils.text_processor import TextProcessor
     return TextProcessor(config={
-        "sentence_tokenizer": {"backend": "scispacy"},
+        "sentence_tokenizer": {"backend": "nltk_punkt"},
     })
 
 

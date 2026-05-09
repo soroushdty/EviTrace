@@ -681,10 +681,10 @@ class TestStanzaSentenceSegment:
 class TestTextProcessorSentenceTokenizerWiring:
     """TextProcessor.__init__ wires the correct SentenceSegment from config."""
 
-    def test_default_backend_is_scispacy(self):
-        from utils.text_processor import TextProcessor, ScispaCySentenceSegment
+    def test_default_backend_is_nltk_punkt(self):
+        from utils.text_processor import TextProcessor, NLTKPunktSentenceSegment
         tp = TextProcessor(config={})
-        assert isinstance(tp._segmenter, ScispaCySentenceSegment)
+        assert isinstance(tp._segmenter, NLTKPunktSentenceSegment)
 
     def test_scispacy_backend_explicit(self):
         from utils.text_processor import TextProcessor, ScispaCySentenceSegment
