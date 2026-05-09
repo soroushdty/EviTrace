@@ -13,6 +13,10 @@ No code executes at import time.
 """
 
 import re
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from utils.text_processor import TextProcessor
 
 
 # ---------------------------------------------------------------------------
@@ -160,14 +164,12 @@ def is_noise(sentence: str) -> bool:
 # 3. process_sentences
 # ---------------------------------------------------------------------------
 
-# Sentence boundary: after a sentence-ending punctuation mark followed by
-# whitespace and an uppercase letter.  This avoids splitting on abbreviations
-# like "Fig. 3" or "e.g. something" because they are typically not followed
-# by an uppercase letter after exactly one whitespace character.
-_RE_SENTENCE_SPLIT = re.compile(r'(?<=[.!?])\s+(?=[A-Z])')
 
-
-def process_sentences(text_blocks_with_pages: list, len_filter: int) -> list:
+def process_sentences(
+    text_blocks_with_pages: list,
+    len_filter: int,
+    text_processor: "TextProcessor",
+) -> list:
     """Segment, filter, and normalise text blocks into sentence-level records.
 
     Takes the raw output of ``pdf_extractor.extraction.extract_pdf`` (a list of
@@ -177,8 +179,8 @@ def process_sentences(text_blocks_with_pages: list, len_filter: int) -> list:
     Processing pipeline for each block dict:
 
     1. Apply :func:`normalise_text` to the block.
-    2. Split the normalised block into sentence candidates using the regex
-       ``(?<=[.!?])\\s+(?=[A-Z])``.
+    2. Split the normalised block into sentence candidates using
+       ``text_processor.tokenize_sentences(normalised)``.
     3. For every candidate sentence:
 
        a. Strip surrounding whitespace.
@@ -198,6 +200,11 @@ def process_sentences(text_blocks_with_pages: list, len_filter: int) -> list:
     len_filter : int
         Minimum character length a sentence must have to survive filtering.
         Sentences strictly shorter than this value are discarded.
+    text_processor : TextProcessor
+        A configured :class:`utils.text_processor.TextProcessor` instance
+        whose :meth:`tokenize_sentences` method performs sentence boundary
+        detection.  Passed as a parameter so that the sentence segmenter
+        backend is chosen by the caller, not hard-wired in this module.
 
     Returns
     -------
@@ -225,7 +232,7 @@ def process_sentences(text_blocks_with_pages: list, len_filter: int) -> list:
 
         normalised = normalise_text(text_block)
 
-        candidates = _RE_SENTENCE_SPLIT.split(normalised)
+        candidates = text_processor.tokenize_sentences(normalised)
 
         for candidate in candidates:
             sentence = candidate.strip()

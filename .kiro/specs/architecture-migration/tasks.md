@@ -140,7 +140,7 @@
 - [ ] 6. Core: Sentence processor update (P)
   _Depends: 2.1_
 
-- [ ] 6.1 (P) Remove regex sentence splitter and add TextProcessor parameter
+- [x] 6.1 (P) Remove regex sentence splitter and add TextProcessor parameter
   - Delete `_RE_SENTENCE_SPLIT` constant and its usage in `pdf_extractor/processing/sentence_processor.py`
   - Add `text_processor` as the third parameter to `process_sentences(text_blocks_with_pages, len_filter, text_processor)`
   - Replace the regex split call with `text_processor.tokenize_sentences(normalised)`
@@ -155,7 +155,7 @@
 - [ ] 7. Core: Concern strategy package
   _Depends: 3.1_
 
-- [ ] 7.1 (P) Implement TextFidelityConcern
+- [x] 7.1 (P) Implement TextFidelityConcern
   - Create `quality_control/concerns/text_fidelity.py` with `TextFidelityConcern` class
   - `reconcile(primary, reference, text_processor)` computes `edit_distance = 1.0 - text_processor.compare(primary, reference)`; sets `agreement` (`"full"`, `"partial"`, `"divergent"`) based on threshold; sets `preferred_reading = reference` (strategy encodes ground-truth side); sets `confidence = 1.0 - edit_distance`
   - `adjudicate(alignment_entries, config)` returns `{"preferred_source": str, "confidence": float, "rationale": str}`
@@ -164,7 +164,7 @@
   - _Requirements: 7.3_
   - _Boundary: quality_control/concerns/text_fidelity_
 
-- [ ] 7.2 (P) Implement SectionVerificationConcern
+- [x] 7.2 (P) Implement SectionVerificationConcern
   - Create `quality_control/concerns/section_verification.py` with `SectionVerificationConcern` class
   - `reconcile(primary_section, reference_block, text_processor)` compares heading text using `text_processor.compare()`; reduces confidence proportionally when `reference_block["font_size"]` is below the configured median threshold
   - Never modifies `primary_section` or any of its fields
@@ -173,7 +173,7 @@
   - _Requirements: 7.3_
   - _Boundary: quality_control/concerns/section_verification_
 
-- [ ] 7.3 (P) Implement TableFigureMergeConcern
+- [x] 7.3 (P) Implement TableFigureMergeConcern
   - Create `quality_control/concerns/table_figure_merge.py` with `MissingContributionError(ValueError)` and `TableFigureMergeConcern` class
   - `merge(primary, reference)` raises `MissingContributionError` naming the absent side when either argument is `None`
   - When both arguments are present, returns merged dict with keys determined by constructor labels plus `"agreement"` and `"merged_text"`; primary record is unmodified in the merged output
@@ -182,7 +182,7 @@
   - _Requirements: 7.3_
   - _Boundary: quality_control/concerns/table_figure_merge_
 
-- [ ] 7.4 Test concern strategy package
+- [x] 7.4 Test concern strategy package
   - `TextFidelityConcern`: identical inputs → `agreement="full"`, `edit_distance=0.0`; divergent inputs → `agreement="divergent"`; `preferred_reading` is always the `reference_artifact`; swapping argument order produces different `preferred_reading`
   - `SectionVerificationConcern`: matching heading and font size → high confidence; font size below threshold → reduced confidence; `primary_section` dict is not mutated; return value is `float`
   - `TableFigureMergeConcern`: both arguments present → merged record has both sub-fields with primary unmodified; `primary=None` → `MissingContributionError`; `reference=None` → `MissingContributionError`

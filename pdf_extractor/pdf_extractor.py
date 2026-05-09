@@ -25,6 +25,7 @@ from .processing import sentence_processor
 from utils import path_utils
 from utils.config_utils import load_config
 from utils.logging_utils import setup_logging
+from utils.text_processor import TextProcessor
 
 
 def _save_artifact(output_folder: str, pdf_name: str, artifact: dict) -> str:
@@ -59,6 +60,8 @@ def run_pipeline(config_path: str) -> None:
     ocr_threshold: float = cfg["ocr_text_quality_threshold"]
     len_filter: int = cfg["len_filter"]
 
+    text_processor = TextProcessor(cfg.get("text_processor"))
+
     # ------------------------------------------------------------------ #
     # Step 2 – Process each PDF                                           #
     # ------------------------------------------------------------------ #
@@ -80,7 +83,7 @@ def run_pipeline(config_path: str) -> None:
         )
 
         # Step 4 – Process sentences and assemble full text
-        sentence_records = sentence_processor.process_sentences(blocks, len_filter)
+        sentence_records = sentence_processor.process_sentences(blocks, len_filter, text_processor)
         full_pdf_text, page_texts = sentence_processor.build_full_text(blocks)
 
         logger.info(
