@@ -29,7 +29,18 @@ import pytest
 def _make_tp(config=None):
     """Construct a TextProcessor with optional config, defaulting to empty."""
     from utils.text_processor import TextProcessor
-    return TextProcessor(config=config or {})
+
+    mock_spacy = MagicMock()
+    mock_scispacy = MagicMock()
+    mock_sent = MagicMock()
+    mock_sent.text = "Sentence one."
+    mock_doc = MagicMock()
+    mock_doc.sents = [mock_sent]
+    mock_nlp = MagicMock(return_value=mock_doc)
+    mock_spacy.load.return_value = mock_nlp
+
+    with patch.dict(sys.modules, {"scispacy": mock_scispacy, "spacy": mock_spacy}):
+        return TextProcessor(config=config or {})
 
 
 # ---------------------------------------------------------------------------
@@ -40,13 +51,27 @@ class TestInstantiation:
     def test_default_config_does_not_raise(self):
         """TextProcessor() with config={} must not raise any exception."""
         from utils.text_processor import TextProcessor
-        tp = TextProcessor(config={})
+        mock_spacy = MagicMock()
+        mock_scispacy = MagicMock()
+        mock_sent = MagicMock(); mock_sent.text = "Sentence one."
+        mock_doc = MagicMock(); mock_doc.sents = [mock_sent]
+        mock_nlp = MagicMock(return_value=mock_doc)
+        mock_spacy.load.return_value = mock_nlp
+        with patch.dict(sys.modules, {"scispacy": mock_scispacy, "spacy": mock_spacy}):
+            tp = TextProcessor(config={})
         assert tp is not None
 
     def test_none_config_does_not_raise(self):
         """TextProcessor(config=None) must not raise."""
         from utils.text_processor import TextProcessor
-        tp = TextProcessor(config=None)
+        mock_spacy = MagicMock()
+        mock_scispacy = MagicMock()
+        mock_sent = MagicMock(); mock_sent.text = "Sentence one."
+        mock_doc = MagicMock(); mock_doc.sents = [mock_sent]
+        mock_nlp = MagicMock(return_value=mock_doc)
+        mock_spacy.load.return_value = mock_nlp
+        with patch.dict(sys.modules, {"scispacy": mock_scispacy, "spacy": mock_spacy}):
+            tp = TextProcessor(config=None)
         assert tp is not None
 
     def test_unknown_normalizer_raises_value_error(self):
@@ -469,33 +494,59 @@ class TestSentenceSegmentHierarchy:
             SpacySentencizerSegment,
             StanzaSentenceSegment,
         )
-        for cls in (
-            ScispaCySentenceSegment,
-            WtpSplitSentenceSegment,
-            NLTKPunktSentenceSegment,
-            SpacySentencizerSegment,
-            StanzaSentenceSegment,
-        ):
-            instance = cls()
-            assert isinstance(instance, TextProcessor), f"{cls.__name__} instance is not a TextProcessor"
+
+        mock_spacy = MagicMock()
+        mock_scispacy = MagicMock()
+        mock_sent = MagicMock(); mock_sent.text = "Sentence one."
+        mock_doc = MagicMock(); mock_doc.sents = [mock_sent]
+        mock_nlp = MagicMock(return_value=mock_doc)
+        mock_spacy.load.return_value = mock_nlp
+
+        with patch.dict(sys.modules, {"scispacy": mock_scispacy, "spacy": mock_spacy}):
+            for cls in (
+                ScispaCySentenceSegment,
+                WtpSplitSentenceSegment,
+                NLTKPunktSentenceSegment,
+                SpacySentencizerSegment,
+                StanzaSentenceSegment,
+            ):
+                instance = cls()
+                assert isinstance(instance, TextProcessor), f"{cls.__name__} instance is not a TextProcessor"
 
 
 class TestScispaCySentenceSegment:
-    """ScispaCySentenceSegment raises ImportError with hint when absent."""
+    """ScispaCySentenceSegment eagerly loads the default model."""
 
     def test_import_error_raised_with_pip_hint(self):
         from utils.text_processor import ScispaCySentenceSegment
         with patch.dict(sys.modules, {"scispacy": None, "spacy": None}):
-            seg = ScispaCySentenceSegment()
             with pytest.raises(ImportError, match="pip install scispacy"):
-                seg.tokenize_sentences("Hello world.")
+                ScispaCySentenceSegment()
 
     def test_import_error_hint_mentions_model_download(self):
         from utils.text_processor import ScispaCySentenceSegment
         with patch.dict(sys.modules, {"scispacy": None, "spacy": None}):
-            seg = ScispaCySentenceSegment()
-            with pytest.raises(ImportError, match="en_core_sci_lg"):
-                seg.tokenize_sentences("Hello world.")
+            with pytest.raises(ImportError, match="en_core_sci_sm"):
+                ScispaCySentenceSegment()
+
+    def test_non_default_model_is_lazy_loaded(self):
+        from utils.text_processor import ScispaCySentenceSegment
+
+        mock_spacy = MagicMock()
+        mock_scispacy = MagicMock()
+        mock_sent = MagicMock()
+        mock_sent.text = "Hello world."
+        mock_doc = MagicMock()
+        mock_doc.sents = [mock_sent]
+        mock_nlp = MagicMock(return_value=mock_doc)
+        mock_spacy.load.return_value = mock_nlp
+
+        with patch.dict(sys.modules, {"scispacy": mock_scispacy, "spacy": mock_spacy}):
+            seg = ScispaCySentenceSegment(config={"model": "en_core_sci_lg"})
+            assert mock_spacy.load.call_count == 0
+            seg.tokenize_sentences("Hello world.")
+
+        assert mock_spacy.load.call_count == 1
 
     def test_model_loaded_at_most_once(self):
         """Model should be cached: loading happens only on first call."""
@@ -513,10 +564,11 @@ class TestScispaCySentenceSegment:
 
         with patch.dict(sys.modules, {"scispacy": mock_scispacy, "spacy": mock_spacy}):
             seg = ScispaCySentenceSegment()
+            assert mock_spacy.load.call_count == 1
             seg.tokenize_sentences("Hello world.")
             seg.tokenize_sentences("Hello world.")
 
-        # spacy.load should have been called exactly once across both calls
+        # spacy.load should have been called exactly once during eager init
         assert mock_spacy.load.call_count == 1
 
     def test_returns_list_of_strings_when_model_present(self):
@@ -681,14 +733,28 @@ class TestStanzaSentenceSegment:
 class TestTextProcessorSentenceTokenizerWiring:
     """TextProcessor.__init__ wires the correct SentenceSegment from config."""
 
-    def test_default_backend_is_nltk_punkt(self):
-        from utils.text_processor import TextProcessor, NLTKPunktSentenceSegment
-        tp = TextProcessor(config={})
-        assert isinstance(tp._segmenter, NLTKPunktSentenceSegment)
+    def test_default_backend_is_scispacy(self):
+        from utils.text_processor import TextProcessor, ScispaCySentenceSegment
+        mock_spacy = MagicMock()
+        mock_scispacy = MagicMock()
+        mock_sent = MagicMock(); mock_sent.text = "Sentence one."
+        mock_doc = MagicMock(); mock_doc.sents = [mock_sent]
+        mock_nlp = MagicMock(return_value=mock_doc)
+        mock_spacy.load.return_value = mock_nlp
+        with patch.dict(sys.modules, {"scispacy": mock_scispacy, "spacy": mock_spacy}):
+            tp = TextProcessor(config={})
+        assert isinstance(tp._segmenter, ScispaCySentenceSegment)
 
     def test_scispacy_backend_explicit(self):
         from utils.text_processor import TextProcessor, ScispaCySentenceSegment
-        tp = TextProcessor(config={"sentence_tokenizer": {"backend": "scispacy"}})
+        mock_spacy = MagicMock()
+        mock_scispacy = MagicMock()
+        mock_sent = MagicMock(); mock_sent.text = "Sentence one."
+        mock_doc = MagicMock(); mock_doc.sents = [mock_sent]
+        mock_nlp = MagicMock(return_value=mock_doc)
+        mock_spacy.load.return_value = mock_nlp
+        with patch.dict(sys.modules, {"scispacy": mock_scispacy, "spacy": mock_spacy}):
+            tp = TextProcessor(config={"sentence_tokenizer": {"backend": "scispacy"}})
         assert isinstance(tp._segmenter, ScispaCySentenceSegment)
 
     def test_wtpsplit_backend(self):
@@ -727,7 +793,14 @@ class TestTextProcessorSentenceTokenizerWiring:
     def test_tokenize_sentences_delegates_to_segmenter(self):
         """tokenize_sentences calls _segmenter.tokenize_sentences."""
         from utils.text_processor import TextProcessor
-        tp = TextProcessor(config={"sentence_tokenizer": {"backend": "scispacy"}})
+        mock_spacy = MagicMock()
+        mock_scispacy = MagicMock()
+        mock_sent = MagicMock(); mock_sent.text = "Sentence one."
+        mock_doc = MagicMock(); mock_doc.sents = [mock_sent]
+        mock_nlp = MagicMock(return_value=mock_doc)
+        mock_spacy.load.return_value = mock_nlp
+        with patch.dict(sys.modules, {"scispacy": mock_scispacy, "spacy": mock_spacy}):
+            tp = TextProcessor(config={"sentence_tokenizer": {"backend": "scispacy"}})
 
         mock_segmenter = MagicMock()
         mock_segmenter.tokenize_sentences.return_value = ["Sent one.", "Sent two."]
@@ -776,7 +849,14 @@ class TestCustomClassPathBackend:
     def test_resolve_sentence_segmenter_method_exists(self):
         """_resolve_sentence_segmenter (the loader helper) must exist on TextProcessor."""
         from utils.text_processor import TextProcessor
-        tp = TextProcessor(config={})
+        mock_spacy = MagicMock()
+        mock_scispacy = MagicMock()
+        mock_sent = MagicMock(); mock_sent.text = "Sentence one."
+        mock_doc = MagicMock(); mock_doc.sents = [mock_sent]
+        mock_nlp = MagicMock(return_value=mock_doc)
+        mock_spacy.load.return_value = mock_nlp
+        with patch.dict(sys.modules, {"scispacy": mock_scispacy, "spacy": mock_spacy}):
+            tp = TextProcessor(config={})
         assert callable(getattr(tp, "_resolve_sentence_segmenter", None)), (
             "TextProcessor must expose _resolve_sentence_segmenter as the "
             "class-path injection point (requirement 5.5)"

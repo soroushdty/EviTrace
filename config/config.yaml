@@ -63,17 +63,17 @@ text_processor:
   class: "utils.text_processor.TextProcessor"
   # sentence_tokenizer.backend: "scispacy" (default) | "wtpsplit" | "nltk_punkt" | "spacy_sentencizer" | "stanza"
   sentence_tokenizer:
-    backend: "nltk_punkt" # TODO: Planned to be fixed in the future (spacy/numpy incompatibility)
-    model: "en_core_sci_lg"
+    backend: "scispacy"
+    model: "en_core_sci_sm"
   # word_tokenizer.backend: "simple" (default) | "spacy" | "nltk"
   word_tokenizer:
-    backend: "simple"
+    backend: "spacy"
   # normalizer.backend: "nfc" | "nfkc" (default)
   normalizer:
     backend: "nfkc"
   comparison:
-    metric: "levenshtein"      # only supported metric
-    threshold: 0.85            # float 0.0–1.0; texts above this ratio are considered similar
+    metric: "levenshtein" # only supported metric
+    threshold: 0.85 # float 0.0–1.0; texts above this ratio are considered similar
   ocr_cleaning:
     weird_char_threshold: 0.05 # float 0.0–1.0; fraction of weird chars triggering clean_ocr
 
@@ -86,7 +86,7 @@ quality_control:
     auto_start: true
     docker_image: "lfoppiano/grobid:0.8.0"
     url: "http://localhost:8070"
-    timeout: 120
+    timeout: 180
     consolidate_header: 0
     consolidate_citations: 0
     generate_ids: true
@@ -97,7 +97,7 @@ quality_control:
     max_retries: 2
   grobid_integration:
     enabled: true
-    failure_behavior: "fallback" # fallback | manifest_fail
+    failure_behavior: "manifest_fail" # fallback | manifest_fail
     crop_figures: true
     crop_tables: true
   addons:
@@ -105,17 +105,17 @@ quality_control:
       enabled: false
       url: ""
       endpoint: "/service/process"
-      timeout: 20
+      timeout: 60
     datastet:
       enabled: false
       url: ""
       endpoint: "/service/processDataseerSentence"
-      timeout: 20
+      timeout: 60
     entity_fishing:
       enabled: false
       url: ""
       endpoint: "/service/disambiguate"
-      timeout: 20
+      timeout: 60
   # Semantic quality scoring
   semantic_qc:
     enabled: false
@@ -136,7 +136,7 @@ quality_control:
     weird_char_ratio_threshold: 0.05
   # QC pipeline stage configuration
   artifact_generator:
-    export_to_disk: false
+    export_to_disk: true
     output_dir: "output/qc_artifacts"
   rater:
     attributes: []

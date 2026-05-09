@@ -2,8 +2,9 @@
 
 Provides the :class:`TextProcessor` class, which offers configurable
 normalization, comparison, OCR cleaning, word tokenization, and keyword
-extraction.  All backends are resolved at construction time; optional NLP
-backends (spaCy, NLTK) are lazy-imported inside method bodies.
+extraction.  Most optional NLP backends (spaCy, NLTK, scispaCy variants)
+are lazy-imported inside method bodies; the default scispaCy small model is
+loaded eagerly because it is a required runtime dependency.
 
 Also provides the :class:`SentenceSegment` abstract base class and five
 built-in concrete backends for sentence boundary detection (task 2.2).
@@ -99,8 +100,8 @@ class TextProcessor:
         # SentenceSegment subclasses call super().__init__() which skips this
         # block so they don't re-enter the wiring logic.
         st_cfg = cfg.get("sentence_tokenizer", {})
-        st_backend = st_cfg.get("backend", "nltk_punkt")  # TODO: Planned to be fixed in the future (spacy/numpy incompatibility)
-        self._segmenter = self._resolve_sentence_segmenter(st_backend)
+        st_backend = st_cfg.get("backend", "scispacy")
+        self._segmenter = self._resolve_sentence_segmenter(st_backend, st_cfg)
 
         # Store the full config for sub-class / future use.
         self._config: dict = cfg
@@ -109,7 +110,7 @@ class TextProcessor:
     # Sentence segmenter resolver (class-level, called from __init__)
     # ------------------------------------------------------------------
 
-    def _resolve_sentence_segmenter(self, backend: str):  # type: ignore[return]
+    def _resolve_sentence_segmenter(self, backend: str, segmenter_cfg: dict | None = None):  # type: ignore[return]
         """Return a SentenceSegment instance for *backend*.
 
         If *backend* is a dotted class path (contains ``"."``), it is loaded
@@ -128,8 +129,10 @@ class TextProcessor:
             cls = getattr(module, class_name)
             return cls()
 
+        if backend == "scispacy":
+            return ScispaCySentenceSegment(config=segmenter_cfg)
+
         _BACKEND_MAP = {
-            "scispacy": lambda: ScispaCySentenceSegment(),
             "wtpsplit": lambda: WtpSplitSentenceSegment(),
             "nltk_punkt": lambda: NLTKPunktSentenceSegment(),
             "spacy_sentencizer": lambda: SpacySentencizerSegment(),
@@ -330,7 +333,7 @@ class SentenceSegment(TextProcessor):
     once per instance.
     """
 
-    def _resolve_sentence_segmenter(self, backend: str):
+    def _resolve_sentence_segmenter(self, backend: str, segmenter_cfg: dict | None = None):
         """Override: SentenceSegment IS the segmenter — no child segmenter needed."""
         return None  # _segmenter will be set to self after super().__init__
 
@@ -352,24 +355,36 @@ class SentenceSegment(TextProcessor):
 
 
 class ScispaCySentenceSegment(SentenceSegment):
-    """Sentence segmentation via scispaCy (``en_core_sci_lg``).
+    """Sentence segmentation via scispaCy.
 
-    Lazy-loads the model on first call; raises :class:`ImportError` with an
-    exact install command when scispaCy or spaCy is not installed.
+    The default model (``en_core_sci_sm``) is loaded eagerly because it is a
+    required dependency.  Other configured models remain lazy-loaded on first
+    use so they are only imported when explicitly selected.
     """
+
+    DEFAULT_MODEL = "en_core_sci_sm"
+
+    def __init__(self, config: dict | None = None) -> None:
+        super().__init__()
+        self._model_name = (config or {}).get("model", self.DEFAULT_MODEL)
+        if self._model_name == self.DEFAULT_MODEL:
+            self._model = self._load_model()
+
+    def _load_model(self):
+        try:
+            import scispacy  # noqa: F401
+            import spacy
+            return spacy.load(self._model_name)
+        except (ImportError, OSError) as exc:
+            raise ImportError(
+                f"scispaCy model {self._model_name!r} is not installed. Install it with:\n"
+                "  pip install scispacy\n"
+                f"  python -m spacy download {self._model_name}"
+            ) from exc
 
     def tokenize_sentences(self, text: str) -> list[str]:
         if self._model is None:
-            try:
-                import scispacy  # noqa: F401
-                import spacy
-                self._model = spacy.load("en_core_sci_lg")
-            except ImportError:
-                raise ImportError(
-                    "scispaCy is not installed. Install it with:\n"
-                    "  pip install scispacy\n"
-                    "  python -m spacy download en_core_sci_lg"
-                )
+            self._model = self._load_model()
         return [sent.text for sent in self._model(text).sents]
 
 
