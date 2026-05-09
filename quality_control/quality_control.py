@@ -28,7 +28,6 @@ import hashlib
 import importlib
 import json
 import logging
-import re
 from typing import Callable
 
 from . import rater, iaa_calculator, adjudicator, reconciler
@@ -43,9 +42,10 @@ from .models import (
     QCContext,
     QualityMetrics,
     QualityReport,
+    SemanticLayer,
+    StructuralLayer,
     UnifiedRecord,
 )
-from pdf_extractor import artifact_generator
 from pdf_extractor.utils.text_utils import exact_match_search, semantic_search
 
 logger = logging.getLogger("pdf_extractor")
@@ -281,6 +281,8 @@ def _run_legacy_pipeline(
     config: dict,
 ) -> UnifiedRecord:
     """Run the legacy two-extractor QC pipeline and return a UnifiedRecord."""
+    from pdf_extractor import artifact_generator
+
     logger.debug("QC: building canonical artifacts for document_id=%s", document_id)
     canonical_artifacts = artifact_generator.build_canonical_artifacts(
         grobid_output, pymupdf_output, document_id
@@ -444,44 +446,129 @@ def run_quality_control(
         decision.adjudicate(reports, iaa_metrics)
         return decision
 
-    # --- Stage 4: Reconciliation (delegates to legacy pipeline) ---
-    grobid_payload: str = "<root/>"
-    pymupdf_payload: dict | list = {}
-    for branch in branches:
-        if branch.extractor == "grobid" and isinstance(branch.payload, str):
-            grobid_payload = branch.payload
-        elif branch.extractor == "pymupdf" and isinstance(branch.payload, (dict, list)):
-            pymupdf_payload = branch.payload
+    # --- Stage 4: Reconciliation (strategy-driven, extractor-agnostic call site) ---
+    def _build_reconciler_artifact(branch: BranchOutput | None) -> dict:
+        if branch is None:
+            return {"document_id": document_id, "blocks": []}
+        full_text, _page_texts, blocks = _extract_branch_payload(branch.payload)
+        return {
+            "document_id": document_id,
+            "extractor": branch.extractor,
+            "branch": branch.branch,
+            "text": full_text,
+            "blocks": blocks,
+        }
+
+    def _as_adjudication_decisions(decision_obj: AdjudicationRules | dict | None) -> dict:
+        if isinstance(decision_obj, dict):
+            confidence = float(decision_obj.get("confidence", 1.0))
+            primary = str(decision_obj.get("primary_extractor", "primary"))
+            rationale = str(decision_obj.get("rationale", "strategy-driven reconciliation"))
+            return {
+                "primary_extractor": primary,
+                "confidence": confidence,
+                "rationale": rationale,
+            }
+        confidence = float(getattr(decision_obj, "confidence", 1.0))
+        primary = str(getattr(decision_obj, "primary_extractor", "primary"))
+        rationale = str(getattr(decision_obj, "rationale", "strategy-driven reconciliation"))
+        return {
+            "primary_extractor": primary,
+            "confidence": confidence,
+            "rationale": rationale,
+        }
 
     def _pdf_reconciler_fn(
-        decision: AdjudicationRules,  # noqa: ARG001
-        all_branches: list[BranchOutput],  # noqa: ARG001
+        decision: AdjudicationRules,
+        all_branches: list[BranchOutput],
         cfg: dict,
     ) -> UnifiedRecord:
-        # Delegate to legacy pipeline builder which constructs canonical
-        # artifacts and ultimately calls reconciler.reconcile(). This keeps
-        # existing test expectations intact while allowing a post-processing
-        # annotation step.
-        result = _run_legacy_pipeline(grobid_payload, pymupdf_payload, document_id, cfg)
-        if isinstance(result, UnifiedRecord):
-            unified = result
-        else:
-            unified = UnifiedRecord(document_id=document_id, content=result)
+        from quality_control.concerns import (
+            DEFAULT_SECTION_VERIFICATION,
+            DEFAULT_TABLE_FIGURE_MERGE,
+            DEFAULT_TEXT_FIDELITY,
+        )
+        from pdf_extractor.annotation import w3c_annotation
+        from pdf_extractor.annotation import artifact_generator as annotation_artifact_generator
 
-        # Wire annotation chain: project and generate JSON-LD, store on record
+        grobid_branch = next(
+            (b for b in all_branches if b.extractor == "grobid"),
+            None,
+        )
+        secondary_branch = next(
+            (
+                b
+                for b in all_branches
+                if str(b.branch).lower() in {"pdfplumber", "pymupdf"}
+            ),
+            None,
+        )
+        if secondary_branch is None:
+            secondary_branch = next(
+                (b for b in all_branches if b.extractor in {"pdfplumber", "pymupdf"}),
+                None,
+            )
+
+        primary_artifact = _build_reconciler_artifact(grobid_branch)
+        secondary_artifact = _build_reconciler_artifact(secondary_branch)
+
+        updated_unified = reconciler.reconcile(
+            primary_artifact=primary_artifact,
+            secondary_artifact=secondary_artifact,
+            adjudication_decisions=_as_adjudication_decisions(decision),
+            config=cfg,
+            text_fidelity_strategy=DEFAULT_TEXT_FIDELITY,
+            section_strategy=DEFAULT_SECTION_VERIFICATION,
+            table_figure_strategy=DEFAULT_TABLE_FIGURE_MERGE,
+            text_processor=text_processor,
+        )
+
+        if (
+            text_processor is not None
+            and updated_unified.semantic is not None
+            and not updated_unified.semantic.sentences
+        ):
+            for para in updated_unified.semantic.paragraphs:
+                para_text = para.get("text", "")
+                page_index = para.get("page_index", 0)
+                for sentence in text_processor.tokenize_sentences(para_text):
+                    updated_unified.semantic.sentences.append(
+                        {
+                            "text": sentence,
+                            "page_index": page_index,
+                            "ocr_derived": False,
+                        }
+                    )
+
+        # Wire annotation chain: project and generate JSON-LD, store on record.
+        annotation_records = w3c_annotation.project(updated_unified)
+        jsonld = annotation_artifact_generator.generate_w3c_jsonld(annotation_records)
+        if not isinstance(updated_unified.content, dict):
+            updated_unified.content = {}
+        updated_unified.content["annotations"] = jsonld
+
+        # If any branch exists, enforce non-None typed layers.
+        if all_branches:
+            if updated_unified.semantic is None:
+                updated_unified.semantic = SemanticLayer()
+            if updated_unified.structural is None:
+                updated_unified.structural = StructuralLayer()
+            if updated_unified.alignment is None:
+                updated_unified.alignment = AlignmentMap()
+
+        return updated_unified
+
+    # Retained for compatibility; no longer used by the active reconciler closure.
+    def _run_legacy_annotation_path(unified: UnifiedRecord) -> UnifiedRecord:  # pragma: no cover
         try:
-            from pdf_extractor.annotation import w3c_annotation
-            from pdf_extractor.annotation import artifact_generator as annotation_artifact_generator
-
-            annotation_records = w3c_annotation.project(unified)
-            jsonld = annotation_artifact_generator.generate_w3c_jsonld(annotation_records)
-            # Store generated JSON-LD on the backward-compatible content annotations key
+            from pdf_extractor.annotation import w3c_annotation as _w3c_annotation
+            from pdf_extractor.annotation import artifact_generator as _annotation_artifact_generator
+            annotation_records = _w3c_annotation.project(unified)
+            jsonld = _annotation_artifact_generator.generate_w3c_jsonld(annotation_records)
             if isinstance(unified.content, dict):
                 unified.content["annotations"] = jsonld
-        except Exception:
-            # Annotation chain is best-effort; do not fail the pipeline on missing deps
-            pass
-
+        except ImportError as exc:
+            logger.warning("Annotation projection unavailable: %s", exc)
         return unified
 
     # --- Run the generic pipeline ---

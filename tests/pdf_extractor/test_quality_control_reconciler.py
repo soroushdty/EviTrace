@@ -397,6 +397,43 @@ class TestConcernRouting:
         assert "grobid" not in src, "reconcile() source contains literal 'grobid'"
         assert "pdfplumber" not in src, "reconcile() source contains literal 'pdfplumber'"
 
+    def test_mock_strategies_populate_alignment_map(self) -> None:
+        """Injected concern strategies produce a populated AlignmentMap."""
+        primary = {
+            "document_id": "doc-align",
+            "blocks": [
+                {"text": "Intro", "page_index": 0, "block_type": "section"},
+                {"text": "Sentence one.", "page_index": 0, "block_type": "paragraph"},
+                {"text": "Table 1", "page_index": 0, "block_type": "table"},
+            ],
+        }
+        secondary = {
+            "document_id": "doc-align",
+            "blocks": [
+                {"text": "Introduction", "page_index": 0, "block_type": "section"},
+                {"text": "Sentence one.", "page_index": 0, "block_type": "paragraph"},
+                {"text": "Table 1", "page_index": 0, "block_type": "table"},
+            ],
+        }
+        tf = self._make_text_fidelity_strategy()
+        sec = self._make_section_strategy()
+        tbl = self._make_table_figure_strategy()
+        tp = self._make_text_processor()
+
+        result = reconcile(
+            primary_artifact=primary,
+            secondary_artifact=secondary,
+            adjudication_decisions={"primary_extractor": "primary", "confidence": 0.9},
+            text_fidelity_strategy=tf,
+            section_strategy=sec,
+            table_figure_strategy=tbl,
+            text_processor=tp,
+        )
+
+        assert result.alignment is not None
+        assert len(result.alignment.paragraph_to_blocks) > 0
+        assert len(result.alignment.section_header_to_block) > 0
+
     def test_placeholder_path_retained_when_adjudication_decisions_is_none(self) -> None:
         """PLACEHOLDER_NOTICE backward-compat path is retained when decisions is None."""
         primary = self._make_artifact_with_paragraph_blocks("doc-ph")

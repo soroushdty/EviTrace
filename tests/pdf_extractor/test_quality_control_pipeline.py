@@ -38,7 +38,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from quality_control.quality_control import run_quality_control
-from quality_control import BranchOutput, QCContext
+from quality_control import AlignmentMap, BranchOutput, QCContext, UnifiedRecord
 
 
 # ---------------------------------------------------------------------------
@@ -87,24 +87,23 @@ def test_document_id_derivation_deterministic(pymupdf_output):
 # ---------------------------------------------------------------------------
 
 # Feature: quality-control-module, Property 14: Pipeline propagates sub-module exceptions
-@given(st.sampled_from(["artifact_generator", "rater", "iaa_calculator", "adjudicator"]))
+@given(st.sampled_from(["reconciler", "annotation_projection", "annotation_generation"]))
 @settings(max_examples=20)
 def test_pipeline_propagates_exceptions(module_name):
     """Validates: Requirements 1.7"""
     error = RuntimeError("test error")
 
-    with patch(
-        f"quality_control.quality_control.{module_name}"
-    ) as mock_mod:
-        if module_name == "artifact_generator":
-            mock_mod.build_canonical_artifacts.side_effect = error
-        elif module_name == "rater":
-            mock_mod.observe.side_effect = error
-        elif module_name == "iaa_calculator":
-            mock_mod.investigate.side_effect = error
-        elif module_name == "adjudicator":
-            mock_mod.adjudicate.side_effect = error
+    if module_name == "reconciler":
+        patch_target = patch("quality_control.quality_control.reconciler.reconcile", side_effect=error)
+    elif module_name == "annotation_projection":
+        patch_target = patch("pdf_extractor.annotation.w3c_annotation.project", side_effect=error)
+    else:
+        patch_target = patch(
+            "pdf_extractor.annotation.artifact_generator.generate_w3c_jsonld",
+            side_effect=error,
+        )
 
+    with patch_target:
         config = _make_minimal_config()
         branches = [BranchOutput(extractor="grobid", branch=0, payload="<root/>", status=None)]
         with pytest.raises(RuntimeError, match="test error"):
@@ -116,7 +115,7 @@ def test_pipeline_propagates_exceptions(module_name):
 # ---------------------------------------------------------------------------
 
 class TestPipelineOrchestration:
-    """Unit tests that mock all sub-modules to verify orchestration behaviour."""
+    """Unit tests for reconciler/annotation orchestration behaviour."""
 
     def _make_mock_artifacts(self):
         """Return a minimal canonical artifacts dict."""
@@ -166,127 +165,75 @@ class TestPipelineOrchestration:
             "placeholder_notice": "placeholder",
         }
 
-    def test_sub_module_call_ordering(self):
-        """Verify call order: artifact_generator → rater × 2 → iaa_calculator → adjudicator."""
-        canonical_arts = self._make_mock_artifacts()
-        grobid_obs = self._make_mock_observation("grobid")
-        pymupdf_obs = self._make_mock_observation("pymupdf")
-        inv_obj = self._make_mock_investigator_object()
-        unified = self._make_mock_unified_output()
-
-        manager = MagicMock()
-
-        with (
-            patch("quality_control.quality_control.artifact_generator") as mock_arts,
-            patch("quality_control.quality_control.rater") as mock_obs,
-            patch("quality_control.quality_control.iaa_calculator") as mock_inv,
-            patch("quality_control.quality_control.adjudicator") as mock_adj,
-        ):
-            mock_arts.build_canonical_artifacts.return_value = canonical_arts
-            mock_obs.observe.side_effect = [grobid_obs, pymupdf_obs]
-            mock_inv.investigate.return_value = inv_obj
-            mock_adj.adjudicate.return_value = unified
-
-            # Attach to manager to track cross-mock ordering
-            manager.attach_mock(mock_arts.build_canonical_artifacts, "build_canonical_artifacts")
-            manager.attach_mock(mock_obs.observe, "observe")
-            manager.attach_mock(mock_inv.investigate, "investigate")
-            manager.attach_mock(mock_adj.adjudicate, "adjudicate")
-
-            config = _make_minimal_config()
-            branches = _make_branches("<root/>", {})
-            run_quality_control(branches, "test-doc-id", config)
-
-            call_names = [c[0] for c in manager.mock_calls]
-            assert call_names.index("build_canonical_artifacts") < call_names.index("observe")
-            # observe is called twice
-            observe_indices = [i for i, n in enumerate(call_names) if n == "observe"]
-            assert len(observe_indices) == 2
-            assert observe_indices[-1] < call_names.index("investigate")
-            assert call_names.index("investigate") < call_names.index("adjudicate")
-
-    def test_canonical_artifacts_passed_to_observer(self):
-        """Rater.observe must receive canonical_artifacts, not native outputs."""
-        canonical_arts = self._make_mock_artifacts()
-        grobid_obs = self._make_mock_observation("grobid")
-        pymupdf_obs = self._make_mock_observation("pymupdf")
-        inv_obj = self._make_mock_investigator_object()
-        unified = self._make_mock_unified_output()
-
-        with (
-            patch("quality_control.quality_control.artifact_generator") as mock_arts,
-            patch("quality_control.quality_control.rater") as mock_obs,
-            patch("quality_control.quality_control.iaa_calculator") as mock_inv,
-            patch("quality_control.quality_control.adjudicator") as mock_adj,
-        ):
-            mock_arts.build_canonical_artifacts.return_value = canonical_arts
-            mock_obs.observe.side_effect = [grobid_obs, pymupdf_obs]
-            mock_inv.investigate.return_value = inv_obj
-            mock_adj.adjudicate.return_value = unified
-
-            config = _make_minimal_config()
-            branches = _make_branches("<root/>", {"key": "val"})
-            run_quality_control(branches, "test-doc-id", config)
-
-            # Both observe calls should receive canonical_arts as second positional arg
-            for c in mock_obs.observe.call_args_list:
-                assert c.args[1] is canonical_arts
-
-    def test_export_called_when_export_to_disk_true(self):
-        """export_canonical_artifacts is called when export_to_disk=True."""
-        canonical_arts = self._make_mock_artifacts()
-        grobid_obs = self._make_mock_observation("grobid")
-        pymupdf_obs = self._make_mock_observation("pymupdf")
-        inv_obj = self._make_mock_investigator_object()
-        unified = self._make_mock_unified_output()
-
-        with (
-            patch("quality_control.quality_control.artifact_generator") as mock_arts,
-            patch("quality_control.quality_control.rater") as mock_obs,
-            patch("quality_control.quality_control.iaa_calculator") as mock_inv,
-            patch("quality_control.quality_control.adjudicator") as mock_adj,
-        ):
-            mock_arts.build_canonical_artifacts.return_value = canonical_arts
-            mock_obs.observe.side_effect = [grobid_obs, pymupdf_obs]
-            mock_inv.investigate.return_value = inv_obj
-            mock_adj.adjudicate.return_value = unified
-
-            config = _make_minimal_config()
-            config["quality_control"]["artifact_generator"]["export_to_disk"] = True
-            config["quality_control"]["artifact_generator"]["output_dir"] = "/tmp/qc_test"
-
-            branches = _make_branches("<root/>", {})
-            run_quality_control(branches, "test-doc-id", config)
-
-            mock_arts.export_canonical_artifacts.assert_called_once_with(
-                canonical_arts, "/tmp/qc_test"
+    def test_reconciler_call_is_strategy_driven_and_extractor_agnostic(self):
+        """reconciler.reconcile() gets role artifacts + strategy kwargs (no extractor kwargs)."""
+        with patch("quality_control.quality_control.reconciler.reconcile") as mock_reconcile:
+            mock_reconcile.return_value = UnifiedRecord(
+                document_id="test-doc-id",
+                content={},
+                semantic=MagicMock(sentences=[]),
+                structural=MagicMock(),
+                alignment=AlignmentMap(paragraph_to_blocks=[{"ok": True}]),
             )
-
-    def test_export_not_called_when_export_to_disk_false(self):
-        """export_canonical_artifacts is NOT called when export_to_disk=False."""
-        canonical_arts = self._make_mock_artifacts()
-        grobid_obs = self._make_mock_observation("grobid")
-        pymupdf_obs = self._make_mock_observation("pymupdf")
-        inv_obj = self._make_mock_investigator_object()
-        unified = self._make_mock_unified_output()
-
-        with (
-            patch("quality_control.quality_control.artifact_generator") as mock_arts,
-            patch("quality_control.quality_control.rater") as mock_obs,
-            patch("quality_control.quality_control.iaa_calculator") as mock_inv,
-            patch("quality_control.quality_control.adjudicator") as mock_adj,
-        ):
-            mock_arts.build_canonical_artifacts.return_value = canonical_arts
-            mock_obs.observe.side_effect = [grobid_obs, pymupdf_obs]
-            mock_inv.investigate.return_value = inv_obj
-            mock_adj.adjudicate.return_value = unified
-
-            config = _make_minimal_config()  # export_to_disk=False by default
-
-            branches = _make_branches("<root/>", {})
+            config = _make_minimal_config()
+            branches = _make_branches("<root/>", {"blocks": [{"text": "Hello", "page_index": 0}]})
             run_quality_control(branches, "test-doc-id", config)
 
-            mock_arts.export_canonical_artifacts.assert_not_called()
+            assert mock_reconcile.call_count == 1
+            kwargs = mock_reconcile.call_args.kwargs
+            assert "primary_artifact" in kwargs
+            assert "secondary_artifact" in kwargs
+            assert "text_fidelity_strategy" in kwargs
+            assert "section_strategy" in kwargs
+            assert "table_figure_strategy" in kwargs
+            assert "text_processor" in kwargs
+            assert kwargs["text_processor"] is not None
+
+            call_repr = repr(kwargs)
+            assert "pdfplumber" not in call_repr
+            assert "pymupdf_observation" not in call_repr
+            assert "grobid_observation" not in call_repr
+
+    def test_reconciler_alignment_survives_into_qc_context(self):
+        """QCContext.unified keeps populated AlignmentMap from reconcile output."""
+        expected_alignment = AlignmentMap(paragraph_to_blocks=[{"agreement": "full"}])
+        with patch("quality_control.quality_control.reconciler.reconcile") as mock_reconcile:
+            mock_reconcile.return_value = UnifiedRecord(
+                document_id="test-doc-id",
+                content={},
+                semantic=MagicMock(sentences=[]),
+                structural=MagicMock(),
+                alignment=expected_alignment,
+            )
+            config = _make_minimal_config()
+            branches = _make_branches("<root/>", {"blocks": [{"text": "Hello", "page_index": 0}]})
+            ctx = run_quality_control(branches, "test-doc-id", config)
+            assert ctx.unified.alignment is expected_alignment
+
+    def test_annotation_chain_writes_jsonld_to_unified_content(self):
+        """w3c projection + JSON-LD generation result is stored in UnifiedRecord content."""
+        with (
+            patch("quality_control.quality_control.reconciler.reconcile") as mock_reconcile,
+            patch("pdf_extractor.annotation.w3c_annotation.project") as mock_project,
+            patch(
+                "pdf_extractor.annotation.artifact_generator.generate_w3c_jsonld"
+            ) as mock_generate_jsonld,
+        ):
+            mock_reconcile.return_value = UnifiedRecord(
+                document_id="test-doc-id",
+                content={},
+                semantic=MagicMock(sentences=[]),
+                structural=MagicMock(),
+                alignment=AlignmentMap(),
+            )
+            mock_project.return_value = [{"sentence_text": "s1"}]
+            mock_generate_jsonld.return_value = [{"id": "anno-1"}]
+
+            config = _make_minimal_config()
+            branches = _make_branches("<root/>", {"blocks": [{"text": "Hello", "page_index": 0}]})
+            ctx = run_quality_control(branches, "test-doc-id", config)
+
+            assert ctx.unified.content["annotations"] == [{"id": "anno-1"}]
 
     def test_accepts_minimal_valid_inputs(self):
         """run_quality_control with a non-empty TEI XML string and dict should not raise."""
@@ -384,6 +331,8 @@ def test_sentence_records_use_text_processor_mock():
     pymupdf_output = {"blocks": [{"text": "Hello world", "page_index": 0}]}
     branches = _make_branches(grobid_output, pymupdf_output)
 
+    import quality_control.quality_control as qc_module
+    assert not hasattr(qc_module, "re")
     ctx = run_quality_control(branches, "test-doc-id", config)
 
     # The autouse fixture _mock_text_processor_tokenize ensures tokenization
