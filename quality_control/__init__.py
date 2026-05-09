@@ -32,6 +32,10 @@ PDF-specific entry point:
 
 from .quality_control import run_pipeline, run_quality_control
 from .models import (
+    SemanticLayer,
+    StructuralLayer,
+    AlignmentMapEntry,
+    AlignmentMap,
     BranchOutput,
     QCContext,
     QualityMetrics,
@@ -48,6 +52,10 @@ from .local_metrics import LocalQCReport
 __all__ = [
     "run_pipeline",
     "run_quality_control",
+    "SemanticLayer",
+    "StructuralLayer",
+    "AlignmentMapEntry",
+    "AlignmentMap",
     "BranchOutput",
     "QCContext",
     "QualityMetrics",

@@ -10,6 +10,20 @@ at any point.
 
 Classes
 -------
+SemanticLayer
+    Typed semantic layer holding sections, paragraphs, sentences, references,
+    and document metadata.
+
+StructuralLayer
+    Typed structural layer holding pages, text blocks, tables, and figures.
+
+AlignmentMapEntry
+    Provenance and agreement record for one semantic-to-structural alignment.
+
+AlignmentMap
+    Container linking semantic elements to structural blocks via alignment
+    entries.
+
 BranchOutput
     One extractor branch's output, carrying extractor name, branch index,
     native payload, and pass/fail status.
@@ -247,6 +261,109 @@ class AdjudicationDecision(AdjudicationRules):
 
 
 @dataclass
+class SemanticLayer:
+    """Typed semantic layer of a processed document.
+
+    Attributes
+    ----------
+    metadata:
+        Document-level metadata dict (title, authors, abstract, etc.).
+    sections:
+        List of section dicts (heading, depth, label, …).
+    paragraphs:
+        List of paragraph dicts (text, page_index, …).
+    sentences:
+        List of sentence dicts (text, page_index, …).
+    references:
+        List of reference dicts (ref_id, text, …).
+    """
+
+    metadata: dict = field(default_factory=dict)
+    sections: list = field(default_factory=list)
+    paragraphs: list = field(default_factory=list)
+    sentences: list = field(default_factory=list)
+    references: list = field(default_factory=list)
+
+
+@dataclass
+class StructuralLayer:
+    """Typed structural layer of a processed document.
+
+    Attributes
+    ----------
+    pages:
+        List of page dicts (index, width, height in PDF user-space points).
+    blocks:
+        List of block dicts (bbox, text, page_index, …).
+    tables:
+        List of table dicts (caption, bbox, …).
+    figures:
+        List of figure dicts (caption, bbox, …).
+    """
+
+    pages: list = field(default_factory=list)
+    blocks: list = field(default_factory=list)
+    tables: list = field(default_factory=list)
+    figures: list = field(default_factory=list)
+
+
+@dataclass
+class AlignmentMapEntry:
+    """Provenance and agreement record for one semantic-to-structural alignment.
+
+    Attributes
+    ----------
+    source:
+        Free string identifying the data source; not constrained to any fixed
+        extractor name set.
+    ocr_derived:
+        True when this entry was produced by an OCR backend.
+    ocr_engines:
+        List of OCR engine names that contributed to this entry.
+    agreement:
+        Agreement level: ``"full"`` | ``"partial"`` | ``"divergent"`` |
+        ``"one_engine_only"``.
+    edit_distance:
+        Normalized Levenshtein distance in ``[0.0, 1.0]``.
+    preferred_reading:
+        The text chosen by the injected concern strategy.
+    confidence:
+        Confidence score in ``[0.0, 1.0]``.
+    """
+
+    source: str = "native"
+    ocr_derived: bool = False
+    ocr_engines: list = field(default_factory=list)
+    agreement: str = "full"
+    edit_distance: float = 0.0
+    preferred_reading: str = ""
+    confidence: float = 1.0
+
+
+@dataclass
+class AlignmentMap:
+    """Container linking semantic elements to structural blocks.
+
+    Attributes
+    ----------
+    paragraph_to_blocks:
+        List of :class:`AlignmentMapEntry` linking paragraphs to blocks.
+    sentence_to_char_range:
+        List of dicts mapping sentence text to character ranges
+        (``{"sentence": str, "start": int, "end": int, "page_index": int}``).
+    section_header_to_block:
+        List of :class:`AlignmentMapEntry` linking section headings to blocks.
+    reconciliation_flags:
+        List of :class:`AlignmentMapEntry` recording unresolved divergences.
+    """
+
+    paragraph_to_blocks: list = field(default_factory=list)
+    sentence_to_char_range: list = field(default_factory=list)
+    section_header_to_block: list = field(default_factory=list)
+    reconciliation_flags: list = field(default_factory=list)
+
+
+@dataclass
 class UnifiedRecord:
     """Final reconciled output produced by the Reconciler.
 
@@ -255,11 +372,20 @@ class UnifiedRecord:
     document_id:
         Stable document identifier.
     content:
-        Reconciled content dict.
+        Reconciled content dict (retained for backward compatibility).
+    semantic:
+        Optional typed semantic layer.
+    structural:
+        Optional typed structural layer.
+    alignment:
+        Optional alignment map linking semantic to structural elements.
     """
 
     document_id: str = ""
     content: dict = field(default_factory=dict)
+    semantic: SemanticLayer | None = None
+    structural: StructuralLayer | None = None
+    alignment: AlignmentMap | None = None
 
 
 @dataclass

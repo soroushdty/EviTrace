@@ -63,7 +63,7 @@
 ---
 
 - [ ] 3. Foundation: QC data model extensions (P)
-- [ ] 3.1 (P) Add typed data layer dataclasses to models.py
+- [x] 3.1 (P) Add typed data layer dataclasses to models.py
   - Add `SemanticLayer`, `StructuralLayer`, `AlignmentMapEntry`, `AlignmentMap` dataclasses before `UnifiedRecord` in `quality_control/models.py`
   - All list fields use `field(default_factory=list)`
   - `AlignmentMapEntry.source` is `str` with default `"native"` — not constrained to any extractor name set
