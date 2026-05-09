@@ -141,6 +141,51 @@ class TestNormalize:
         result = tp.normalize("ﬁle")
         assert result == "file"
 
+    @pytest.mark.parametrize("raw", [
+        # Pure whitespace: collapses to ""
+        "   ",
+        # Tabs and newlines mixed with spaces
+        "hello\t\tworld\n\nfoo",
+        # Leading/trailing whitespace around ligatures
+        "  ﬁle  ﬂoor  ",
+        # Composed accented characters (NFC/NFKC both handle these)
+        "café naïve",
+        # Already-normalized plain ASCII
+        "already normalized text",
+        # Empty string
+        "",
+        # Only non-whitespace ligatures
+        "ﬁﬂ",
+        # Mixed ligature and normal chars with extra whitespace
+        "ﬁle  ﬂoor   baz",
+    ])
+    def test_idempotent_arbitrary_nfkc(self, raw):
+        """normalize(normalize(x)) == normalize(x) for a variety of input shapes."""
+        tp = _make_tp({"normalizer": {"backend": "nfkc"}})
+        once = tp.normalize(raw)
+        twice = tp.normalize(once)
+        assert once == twice, (
+            f"Idempotency failed for {raw!r}: "
+            f"first={once!r}, second={twice!r}"
+        )
+
+    @pytest.mark.parametrize("raw", [
+        "hello  world",
+        "  leading and trailing  ",
+        "café",
+        "",
+        "\t\n mixed \r whitespace",
+    ])
+    def test_idempotent_arbitrary_nfc(self, raw):
+        """normalize(normalize(x)) == normalize(x) for NFC mode too."""
+        tp = _make_tp({"normalizer": {"backend": "nfc"}})
+        once = tp.normalize(raw)
+        twice = tp.normalize(once)
+        assert once == twice, (
+            f"NFC idempotency failed for {raw!r}: "
+            f"first={once!r}, second={twice!r}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # compare()
@@ -155,6 +200,16 @@ class TestCompare:
         tp = _make_tp()
         score = tp.compare("aaaa", "zzzz")
         assert 0.0 <= score <= 1.0
+
+    def test_completely_different_strings_return_zero(self):
+        """compare() must return exactly 0.0 for strings with no characters in common.
+
+        SequenceMatcher ratio is 2*M/T; when M==0 (no matching blocks at all),
+        the ratio is exactly 0.0.  'aaaa' vs 'zzzz' share no character.
+        """
+        tp = _make_tp()
+        assert tp.compare("aaaa", "zzzz") == pytest.approx(0.0)
+        assert tp.compare("abc", "xyz") == pytest.approx(0.0)
 
     def test_empty_strings_return_one(self):
         """Two empty strings are identical."""
@@ -535,6 +590,36 @@ class TestNLTKPunktSentenceSegment:
         # The key invariant: the module is imported at most once (checked via _model caching).
         assert seg._model is not None
 
+    def test_model_set_exactly_once_across_multiple_calls(self):
+        """The internal _model attribute is assigned only on the first call.
+
+        Verifies the load-once invariant: after two tokenize_sentences calls,
+        `_model` is the mock nltk module itself (not None), and the mock's
+        `sent_tokenize` was invoked both times — meaning the guard executed
+        correctly and did not re-import on the second call.
+        """
+        from utils.text_processor import NLTKPunktSentenceSegment
+
+        mock_nltk = MagicMock()
+        mock_nltk.sent_tokenize = MagicMock(return_value=["Hello world."])
+
+        with patch.dict(sys.modules, {"nltk": mock_nltk}):
+            seg = NLTKPunktSentenceSegment()
+
+            # _model starts as None before any call
+            assert seg._model is None
+
+            seg.tokenize_sentences("Hello world.")
+
+            # After first call, _model must be the captured module — not None
+            first_model = seg._model
+            assert first_model is not None
+
+            seg.tokenize_sentences("Another sentence.")
+
+            # After second call, _model must still be the exact same object
+            assert seg._model is first_model
+
 
 class TestSpacySentencizerSegment:
     """SpacySentencizerSegment raises ImportError with spacy hint when absent."""
@@ -687,3 +772,44 @@ class TestCustomClassPathBackend:
         from utils.text_processor import TextProcessor
         with pytest.raises(ValueError):
             TextProcessor(config={"sentence_tokenizer": {"backend": "nodotpath"}})
+
+    def test_resolve_sentence_segmenter_method_exists(self):
+        """_resolve_sentence_segmenter (the loader helper) must exist on TextProcessor."""
+        from utils.text_processor import TextProcessor
+        tp = TextProcessor(config={})
+        assert callable(getattr(tp, "_resolve_sentence_segmenter", None)), (
+            "TextProcessor must expose _resolve_sentence_segmenter as the "
+            "class-path injection point (requirement 5.5)"
+        )
+
+    def test_custom_backend_tokenize_sentences_end_to_end(self):
+        """End-to-end: custom backend loaded via dotted path correctly handles tokenization.
+
+        This verifies the full injection path: config -> _resolve_sentence_segmenter
+        -> importlib.import_module -> class instantiation -> tokenize_sentences call.
+        """
+        from utils.text_processor import TextProcessor
+
+        call_log = []
+
+        class _CustomSegmenter:
+            def __init__(self):
+                self._model = "loaded"
+
+            def tokenize_sentences(self, text: str):
+                call_log.append(text)
+                return text.split(". ")
+
+        import importlib
+        with patch.object(importlib, "import_module") as mock_import:
+            fake_module = MagicMock()
+            fake_module._CustomSegmenter = _CustomSegmenter
+            mock_import.return_value = fake_module
+
+            tp = TextProcessor(config={
+                "sentence_tokenizer": {"backend": "my.custom._CustomSegmenter"}
+            })
+
+        sentences = tp.tokenize_sentences("First sentence. Second sentence.")
+        assert sentences == ["First sentence", "Second sentence."]
+        assert call_log == ["First sentence. Second sentence."]

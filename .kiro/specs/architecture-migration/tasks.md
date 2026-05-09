@@ -46,7 +46,7 @@
   - _Requirements: 5.1, 5.5_
   - _Boundary: utils/text_processor_
 
-- [ ] 2.3 Test TextProcessor and SentenceSegment
+- [x] 2.3 Test TextProcessor and SentenceSegment
   - `normalize` is idempotent: `normalize(normalize(x)) == normalize(x)` for arbitrary strings
   - `normalize` collapses whitespace and expands ﬁ→fi, ﬂ→fl ligatures
   - `compare` returns `1.0` for identical strings, `0.0` for completely different strings
