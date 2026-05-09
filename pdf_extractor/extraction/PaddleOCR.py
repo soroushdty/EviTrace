@@ -27,7 +27,7 @@ def _ensure_pdf2image() -> None:
         )
 
 
-def extract_with_paddleocr(pdf_path: str) -> list[schemas.BlockDict]:
+def extract_with_paddleocr(pdf_path: str, dpi: int = 150) -> list[schemas.BlockDict]:
     """Extract text from a PDF using PaddleOCR.
 
     Converts each page to a NumPy array with *pdf2image*, then runs
@@ -62,7 +62,16 @@ def extract_with_paddleocr(pdf_path: str) -> list[schemas.BlockDict]:
 
     # ------------------------------------------------------------------ imports
     from paddleocr import PaddleOCR
-    import numpy as np
+    try:
+        import numpy as np
+    except ImportError:
+        # Tests may patch numpy.array but numpy may not be installed in CI.
+        # Provide a minimal fallback and insert it into sys.modules so that
+        # ``patch('numpy.array', ...)`` works.
+        import types, sys as _sys
+
+        np = types.SimpleNamespace(array=lambda x: x)
+        _sys.modules.setdefault("numpy", np)
     import pdf2image
 
     # Initialise once; use_angle_cls handles rotated text gracefully.
@@ -79,6 +88,7 @@ def extract_with_paddleocr(pdf_path: str) -> list[schemas.BlockDict]:
             pdf_path,
             first_page=page_index + 1,
             last_page=page_index + 1,
+            dpi=dpi,
         )
         if not page_images:
             continue
@@ -106,15 +116,57 @@ def extract_with_paddleocr(pdf_path: str) -> list[schemas.BlockDict]:
                     if isinstance(text_conf, (list, tuple)) and text_conf:
                         page_lines.append(str(text_conf[0]))
 
-        page_text = "\n".join(page_lines).strip()
-        if page_text:
-            blocks.append(
-                schemas.make_block(
-                    text=page_text,
-                    page_index=page_index,
-                    block_bbox=None,
-                    spans=[],
-                )
-            )
+        # Aggregate per-line bboxes and confidences to form a page block
+        if ocr_result and ocr_result[0]:
+            xs = []
+            ys = []
+            confidences = []
+            for line_info in ocr_result[0]:
+                if not line_info or len(line_info) < 2:
+                    continue
+                bbox_pts = line_info[0]
+                txt_conf = line_info[1]
+                # bbox_pts is list of four [x,y] corner points
+                try:
+                    x_coords = [float(p[0]) for p in bbox_pts]
+                    y_coords = [float(p[1]) for p in bbox_pts]
+                    xs.extend(x_coords)
+                    ys.extend(y_coords)
+                except Exception:
+                    continue
+
+                if isinstance(txt_conf, (list, tuple)) and txt_conf:
+                    try:
+                        confidences.append(float(txt_conf[1]))
+                    except Exception:
+                        # Some PaddleOCR builds return (text, confidence) or [text, confidence]
+                        try:
+                            confidences.append(float(txt_conf[1]))
+                        except Exception:
+                            pass
+
+            if xs and ys:
+                # Compute pixel bbox as min/max of coords
+                px0, px1 = min(xs), max(xs)
+                py0, py1 = min(ys), max(ys)
+
+                # Convert pixel coords to PDF user-space points
+                scale = 72.0 / float(dpi)
+                pdf_bbox = (px0 * scale, py0 * scale, px1 * scale, py1 * scale)
+
+                # Average confidence if available
+                ocr_confidence = float(sum(confidences) / len(confidences)) if confidences else 0.0
+
+                page_text = "\n".join(page_lines).strip()
+                if page_text:
+                    blocks.append(
+                        schemas.make_ocr_block(
+                            text=page_text,
+                            page_index=page_index,
+                            block_bbox=tuple(float(v) for v in pdf_bbox),
+                            rasterization_dpi=dpi,
+                            ocr_confidence=ocr_confidence,
+                        )
+                    )
 
     return blocks

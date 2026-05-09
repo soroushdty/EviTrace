@@ -12,6 +12,26 @@ from __future__ import annotations
 
 import json
 from unittest.mock import MagicMock, call, patch
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _mock_text_processor_tokenize(monkeypatch):
+    """Ensure TextProcessor.tokenize_sentences is deterministic for tests.
+
+    Returns a two-sentence list so the pipeline does not attempt to load
+    optional NLP packages during unit/integration tests.
+    """
+
+    def _fake_tokenize(self, text):
+        if not text:
+            return []
+        return ["sentence one", "sentence two"]
+
+    monkeypatch.setattr(
+        "utils.text_processor.TextProcessor.tokenize_sentences",
+        _fake_tokenize,
+    )
 
 import pytest
 from hypothesis import given, settings
@@ -355,3 +375,23 @@ def test_full_pipeline_integration():
 
     # Must be JSON-serializable without custom encoders
     json.dumps(result.unified.content)
+
+
+def test_sentence_records_use_text_processor_mock():
+    """Verify run_quality_control uses TextProcessor.tokenize_sentences (mocked)."""
+    config = _make_minimal_config()
+    grobid_output = "<TEI><text><body><p>Hello world</p></body></text></TEI>"
+    pymupdf_output = {"blocks": [{"text": "Hello world", "page_index": 0}]}
+    branches = _make_branches(grobid_output, pymupdf_output)
+
+    ctx = run_quality_control(branches, "test-doc-id", config)
+
+    # The autouse fixture _mock_text_processor_tokenize ensures tokenization
+    # returns ["sentence one", "sentence two"]. The per-branch reports are
+    # stored in ctx.reports in the same order as branches.
+    assert ctx.reports, "Expected at least one report in ctx.reports"
+    first_report = ctx.reports[0]
+    assert first_report.sentence_records == [
+        {"sentence": "sentence one"},
+        {"sentence": "sentence two"},
+    ]

@@ -1,0 +1,11 @@
+{
+  "feature_name": "{{FEATURE_NAME}}",
+  "created_at": "{{TIMESTAMP}}",
+  "language": "en",
+  "status": {
+    "requirements": "pending",
+    "design": "pending",
+    "tasks": "pending",
+    "implementation": "pending"
+  }
+}

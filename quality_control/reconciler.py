@@ -7,12 +7,24 @@ are optional downstream projections.
 Repair receives adjudication decisions from the Adjudicator and reconciles
 the outputs from both extractors to create the unified "best of both worlds"
 output for downstream tasks.
+
+Tasks 9.1–9.2: Extractor-agnostic concern routing with injectable strategies.
+Requirements: 1.1, 1.2, 1.3, 1.4, 7.1
+Boundary: quality_control/reconciler
 """
 
 from __future__ import annotations
 
-import json
 import logging
+import re
+
+from quality_control.models import (
+    AlignmentMap,
+    AlignmentMapEntry,
+    SemanticLayer,
+    StructuralLayer,
+    UnifiedRecord,
+)
 
 logger = logging.getLogger("pdf_extractor")
 
@@ -21,48 +33,53 @@ PLACEHOLDER_NOTICE: str = (
     "This output is a structural placeholder for downstream interface stability."
 )
 
+# Heuristic patterns for classifying blocks from primary artifact.
+# A block whose text matches _SECTION_RE is treated as a section heading.
+# A block whose text matches _REFERENCE_RE is treated as a reference.
+_SECTION_RE = re.compile(r"^\s*(?:\d+[\.\d]*\s+)?\b[A-Z][A-Za-z\s]{2,50}\b\s*$")
+_REFERENCE_RE = re.compile(r"^\s*\[?\d+\]?\s+\w")
 
-def _extract_blocks_from_artifact(artifact: dict, extractor_name: str) -> list[dict]:
-    """Extract blocks from a canonical artifact.
-    
-    Parameters
-    ----------
-    artifact:
-        Canonical artifacts dict.
-    extractor_name:
-        "grobid" or "pymupdf".
-    
-    Returns
-    -------
-    list[dict]
-        List of block dicts.
+
+# ---------------------------------------------------------------------------
+# Private helpers
+# ---------------------------------------------------------------------------
+
+
+def _get_blocks(artifact: dict) -> list[dict]:
+    """Return the block list from an extractor-agnostic artifact dict.
+
+    Looks for a top-level ``"blocks"`` key first (preferred, extractor-agnostic).
+    Falls back gracefully to an empty list if absent.
     """
-    try:
-        content = artifact[extractor_name]["content"]
-        
-        if extractor_name == "pymupdf":
-            if isinstance(content, str):
-                data = json.loads(content)
-            else:
-                data = content
-            
-            if isinstance(data, list):
-                return data
-            elif isinstance(data, dict) and "blocks" in data:
-                return data["blocks"]
-            else:
-                return []
-        
-        elif extractor_name == "grobid":
-            # GROBID TEI XML parsing not yet implemented
-            # Future: parse TEI XML and extract text blocks
-            return []
-        
-        return []
-    
-    except (json.JSONDecodeError, KeyError, TypeError) as e:
-        logger.warning("Failed to extract blocks from %s: %s", extractor_name, e)
-        return []
+    blocks = artifact.get("blocks")
+    if isinstance(blocks, list):
+        return blocks
+    return []
+
+
+def _classify_block(block: dict) -> str:
+    """Return the block type: ``"paragraph"``, ``"section"``, ``"table"``,
+    ``"figure"``, or ``"other"``.
+
+    Priority order:
+    1. Explicit ``block_type`` key in the block dict.
+    2. Heuristic pattern matching on ``text``.
+    """
+    explicit = block.get("block_type", "")
+    if explicit in ("paragraph", "section", "table", "figure"):
+        return explicit
+
+    text = block.get("text", "")
+    if not text:
+        return "other"
+
+    if _REFERENCE_RE.match(text):
+        return "other"  # treat as reference / other, not section
+
+    if _SECTION_RE.match(text.strip()):
+        return "section"
+
+    return "paragraph"
 
 
 def _extract_text_from_blocks(blocks: list[dict]) -> str:
@@ -70,164 +87,251 @@ def _extract_text_from_blocks(blocks: list[dict]) -> str:
     return "\n".join(block.get("text", "") for block in blocks if block.get("text"))
 
 
-def _organize_blocks_by_page(blocks: list[dict]) -> dict[int, list[dict]]:
-    """Organize blocks by page index.
-    
-    Returns a dict mapping page_index -> list of blocks on that page.
+def _build_semantic_layer(primary_blocks: list[dict]) -> SemanticLayer:
+    """Build a SemanticLayer from primary artifact blocks.
+
+    Uses text-pattern heuristics to classify each block as a section,
+    paragraph, or reference, then populates the SemanticLayer accordingly.
     """
-    pages: dict[int, list[dict]] = {}
-    for block in blocks:
-        page_idx = block.get("page_index", 0)
-        if page_idx not in pages:
-            pages[page_idx] = []
-        pages[page_idx].append(block)
-    return pages
+    sections: list[dict] = []
+    paragraphs: list[dict] = []
+    references: list[dict] = []
+
+    for idx, block in enumerate(primary_blocks):
+        block_type = _classify_block(block)
+        text = block.get("text", "")
+        page_index = block.get("page_index", 0)
+
+        if block_type == "section":
+            sections.append({
+                "heading": text,
+                "depth": 1,
+                "label": "",
+                "page_index": page_index,
+                "block_index": idx,
+            })
+        elif block_type == "paragraph":
+            paragraphs.append({
+                "text": text,
+                "page_index": page_index,
+                "block_index": idx,
+            })
+        else:
+            # Treat as reference / other content
+            references.append({
+                "text": text,
+                "page_index": page_index,
+                "block_index": idx,
+            })
+
+    return SemanticLayer(
+        metadata={},
+        sections=sections,
+        paragraphs=paragraphs,
+        sentences=[],
+        references=references,
+    )
 
 
-def _build_page_texts(blocks: list[dict]) -> dict[str, str]:
-    """Build page_texts dict from blocks.
-    
-    Returns a dict mapping string page numbers to concatenated text.
-    """
-    pages = _organize_blocks_by_page(blocks)
-    return {
-        str(page_idx): "\n".join(block.get("text", "") for block in page_blocks)
-        for page_idx, page_blocks in pages.items()
-    }
+def _build_structural_layer(secondary_blocks: list[dict]) -> StructuralLayer:
+    """Build a StructuralLayer from secondary artifact blocks."""
+    tables: list[dict] = []
+    figures: list[dict] = []
+    plain_blocks: list[dict] = []
+
+    for idx, block in enumerate(secondary_blocks):
+        block_type = _classify_block(block)
+        if block_type == "table":
+            tables.append(block)
+        elif block_type == "figure":
+            figures.append(block)
+        else:
+            plain_blocks.append(block)
+
+    return StructuralLayer(
+        pages=[],
+        blocks=plain_blocks,
+        tables=tables,
+        figures=figures,
+    )
 
 
-def _reconcile_blocks(
-    grobid_blocks: list[dict],
-    pymupdf_blocks: list[dict],
-    adjudication_decisions: dict,
+def _compute_sentence_to_char_range(
+    sentences: list[str],
+    full_text: str,
+    reconciliation_flags: list,
 ) -> list[dict]:
-    """Reconcile blocks from both extractors based on adjudication decisions.
-    
-    Current implementation: simple primary/fallback strategy.
-    Future: per-page or per-block reconciliation based on adjudication decisions.
-    
-    Parameters
-    ----------
-    grobid_blocks:
-        Blocks from GROBID extractor.
-    pymupdf_blocks:
-        Blocks from PyMuPDF extractor.
-    adjudication_decisions:
-        Adjudication decisions dict from Adjudicator.
-    
-    Returns
-    -------
-    list[dict]
-        Reconciled blocks (best of both worlds).
+    """Map each sentence to its character range in full_text.
+
+    Sentences not found in full_text are omitted from the result and a
+    ``"one_engine_only"`` flag entry is appended to reconciliation_flags.
     """
-    primary = adjudication_decisions.get("primary_extractor", "pymupdf")
-    
-    # Simple strategy: use primary extractor's blocks, fall back to secondary if empty
-    if primary == "pymupdf":
-        primary_blocks = pymupdf_blocks
-        fallback_blocks = grobid_blocks
-    else:
-        primary_blocks = grobid_blocks
-        fallback_blocks = pymupdf_blocks
-    
-    # Use primary if available, otherwise fallback
-    if primary_blocks:
-        logger.debug("Repair: using %d blocks from primary extractor (%s)", len(primary_blocks), primary)
-        return primary_blocks
-    else:
-        logger.debug("Repair: primary extractor empty, using %d blocks from fallback", len(fallback_blocks))
-        return fallback_blocks
+    result: list[dict] = []
+    for sentence in sentences:
+        if not sentence:
+            continue
+        start = full_text.find(sentence)
+        if start == -1:
+            reconciliation_flags.append(
+                AlignmentMapEntry(
+                    source="reconciler",
+                    agreement="one_engine_only",
+                    preferred_reading=sentence,
+                    confidence=0.0,
+                )
+            )
+        else:
+            end = start + len(sentence)
+            result.append({
+                "sentence": sentence,
+                "start": start,
+                "end": end,
+                "page_index": 0,  # approximate; full page attribution requires block search
+            })
+    return result
 
 
-def _build_metadata(
-    grobid_artifact: dict,
-    pymupdf_artifact: dict,
-    adjudication_decisions: dict,
-) -> dict:
-    """Build metadata section of Unified Output.
-    
-    Future: extract title, authors, abstract, keywords from GROBID TEI XML.
+def _route_paragraph_blocks(
+    primary_blocks: list[dict],
+    secondary_blocks: list[dict],
+    text_fidelity_strategy,
+    text_processor,
+) -> list[AlignmentMapEntry]:
+    """Route paragraph/block pairs through text_fidelity_strategy.reconcile()."""
+    entries: list[AlignmentMapEntry] = []
+
+    primary_para = [b for b in primary_blocks if _classify_block(b) == "paragraph"]
+    secondary_para = [b for b in secondary_blocks if _classify_block(b) == "paragraph"]
+
+    # Pair by position (zip stops at the shorter list)
+    for p_block, s_block in zip(primary_para, secondary_para):
+        primary_text = p_block.get("text", "")
+        secondary_text = s_block.get("text", "")
+
+        result = text_fidelity_strategy.reconcile(primary_text, secondary_text, text_processor)
+
+        entry = AlignmentMapEntry(
+            source="text_fidelity",
+            edit_distance=result.get("edit_distance", 0.0),
+            agreement=result.get("agreement", "full"),
+            preferred_reading=result.get("preferred_reading", secondary_text),
+            confidence=result.get("confidence", 1.0),
+        )
+        entries.append(entry)
+
+    return entries
+
+
+def _route_section_blocks(
+    primary_blocks: list[dict],
+    secondary_blocks: list[dict],
+    section_strategy,
+    text_processor,
+) -> list[AlignmentMapEntry]:
+    """Route section heading pairs through section_strategy.reconcile()."""
+    entries: list[AlignmentMapEntry] = []
+
+    primary_sections = [b for b in primary_blocks if _classify_block(b) == "section"]
+    secondary_sections = [b for b in secondary_blocks if _classify_block(b) == "section"]
+
+    for p_block, s_block in zip(primary_sections, secondary_sections):
+        primary_section = {
+            "heading": p_block.get("text", ""),
+            "depth": 1,
+            "label": "",
+        }
+        reference_block = {
+            "text": s_block.get("text", ""),
+            "font_size": s_block.get("font_size", 10.0),
+        }
+
+        confidence = section_strategy.reconcile(primary_section, reference_block, text_processor)
+
+        entry = AlignmentMapEntry(
+            source="section_verification",
+            agreement="full" if confidence >= 0.8 else "partial",
+            preferred_reading=reference_block["text"],
+            confidence=float(confidence),
+        )
+        entries.append(entry)
+
+    return entries
+
+
+def _route_table_figure_blocks(
+    primary_blocks: list[dict],
+    secondary_blocks: list[dict],
+    table_figure_strategy,
+) -> tuple[list[dict], list[AlignmentMapEntry]]:
+    """Route table/figure pairs through table_figure_strategy.merge().
+
+    Returns (merged_records, alignment_entries).
     """
-    return {
-        "title": None,
-        "authors": [],
-        "abstract": None,
-        "keywords": [],
-        "primary_extractor": adjudication_decisions.get("primary_extractor"),
-        "extraction_confidence": adjudication_decisions.get("confidence"),
-    }
+    from quality_control.concerns import MissingContributionError
+
+    merged: list[dict] = []
+    entries: list[AlignmentMapEntry] = []
+
+    primary_tables = [b for b in primary_blocks if _classify_block(b) in ("table", "figure")]
+    secondary_tables = [b for b in secondary_blocks if _classify_block(b) in ("table", "figure")]
+
+    for p_block, s_block in zip(primary_tables, secondary_tables):
+        try:
+            result = table_figure_strategy.merge(p_block, s_block)
+            merged.append(result)
+            entry = AlignmentMapEntry(
+                source="table_figure_merge",
+                agreement=result.get("agreement", "present"),
+                preferred_reading=result.get("merged_text", ""),
+                confidence=1.0,
+            )
+            entries.append(entry)
+        except MissingContributionError:
+            entry = AlignmentMapEntry(
+                source="table_figure_merge",
+                agreement="one_engine_only",
+                confidence=0.0,
+            )
+            entries.append(entry)
+
+    return merged, entries
 
 
-def _build_segments(blocks: list[dict]) -> list[dict]:
-    """Build segments from reconciled blocks.
-    
-    Segments are logical text units (paragraphs, sections, etc.).
-    Current implementation: one segment per block.
-    Future: semantic segmentation, section detection.
-    """
-    segments = []
-    for idx, block in enumerate(blocks):
-        segments.append({
-            "segment_id": f"seg-{idx}",
-            "text": block.get("text", ""),
-            "page_index": block.get("page_index", 0),
-            "bbox": block.get("block_bbox"),
-            "type": "paragraph",  # Future: detect section, heading, caption, etc.
-        })
-    return segments
-
-
-def _build_geometry(blocks: list[dict]) -> dict:
-    """Build geometry information from blocks.
-    
-    Returns bounding box information for spatial layout.
-    """
-    pages_with_bbox = {}
-    
-    for block in blocks:
-        page_idx = block.get("page_index", 0)
-        bbox = block.get("block_bbox")
-        
-        if bbox and page_idx not in pages_with_bbox:
-            pages_with_bbox[page_idx] = {
-                "page_index": page_idx,
-                "has_geometry": True,
-                "block_count": 0,
-            }
-        
-        if page_idx in pages_with_bbox:
-            pages_with_bbox[page_idx]["block_count"] += 1
-    
-    return {
-        "pages": list(pages_with_bbox.values()),
-        "coordinate_system": "pdf",  # PDF coordinate system (bottom-left origin)
-    }
+# ---------------------------------------------------------------------------
+# Public interface
+# ---------------------------------------------------------------------------
 
 
 def reconcile(
-    grobid_artifact: dict,
-    pymupdf_artifact: dict,
-    grobid_observation: dict,
-    pymupdf_observation: dict,
-    investigator_object: dict,
+    primary_artifact: dict,
+    secondary_artifact: dict,
+    primary_observation: dict | None = None,
+    secondary_observation: dict | None = None,
+    investigator_object: dict | None = None,
     adjudication_decisions: dict | None = None,
     config: dict | None = None,
-) -> dict:
-    """Reconcile both extractor outputs to produce the Unified Output.
-    
-    Repair is the sole producer of the Unified Output dict, which serves as
-    the source of truth for all downstream consumers.
-    
+    *,
+    text_fidelity_strategy=None,
+    section_strategy=None,
+    table_figure_strategy=None,
+    text_processor=None,
+) -> UnifiedRecord:
+    """Reconcile both extractor outputs to produce a UnifiedRecord.
+
+    Repair is the sole producer of the UnifiedRecord, which serves as the
+    source of truth for all downstream consumers.
+
     Parameters
     ----------
-    grobid_artifact:
-        Canonical artifacts dict containing GROBID output.
-    pymupdf_artifact:
-        Canonical artifacts dict containing PyMuPDF output.
-    grobid_observation:
-        Observation object for GROBID extractor.
-    pymupdf_observation:
-        Observation object for PyMuPDF extractor.
+    primary_artifact:
+        Extractor-agnostic artifact dict for the primary source.
+        Role (which extractor this represents) is determined by the caller.
+    secondary_artifact:
+        Extractor-agnostic artifact dict for the secondary source.
+    primary_observation:
+        Observation object for the primary extractor.
+    secondary_observation:
+        Observation object for the secondary extractor.
     investigator_object:
         Investigator object with threshold checks and agreement metrics.
     adjudication_decisions:
@@ -235,52 +339,72 @@ def reconcile(
         - primary_extractor: which extractor to prefer
         - confidence: confidence score
         - rationale: explanation of decision
-        - per_page_decisions: page-level decisions (future)
-        - per_block_decisions: block-level decisions (future)
         If None (for backward compatibility), uses a default placeholder strategy.
     config:
         Pipeline config dict. If None, uses empty dict.
-    
+    text_fidelity_strategy:
+        Injectable text fidelity concern strategy. Defaults to DEFAULT_TEXT_FIDELITY.
+    section_strategy:
+        Injectable section verification concern strategy. Defaults to
+        DEFAULT_SECTION_VERIFICATION.
+    table_figure_strategy:
+        Injectable table/figure merge concern strategy. Defaults to
+        DEFAULT_TABLE_FIGURE_MERGE.
+    text_processor:
+        Injectable text processor. Defaults to TextProcessor().
+
     Returns
     -------
-    dict
-        Unified Output dict with the following structure:
-        {
-            "document_id": str,
-            "metadata": dict,
-            "pages": list,
-            "segments": list,
-            "annotations": list,
-            "tables": list,
-            "figures": list,
-            "images": list,
-            "exact_text": str,
-            "geometry": dict,
-            "provenance": dict,
-            "observer_summary": dict,
-            "investigator_summary": dict,
-            "adjudication_status": str,
-            "placeholder_notice": str (optional),
-        }
+    UnifiedRecord
+        Final reconciled record with semantic, structural, and alignment layers
+        populated alongside the backward-compatible content dict.
     """
-    # Backward compatibility: handle old signature reconcile(g, p, go, po, io, config)
+    # ------------------------------------------------------------------
+    # Normalise optional observations / investigator
+    # ------------------------------------------------------------------
+    if primary_observation is None:
+        primary_observation = {}
+    if secondary_observation is None:
+        secondary_observation = {}
+    if investigator_object is None:
+        investigator_object = {}
+
+    # ------------------------------------------------------------------
+    # Backward compatibility: handle old positional signature
+    # reconcile(primary, secondary, obs1, obs2, inv, config_dict)
+    # where the 6th arg was always a config dict, not adjudication_decisions.
+    # Detect this by checking if adjudication_decisions looks like a config dict.
+    # ------------------------------------------------------------------
     if config is None and isinstance(adjudication_decisions, dict):
-        # Check if adjudication_decisions looks like a config dict
         if "quality_control" in adjudication_decisions or not any(
-            k in adjudication_decisions for k in ["primary_extractor", "confidence", "rationale"]
+            k in adjudication_decisions
+            for k in ("primary_extractor", "confidence", "rationale")
         ):
             config = adjudication_decisions
             adjudication_decisions = None
-    
+
     if config is None:
         config = {}
-    
-    document_id = grobid_artifact["document_id"]
-    
-    # If no adjudication decisions provided, use placeholder logic
+
+    # ------------------------------------------------------------------
+    # Resolve document_id from whichever artifact has it
+    # ------------------------------------------------------------------
+    document_id = primary_artifact.get("document_id") or secondary_artifact.get("document_id", "")
+
+    # ------------------------------------------------------------------
+    # PLACEHOLDER_NOTICE backward-compat path
+    # ------------------------------------------------------------------
     if adjudication_decisions is None:
         logger.debug("Repair: no adjudication decisions provided, using placeholder mode")
-        return {
+
+        # Build provenance using whatever keys are available in the artifacts
+        provenance = _build_provenance_dict(
+            primary_artifact, secondary_artifact,
+            primary_observation, secondary_observation,
+            investigator_object, adjudication_decisions=None,
+        )
+
+        content: dict = {
             "document_id": document_id,
             "metadata": {},
             "pages": [],
@@ -291,113 +415,236 @@ def reconcile(
             "images": [],
             "exact_text": "",
             "geometry": {},
-            "provenance": {
-                "grobid_artifact_id": grobid_artifact["grobid"]["id"],
-                "pymupdf_artifact_id": pymupdf_artifact["pymupdf"]["id"],
-                "grobid_observation": grobid_observation,
-                "pymupdf_observation": pymupdf_observation,
-                "investigator_object": investigator_object,
-            },
+            "provenance": provenance,
             "observer_summary": {},
             "investigator_summary": {},
             "adjudication_status": "placeholder",
             "placeholder_notice": PLACEHOLDER_NOTICE,
         }
-    
-    logger.debug("Repair: reconciling outputs for document_id=%s", document_id)
-    
-    # Extract blocks from both artifacts
-    grobid_blocks = _extract_blocks_from_artifact(grobid_artifact, "grobid")
-    pymupdf_blocks = _extract_blocks_from_artifact(pymupdf_artifact, "pymupdf")
-    
-    logger.debug(
-        "Repair: extracted %d GROBID blocks, %d PyMuPDF blocks",
-        len(grobid_blocks),
-        len(pymupdf_blocks),
+
+        return UnifiedRecord(
+            document_id=document_id,
+            content=content,
+            semantic=None,
+            structural=None,
+            alignment=None,
+        )
+
+    # ------------------------------------------------------------------
+    # Set strategy defaults
+    # ------------------------------------------------------------------
+    from quality_control.concerns import (
+        DEFAULT_SECTION_VERIFICATION,
+        DEFAULT_TABLE_FIGURE_MERGE,
+        DEFAULT_TEXT_FIDELITY,
     )
-    
-    # Reconcile blocks based on adjudication decisions
-    reconciled_blocks = _reconcile_blocks(grobid_blocks, pymupdf_blocks, adjudication_decisions)
-    
-    # Build exact_text from reconciled blocks
-    exact_text = _extract_text_from_blocks(reconciled_blocks)
-    
-    # Build page_texts
-    page_texts_dict = _build_page_texts(reconciled_blocks)
-    
-    # Build metadata
-    metadata = _build_metadata(grobid_artifact, pymupdf_artifact, adjudication_decisions)
-    
-    # Build segments
-    segments = _build_segments(reconciled_blocks)
-    
-    # Build geometry
-    geometry = _build_geometry(reconciled_blocks)
-    
-    # Organize pages
-    pages_by_idx = _organize_blocks_by_page(reconciled_blocks)
-    pages = [
-        {
-            "page_index": page_idx,
-            "text": page_texts_dict.get(str(page_idx), ""),
-            "block_count": len(blocks),
-        }
-        for page_idx, blocks in sorted(pages_by_idx.items())
-    ]
-    
+    from utils.text_processor import TextProcessor
+
+    if text_fidelity_strategy is None:
+        text_fidelity_strategy = DEFAULT_TEXT_FIDELITY
+    if section_strategy is None:
+        section_strategy = DEFAULT_SECTION_VERIFICATION
+    if table_figure_strategy is None:
+        table_figure_strategy = DEFAULT_TABLE_FIGURE_MERGE
+    if text_processor is None:
+        text_processor = TextProcessor()
+
+    logger.debug("Repair: reconciling outputs for document_id=%s", document_id)
+
+    # ------------------------------------------------------------------
+    # Extract blocks from both artifacts (extractor-agnostic)
+    # ------------------------------------------------------------------
+    primary_blocks = _get_blocks(primary_artifact)
+    secondary_blocks = _get_blocks(secondary_artifact)
+
+    logger.debug(
+        "Repair: extracted %d primary blocks, %d secondary blocks",
+        len(primary_blocks),
+        len(secondary_blocks),
+    )
+
+    # ------------------------------------------------------------------
+    # Concern routing — collect AlignmentMapEntry objects
+    # ------------------------------------------------------------------
+    reconciliation_flags: list[AlignmentMapEntry] = []
+
+    # 1. Text fidelity: paragraph/block pairs
+    paragraph_entries = _route_paragraph_blocks(
+        primary_blocks, secondary_blocks,
+        text_fidelity_strategy, text_processor,
+    )
+
+    # 2. Section verification: section heading pairs
+    section_entries = _route_section_blocks(
+        primary_blocks, secondary_blocks,
+        section_strategy, text_processor,
+    )
+
+    # 3. Table/figure merge
+    _merged_tf, table_figure_entries = _route_table_figure_blocks(
+        primary_blocks, secondary_blocks,
+        table_figure_strategy,
+    )
+
+    # ------------------------------------------------------------------
+    # Build SemanticLayer from primary artifact blocks
+    # ------------------------------------------------------------------
+    semantic = _build_semantic_layer(primary_blocks)
+
+    # ------------------------------------------------------------------
+    # Build StructuralLayer from secondary artifact blocks
+    # ------------------------------------------------------------------
+    structural = _build_structural_layer(secondary_blocks)
+
+    # ------------------------------------------------------------------
+    # Compute sentence_to_char_range
+    # ------------------------------------------------------------------
+    full_text = _extract_text_from_blocks(primary_blocks)
+    all_sentences = [p["text"] for p in semantic.paragraphs if p.get("text")]
+    sentence_to_char_range = _compute_sentence_to_char_range(
+        all_sentences, full_text, reconciliation_flags
+    )
+
+    # ------------------------------------------------------------------
+    # Assemble AlignmentMap
+    # ------------------------------------------------------------------
+    alignment = AlignmentMap(
+        paragraph_to_blocks=paragraph_entries,
+        sentence_to_char_range=sentence_to_char_range,
+        section_header_to_block=section_entries,
+        reconciliation_flags=reconciliation_flags,
+    )
+
+    # ------------------------------------------------------------------
     # Determine adjudication status
-    primary = adjudication_decisions.get("primary_extractor", "unknown")
+    # ------------------------------------------------------------------
     confidence = adjudication_decisions.get("confidence", 0.0)
-    
+    primary_name = adjudication_decisions.get("primary_extractor", "unknown")
+
     if confidence >= 0.8:
-        status = f"accepted_{primary}"
+        status = f"accepted_{primary_name}"
     elif confidence >= 0.5:
-        status = f"accepted_{primary}_low_confidence"
+        status = f"accepted_{primary_name}_low_confidence"
     else:
         status = "needs_review"
-    
-    # Build provenance
-    provenance = {
-        "grobid_artifact_id": grobid_artifact["grobid"]["id"],
-        "pymupdf_artifact_id": pymupdf_artifact["pymupdf"]["id"],
-        "grobid_observation": grobid_observation,
-        "pymupdf_observation": pymupdf_observation,
-        "investigator_object": investigator_object,
-        "adjudication_decisions": adjudication_decisions,
-    }
-    
-    # Build observer and investigator summaries
+
+    # ------------------------------------------------------------------
+    # Build backward-compat content dict
+    # ------------------------------------------------------------------
+    provenance = _build_provenance_dict(
+        primary_artifact, secondary_artifact,
+        primary_observation, secondary_observation,
+        investigator_object, adjudication_decisions=adjudication_decisions,
+    )
+
     observer_summary = {
-        "grobid_status": grobid_observation.get("status", "unknown"),
-        "pymupdf_status": pymupdf_observation.get("status", "unknown"),
+        "primary_status": primary_observation.get("status", "unknown"),
+        "secondary_status": secondary_observation.get("status", "unknown"),
     }
-    
+
     investigator_summary = {
         "decision": investigator_object.get("decision", "unknown"),
         "agreement_metrics": investigator_object.get("agreement_metrics", {}),
     }
-    
-    logger.info(
-        "Repair: reconciliation complete for document_id=%s, status=%s, blocks=%d",
-        document_id,
-        status,
-        len(reconciled_blocks),
-    )
-    
-    return {
+
+    segments = [
+        {
+            "segment_id": f"seg-{idx}",
+            "text": block.get("text", ""),
+            "page_index": block.get("page_index", 0),
+            "bbox": block.get("block_bbox"),
+            "type": _classify_block(block),
+        }
+        for idx, block in enumerate(primary_blocks)
+    ]
+
+    pages_by_idx: dict[int, list[dict]] = {}
+    for block in primary_blocks:
+        page_idx = block.get("page_index", 0)
+        pages_by_idx.setdefault(page_idx, []).append(block)
+
+    pages = [
+        {
+            "page_index": page_idx,
+            "text": "\n".join(b.get("text", "") for b in blks),
+            "block_count": len(blks),
+        }
+        for page_idx, blks in sorted(pages_by_idx.items())
+    ]
+
+    content = {
         "document_id": document_id,
-        "metadata": metadata,
+        "metadata": {},
         "pages": pages,
         "segments": segments,
-        "annotations": [],  # Future: extract annotations from GROBID
-        "tables": [],  # Future: table extraction
-        "figures": [],  # Future: figure extraction
-        "images": [],  # Future: image extraction
-        "exact_text": exact_text,
-        "geometry": geometry,
+        "annotations": [],
+        "tables": [],
+        "figures": [],
+        "images": [],
+        "exact_text": full_text,
+        "geometry": {},
         "provenance": provenance,
         "observer_summary": observer_summary,
         "investigator_summary": investigator_summary,
         "adjudication_status": status,
-        "placeholder_notice": None,  # Not in placeholder mode; real reconciliation performed
+        "placeholder_notice": None,
     }
+
+    logger.info(
+        "Repair: reconciliation complete for document_id=%s, status=%s, blocks=%d",
+        document_id,
+        status,
+        len(primary_blocks),
+    )
+
+    return UnifiedRecord(
+        document_id=document_id,
+        content=content,
+        semantic=semantic,
+        structural=structural,
+        alignment=alignment,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Private provenance builder (shared by placeholder and full paths)
+# ---------------------------------------------------------------------------
+
+
+def _build_provenance_dict(
+    primary_artifact: dict,
+    secondary_artifact: dict,
+    primary_observation: dict,
+    secondary_observation: dict,
+    investigator_object: dict,
+    adjudication_decisions: dict | None,
+) -> dict:
+    """Build a provenance dict from the two artifacts.
+
+    Uses artifact["id"] keys when available; falls back to empty strings.
+    The provenance keys retain the legacy names (grobid_artifact_id /
+    pymupdf_artifact_id) for downstream backward compatibility, but the
+    values are now sourced from extractor-agnostic artifact dicts.
+    """
+    def _extract_id(artifact: dict, preferred_keys: tuple[str, ...]) -> str:
+        """Try preferred sub-keys first, then top-level 'id'."""
+        for key in preferred_keys:
+            sub = artifact.get(key, {})
+            if isinstance(sub, dict) and sub.get("id"):
+                return sub["id"]
+        return artifact.get("id", "")
+
+    primary_id = _extract_id(primary_artifact, ("grobid", "primary"))
+    secondary_id = _extract_id(secondary_artifact, ("pymupdf", "pdfplumber", "secondary"))
+
+    provenance: dict = {
+        "grobid_artifact_id": primary_id,
+        "pymupdf_artifact_id": secondary_id,
+        "grobid_observation": primary_observation,
+        "pymupdf_observation": secondary_observation,
+        "investigator_object": investigator_object,
+    }
+    if adjudication_decisions is not None:
+        provenance["adjudication_decisions"] = adjudication_decisions
+
+    return provenance

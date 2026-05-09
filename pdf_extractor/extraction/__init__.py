@@ -19,27 +19,11 @@ Public API
 from __future__ import annotations
 
 from . import schemas
-from .PyMuPDF import extract_with_pymupdf
+from . import PyMuPDF
 from .pdfplumber import extract_with_pdfplumber
 from .PaddleOCR import extract_with_paddleocr
-
-
-def _compute_quality_score(blocks: list, embed_model=None) -> float:
-    """Return a text-quality score in [0.0, 1.0] for *blocks*.
-
-    Uses the ratio of alphanumeric characters to total non-whitespace
-    characters as a simple proxy for extraction quality. Returns 0.0
-    for empty or blank blocks. ``embed_model`` is accepted but currently
-    unused (reserved for future embedding-based scoring).
-    """
-    if not blocks:
-        return 0.0
-    total_text = "".join(b.get("text", "") for b in blocks)
-    non_ws = total_text.replace(" ", "").replace("\n", "").replace("\t", "")
-    if not non_ws:
-        return 0.0
-    alnum = sum(1 for c in non_ws if c.isalnum())
-    return alnum / len(non_ws)
+from . import scan_detector
+from utils.text_processor import TextProcessor
 
 
 def extract_pdf(
@@ -47,6 +31,7 @@ def extract_pdf(
     ocr: bool,
     ocr_text_quality_threshold: float,
     embed_model=None,
+    config: dict | None = None,
 ) -> tuple:
     """Extract text from *pdf_path* using a three-tier cascade.
 
@@ -67,21 +52,46 @@ def extract_pdf(
         ``(blocks, font_metadata)`` — font_metadata is non-empty only for
         the PyMuPDF path; all OCR paths return ``[]``.
     """
-    # --- Tier 1: PyMuPDF ---
-    pymupdf_blocks, font_metadata = extract_with_pymupdf(pdf_path)
-    score = _compute_quality_score(pymupdf_blocks, embed_model)
-    if score >= ocr_text_quality_threshold or not ocr:
-        schemas.validate_blocks(pymupdf_blocks)
-        return pymupdf_blocks, font_metadata
+    cfg = config or {}
 
-    # --- Tier 2: pdfplumber ---
-    plumber_blocks = extract_with_pdfplumber(pdf_path)
-    score = _compute_quality_score(plumber_blocks, embed_model)
-    if score >= ocr_text_quality_threshold:
+    # When OCR is disabled explicitly, skip scan detection and run pdfplumber.
+    if not ocr:
+        plumber_blocks = extract_with_pdfplumber(pdf_path)
         schemas.validate_blocks(plumber_blocks)
         return plumber_blocks, []
 
-    # --- Tier 3: PaddleOCR ---
-    paddle_blocks = extract_with_paddleocr(pdf_path)
-    schemas.validate_blocks(paddle_blocks)
-    return paddle_blocks, []
+    # --- OCR enabled: per-page scan detection routing ---
+    # Open the document and classify each page. We treat the document as
+    # scanned if any page is classified as scanned (i.e., not native).
+    import fitz  # lazy import
+
+    doc = fitz.open(pdf_path)
+    try:
+        pages = list(doc)
+
+        tp = TextProcessor()  # default-config instance for classify_page
+        classifications = []
+        for page_index, page in enumerate(pages):
+            cls = scan_detector.classify_page(page, tp, cfg, page_index=page_index)
+            classifications.append(cls)
+
+        all_native = all(c.is_native for c in classifications)
+
+        if all_native:
+            # Structural extraction via pdfplumber; collect font metadata per native page
+            plumber_blocks = extract_with_pdfplumber(pdf_path)
+            font_meta: list = []
+            for page in pages:
+                # Use PyMuPDF helper to get per-page font metadata
+                font_meta.extend(PyMuPDF.get_page_font_metadata(page))
+
+            schemas.validate_blocks(plumber_blocks)
+            return plumber_blocks, font_meta
+
+        # If any page is scanned, run PaddleOCR for the whole document.
+        dpi = cfg.get("quality_control", {}).get("ocr", {}).get("rasterization_dpi", 150)
+        paddle_blocks = extract_with_paddleocr(pdf_path, dpi=dpi)
+        schemas.validate_blocks(paddle_blocks)
+        return paddle_blocks, []
+    finally:
+        doc.close()

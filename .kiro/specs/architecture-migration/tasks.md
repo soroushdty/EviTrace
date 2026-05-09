@@ -1,6 +1,7 @@
 # Implementation Tasks: architecture-migration
 
 ## Overview
+
 13 major tasks, 44 sub-tasks. Organized into Foundation → Core → Integration → Validation phases following the 7-tier prerequisite ordering from the design. All requirements covered.
 
 ---
@@ -86,7 +87,7 @@
 ---
 
 - [ ] 4. Foundation: Config extensions (P)
-- [x] 4.1 (P) Extend _QC_DEFAULTS and config.yaml
+- [x] 4.1 (P) Extend \_QC_DEFAULTS and config.yaml
   - Add `"text_processor"` top-level key to `_QC_DEFAULTS` in `utils/config_utils.py` with all sub-keys and documented defaults
   - Add `"scan_detection"`, `"ocr"`, `"text_fidelity"`, `"section_verification"` sub-keys inside `"quality_control"` in `_QC_DEFAULTS`
   - Add matching YAML blocks to `config/config.yaml` with inline comments documenting valid values
@@ -98,7 +99,7 @@
 ---
 
 - [ ] 5. Core: Per-page scan detection and schema extensions
-  _Depends: 2.1_
+     _Depends: 2.1_
 
 - [x] 5.1 Extend block schemas for PaddleOCR metadata
   - Add `PaddleOCRBlockDict(BlockDict, total=False)` to `pdf_extractor/extraction/schemas.py` with optional `rasterization_dpi: int` and `ocr_confidence: float` fields
@@ -138,7 +139,7 @@
 ---
 
 - [ ] 6. Core: Sentence processor update (P)
-  _Depends: 2.1_
+     _Depends: 2.1_
 
 - [x] 6.1 (P) Remove regex sentence splitter and add TextProcessor parameter
   - Delete `_RE_SENTENCE_SPLIT` constant and its usage in `pdf_extractor/processing/sentence_processor.py`
@@ -153,7 +154,7 @@
 ---
 
 - [ ] 7. Core: Concern strategy package
-  _Depends: 3.1_
+     _Depends: 3.1_
 
 - [x] 7.1 (P) Implement TextFidelityConcern
   - Create `quality_control/concerns/text_fidelity.py` with `TextFidelityConcern` class
@@ -193,7 +194,7 @@
 ---
 
 - [ ] 8. Core: W3C annotation layer (P)
-  _Depends: 3.1_
+     _Depends: 3.1_
 
 - [x] 8.1 (P) Create annotation data model and projection
   - Create `pdf_extractor/annotation/w3c_annotation.py` with `AnnotationRecord` dataclass and `project()` function
@@ -229,10 +230,10 @@
 
 ---
 
-- [ ] 9. Integration: Reconciler concern routing
-  _Depends: 7.1, 7.2, 7.3_
+- [x] 9. Integration: Reconciler concern routing
+     _Depends: 7.1, 7.2, 7.3_
 
-- [ ] 9.1 Replace reconciler signature and implement concern routing
+- [x] 9.1 Replace reconciler signature and implement concern routing
   - Replace hardcoded `grobid_artifact`/`pymupdf_artifact` parameters with extractor-agnostic `primary_artifact`, `secondary_artifact`, `primary_observation`, `secondary_observation`, `investigator_object` parameters plus keyword-only strategy and `text_processor` params
   - Add concern routing: call `text_fidelity_strategy.reconcile()` for paragraph/block pairs, `section_strategy.reconcile()` for section headings, `table_figure_strategy.merge()` for table/figure pairs
   - Strategy defaults fall back to `DEFAULT_TEXT_FIDELITY`, `DEFAULT_SECTION_VERIFICATION`, `DEFAULT_TABLE_FIGURE_MERGE` when not provided
@@ -242,7 +243,7 @@
   - _Requirements: 7.1_
   - _Boundary: quality_control/reconciler_
 
-- [ ] 9.2 Implement AlignmentMap assembly and UnifiedRecord construction
+- [x] 9.2 Implement AlignmentMap assembly and UnifiedRecord construction
   - Assemble `AlignmentMap` from collected `AlignmentMapEntry` results across all three concern types
   - Compute `sentence_to_char_range` by searching each sentence text in the `full_pdf_text` string from the primary artifact's `page_texts`; omit sentences not found and record them as `"one_engine_only"` entries in `reconciliation_flags`
   - Build `SemanticLayer` from primary-artifact block data (title, sections, paragraphs, references via text-pattern classification)
@@ -252,7 +253,7 @@
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 7.1_
   - _Boundary: quality_control/reconciler_
 
-- [ ] 9.3 Test reconciler concern routing
+- [x] 9.3 Test reconciler concern routing
   - `reconcile()` calls `text_fidelity_strategy.reconcile()` for paragraph-type content (verified via mock strategy)
   - `reconcile()` calls `section_strategy.reconcile()` for section-type content
   - `reconcile()` calls `table_figure_strategy.merge()` for table-type content
@@ -264,10 +265,10 @@
 
 ---
 
-- [ ] 10. Integration: Adjudicator strategy delegation (P)
-  _Depends: 7.1, 7.2, 7.3_
+- [x] 10. Integration: Adjudicator strategy delegation (P)
+      _Depends: 7.1, 7.2, 7.3_
 
-- [ ] 10.1 (P) Remove symmetric scoring and decouple from reconciler
+- [x] 10.1 (P) Remove symmetric scoring and decouple from reconciler
   - Remove `_compute_text_quality_score`, `_evaluate_extractor_quality`, and `_make_adjudication_decisions` functions
   - Remove `import reconciler` and the `reconciler.reconcile()` call at adjudicator line 218
   - Add `_adjudicate_concern(alignment_entries, strategy, config) → dict` helper that calls `strategy.adjudicate(alignment_entries, config)`
@@ -277,7 +278,7 @@
   - _Requirements: 7.2_
   - _Boundary: quality_control/adjudicator_
 
-- [ ] 10.2 (P) Test adjudicator strategy delegation
+- [x] 10.2 (P) Test adjudicator strategy delegation
   - `adjudicate()` calls `strategy.adjudicate(alignment_entries, config)` for each concern type (verified via mock)
   - `preferred_source` in the output dict is set entirely by the mock strategy's return value
   - A custom strategy returning `preferred_source="custom_extractor"` is used without modification
@@ -287,10 +288,10 @@
 
 ---
 
-- [ ] 11. Integration: Extraction routing replacement
-  _Depends: 5.2_
+- [x] 11. Integration: Extraction routing replacement
+      _Depends: 5.2_
 
-- [ ] 11.1 Replace waterfall cascade with scan-detector routing
+- [x] 11.1 Replace waterfall cascade with scan-detector routing
   - Remove `from .Tesseract import extract_with_tesseract` (if not already removed in Task 1.1)
   - Remove `_compute_quality_score` function
   - Replace waterfall cascade in `extract_pdf` with per-page `scan_detector.classify_page()` calls
@@ -300,9 +301,9 @@
   - GROBID is not called here — it runs separately as a distinct branch in `run_quality_control`
   - Function signature retains `ocr_text_quality_threshold` param for API compatibility (used as fallback only)
   - _Requirements: 3.1, 3.2, 3.3_
-  - _Boundary: pdf_extractor/extraction/__init___
+  - \_Boundary: pdf_extractor/extraction/**init\_**
 
-- [ ] 11.2 Update PaddleOCR to return per-block PDF coordinate bboxes
+- [x] 11.2 Update PaddleOCR to return per-block PDF coordinate bboxes
   - Add `dpi: int = 150` parameter to `extract_with_paddleocr()`
   - For each bounding box from PaddleOCR, apply coordinate mapping: `pdf_x = pixel_x * (72.0 / dpi)`, `pdf_y = pixel_y * (72.0 / dpi)`
   - Use `make_ocr_block()` factory to produce `PaddleOCRBlockDict` with `block_bbox` as 4-tuple of floats, `rasterization_dpi=dpi`, `ocr_confidence=float`
@@ -314,7 +315,7 @@
 ---
 
 - [ ] 12. Integration: QC pipeline wiring
-  _Depends: 2.1, 2.2, 6.1, 6.2, 6.3, 9.1, 9.2, 10.1_
+      _Depends: 2.1, 2.2, 6.1, 6.2, 6.3, 9.1, 9.2, 10.1_
 
 - [ ] 12.1 Remove regex sentence splitter and wire TextProcessor into QC
   - Delete `_split_sentences` function (lines 138–144) from `quality_control/quality_control.py`
@@ -352,17 +353,17 @@
 
 ---
 
-- [ ] 13. Validation: Domain-agnosticism invariant tests
-  _Depends: 12.1, 12.2, 12.3, 10.1, 10.2, 9.3_
+- [x] 13. Validation: Domain-agnosticism invariant tests
+      _Depends: 12.1, 12.2, 12.3, 10.1, 10.2, 9.3_
 
-- [ ] 13.1 Test run_pipeline domain isolation
+- [x] 13.1 Test run_pipeline domain isolation
   - `run_pipeline` is callable with all-mock callables returning dummy model instances
   - `inspect.getsource(run_pipeline)` contains no string matching `fitz`, `grobid`, `pdfplumber`, `PyMuPDF`, `PaddleOCR`, `TEI`, `scan`, or `AlignmentMap`
   - Passing a non-PDF branch payload to `run_pipeline` does not raise
   - _Requirements: 6.1, 10_
   - _Boundary: tests/pdf_extractor_
 
-- [ ] 13.2 Verify acceptance criteria grep checks
+- [x] 13.2 Verify acceptance criteria grep checks
   - `grep -r "extract_with_tesseract" .` returns zero results
   - `grep -r "pytesseract" .` returns zero results
   - `grep -r "_split_sentences\|_RE_SENTENCE_SPLIT" quality_control/ pdf_extractor/` returns zero results
