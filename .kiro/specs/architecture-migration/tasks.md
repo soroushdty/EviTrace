@@ -195,7 +195,7 @@
 - [ ] 8. Core: W3C annotation layer (P)
   _Depends: 3.1_
 
-- [ ] 8.1 (P) Create annotation data model and projection
+- [x] 8.1 (P) Create annotation data model and projection
   - Create `pdf_extractor/annotation/w3c_annotation.py` with `AnnotationRecord` dataclass and `project()` function
   - `project(unified, base_uri="")` reads only from `UnifiedRecord.semantic`, `UnifiedRecord.alignment` — never reads raw extractor output
   - Born-digital entries (`ocr_derived=False`): `selector_type="TextPositionSelector"`, `selector_payload={"start": int, "end": int}` from `alignment.sentence_to_char_range`
@@ -206,7 +206,7 @@
   - _Requirements: 8.1_
   - _Boundary: pdf_extractor/annotation/w3c_annotation_
 
-- [ ] 8.2 (P) Create W3C JSON-LD artifact generator
+- [x] 8.2 (P) Create W3C JSON-LD artifact generator
   - Create `pdf_extractor/annotation/artifact_generator.py` with `generate_w3c_jsonld()` as the sole producer of W3C JSON-LD dicts
   - Each dict contains `"@context"`, `"id"` (URN format: `urn:evitrace:anno:<uuid4>`), `"type"`, `"body"`, `"target"` fields
   - Born-digital records serialize with `TextPositionSelector`; scanned records serialize with `FragmentSelector` and `"ocr_derived": true`
@@ -215,7 +215,7 @@
   - _Requirements: 8.2_
   - _Boundary: pdf_extractor/annotation/artifact_generator_
 
-- [ ] 8.3 Test annotation layer
+- [x] 8.3 Test annotation layer
   - `project()` returns `list[AnnotationRecord]`, not `list[dict]`
   - Born-digital record has `selector_type == "TextPositionSelector"` and populated `quote_selector`
   - Scanned record has `selector_type == "FragmentSelector"` and `ocr_derived == True`
