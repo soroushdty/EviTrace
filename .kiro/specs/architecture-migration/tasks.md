@@ -100,7 +100,7 @@
 - [ ] 5. Core: Per-page scan detection and schema extensions
   _Depends: 2.1_
 
-- [ ] 5.1 Extend block schemas for PaddleOCR metadata
+- [x] 5.1 Extend block schemas for PaddleOCR metadata
   - Add `PaddleOCRBlockDict(BlockDict, total=False)` to `pdf_extractor/extraction/schemas.py` with optional `rasterization_dpi: int` and `ocr_confidence: float` fields
   - Add `make_ocr_block(text, page_index, block_bbox, rasterization_dpi, ocr_confidence) → PaddleOCRBlockDict` factory function
   - `validate_blocks()` continues to accept `PaddleOCRBlockDict` instances (existing validation unchanged)
@@ -108,7 +108,7 @@
   - _Requirements: 3.2_
   - _Boundary: pdf_extractor/extraction/schemas_
 
-- [ ] 5.2 Create scan_detector module
+- [x] 5.2 Create scan_detector module
   - Create `pdf_extractor/extraction/scan_detector.py` with `PageScanClassification` dataclass and `classify_page()` function
   - Stage 1 (empty text): fires immediately and short-circuits stages 2–5; `triggered_stages == [1]`
   - Stages 2–5 use config thresholds from `scan_detection.*` config keys
@@ -119,14 +119,14 @@
   - _Requirements: 2.1, 2.2, 2.3_
   - _Boundary: pdf_extractor/extraction/scan_detector_
 
-- [ ] 5.3 Add single-page font metadata extraction to PyMuPDF.py
+- [x] 5.3 Add single-page font metadata extraction to PyMuPDF.py
   - Add `get_page_font_metadata(page) → list[FontMetaDict]` to `pdf_extractor/extraction/PyMuPDF.py`
   - Function extracts per-span font size, text, and page index from a single `fitz.Page`
   - Existing `extract_with_pymupdf(pdf_path)` function is unchanged
   - _Requirements: 3.1_
   - _Boundary: pdf_extractor/extraction/PyMuPDF_
 
-- [ ] 5.4 Test scan_detector
+- [x] 5.4 Test scan_detector
   - Stage 1 triggers on empty page text and short-circuits all subsequent stages
   - Stages 2, 3, 4, 5 each trigger independently when their respective condition fires (mocked `fitz.Page`)
   - `is_native = True` when zero stages fire

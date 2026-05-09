@@ -96,3 +96,47 @@ def extract_with_pymupdf(pdf_path: str) -> tuple:
         doc.close()
 
     return blocks, font_metadata
+
+
+def get_page_font_metadata(page) -> "list[schemas.FontMetaDict]":
+    """Extract per-span font metadata from a single ``fitz.Page``.
+
+    This function does **not** open a document; it operates on an already-open
+    page object so that the extraction routing layer can call it inside an
+    existing ``fitz.open`` context.
+
+    ``fitz`` is imported lazily inside the function body — no import-time
+    side effects (same pattern as :func:`extract_with_pymupdf`).
+
+    Parameters
+    ----------
+    page:
+        An open ``fitz.Page`` instance (or a compatible mock in tests).
+
+    Returns
+    -------
+    list[FontMetaDict]
+        One entry per span across all text blocks on the page.  Image blocks
+        (``type != 0``) are skipped.
+
+    Requirements: 3.1
+    """
+    page_index: int = page.number
+
+    font_metadata: list[schemas.FontMetaDict] = []
+    page_dict = page.get_text("dict")
+
+    for block in page_dict.get("blocks", []):
+        if block.get("type") != 0:
+            continue
+        for line in block.get("lines", []):
+            for span in line.get("spans", []):
+                font_metadata.append(
+                    schemas.make_font_meta(
+                        size=span.get("size", 0.0),
+                        text=span.get("text", ""),
+                        page=page_index,
+                    )
+                )
+
+    return font_metadata

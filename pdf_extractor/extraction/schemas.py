@@ -38,6 +38,24 @@ class FontMetaDict(TypedDict):
     page: int
 
 
+class PaddleOCRBlockDict(BlockDict, total=False):
+    """Extended block type carrying PaddleOCR-specific metadata.
+
+    Inherits all required fields from :class:`BlockDict` (``text``,
+    ``page_index``, ``block_bbox``, ``spans``) and adds two optional fields:
+
+    * ``rasterization_dpi`` — the DPI used to rasterize the page image before
+      OCR; needed for pixel → PDF user-space coordinate conversion.
+    * ``ocr_confidence`` — the confidence score returned by PaddleOCR for this
+      block, in the range ``[0.0, 1.0]``.
+
+    Requirements: 3.2
+    """
+
+    rasterization_dpi: int
+    ocr_confidence: float
+
+
 # ---------------------------------------------------------------------------
 # Factory functions
 # ---------------------------------------------------------------------------
@@ -70,6 +88,43 @@ def make_block(
         page_index=page_index,
         block_bbox=block_bbox,
         spans=spans,
+    )
+
+
+def make_ocr_block(
+    text: str,
+    page_index: int,
+    block_bbox: tuple | None,
+    rasterization_dpi: int,
+    ocr_confidence: float,
+) -> "PaddleOCRBlockDict":
+    """Construct a :class:`PaddleOCRBlockDict` from the supplied arguments.
+
+    Parameters
+    ----------
+    text:
+        Concatenated OCR text content of the block.
+    page_index:
+        0-based page number.
+    block_bbox:
+        Bounding box ``(x0, y0, x1, y1)`` in PDF user-space points, or
+        ``None`` when unavailable.
+    rasterization_dpi:
+        DPI used to rasterize the page image before OCR.
+    ocr_confidence:
+        Confidence score returned by PaddleOCR, in ``[0.0, 1.0]``.
+
+    Returns
+    -------
+    PaddleOCRBlockDict
+    """
+    return PaddleOCRBlockDict(
+        text=text,
+        page_index=page_index,
+        block_bbox=block_bbox,
+        spans=[],
+        rasterization_dpi=rasterization_dpi,
+        ocr_confidence=ocr_confidence,
     )
 
 
