@@ -1,15 +1,14 @@
 """
 pdf_extractor/extraction/__init__.py
 -------------------------------------
-Extraction orchestrator. Runs a four-tier cascade:
+Extraction orchestrator. Runs a three-tier cascade:
   1. PyMuPDF  (extract_with_pymupdf)
   2. pdfplumber (extract_with_pdfplumber)
-  3. Tesseract OCR (extract_with_tesseract)
-  4. PaddleOCR (extract_with_paddleocr)
+  3. PaddleOCR (extract_with_paddleocr)
 
 Each tier is scored with ``_compute_quality_score``. The first tier that
 meets or exceeds ``ocr_text_quality_threshold`` wins. If none do, the
-highest-scoring OCR backend (tier 3 vs tier 4) wins.
+PaddleOCR result is returned.
 
 Public API
 ----------
@@ -22,7 +21,6 @@ from __future__ import annotations
 from . import schemas
 from .PyMuPDF import extract_with_pymupdf
 from .pdfplumber import extract_with_pdfplumber
-from .Tesseract import extract_with_tesseract
 from .PaddleOCR import extract_with_paddleocr
 
 
@@ -50,7 +48,7 @@ def extract_pdf(
     ocr_text_quality_threshold: float,
     embed_model=None,
 ) -> tuple:
-    """Extract text from *pdf_path* using a four-tier cascade.
+    """Extract text from *pdf_path* using a three-tier cascade.
 
     Parameters
     ----------
@@ -83,17 +81,7 @@ def extract_pdf(
         schemas.validate_blocks(plumber_blocks)
         return plumber_blocks, []
 
-    # --- Tier 3: Tesseract ---
-    tess_blocks = extract_with_tesseract(pdf_path)
-    tess_score = _compute_quality_score(tess_blocks, embed_model)
-    if tess_score >= ocr_text_quality_threshold:
-        schemas.validate_blocks(tess_blocks)
-        return tess_blocks, []
-
-    # --- Tier 4: PaddleOCR ---
+    # --- Tier 3: PaddleOCR ---
     paddle_blocks = extract_with_paddleocr(pdf_path)
-    paddle_score = _compute_quality_score(paddle_blocks, embed_model)
-
-    winner = paddle_blocks if paddle_score >= tess_score else tess_blocks
-    schemas.validate_blocks(winner)
-    return winner, []
+    schemas.validate_blocks(paddle_blocks)
+    return paddle_blocks, []

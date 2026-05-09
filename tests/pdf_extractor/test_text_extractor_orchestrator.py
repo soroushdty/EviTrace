@@ -6,8 +6,11 @@ Property-based tests for the ``text_extractor`` orchestrator
 
 Properties covered:
   9.  Orchestrator returns PyMuPDF blocks when score meets threshold or OCR is disabled
-  10. Orchestrator cascade selects the highest-scoring OCR backend
+  10. Orchestrator cascade reaches PaddleOCR when all prior tiers are below threshold
   11. validate_blocks is always called before extract_pdf returns
+
+Note: Tesseract backend removed as of architecture-migration task 1.1.
+The cascade is now 3-tier: PyMuPDF → pdfplumber → PaddleOCR.
 """
 
 from __future__ import annotations
@@ -39,7 +42,6 @@ def _make_blocks(label: str, count: int = 1) -> list:
 
 _PYMUPDF_BLOCKS = _make_blocks("pymupdf")
 _PLUMBER_BLOCKS = _make_blocks("pdfplumber")
-_TESS_BLOCKS = _make_blocks("tesseract")
 _PADDLE_BLOCKS = _make_blocks("paddle")
 
 _FONT_META = [{"size": 12.0, "text": "hello", "page": 0}]
@@ -73,7 +75,6 @@ def test_property9_pymupdf_path_taken_when_score_meets_threshold_or_ocr_disabled
     with (
         patch("pdf_extractor.extraction.extract_with_pymupdf", return_value=(_PYMUPDF_BLOCKS, _FONT_META)) as mock_pymupdf,
         patch("pdf_extractor.extraction.extract_with_pdfplumber") as mock_plumber,
-        patch("pdf_extractor.extraction.extract_with_tesseract") as mock_tess,
         patch("pdf_extractor.extraction.extract_with_paddleocr") as mock_paddle,
         patch("pdf_extractor.extraction._compute_quality_score", return_value=score),
     ):
@@ -90,14 +91,15 @@ def test_property9_pymupdf_path_taken_when_score_meets_threshold_or_ocr_disabled
 
     # Fallback backends must NOT have been called.
     mock_plumber.assert_not_called()
-    mock_tess.assert_not_called()
     mock_paddle.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
-# Property 10: Orchestrator cascade selects the highest-scoring OCR backend
-# Feature: text-extractor-restructure, Property 10: Orchestrator cascade selects the highest-scoring OCR backend
+# Property 10: Orchestrator cascade reaches PaddleOCR when all prior tiers
+#              are below threshold
+# Feature: text-extractor-restructure, Property 10: Orchestrator cascade selects PaddleOCR as final OCR backend
 # Validates: Requirements 7.5, 7.6
+# Note: Tesseract removed; PaddleOCR is now the sole OCR backend (tier 3).
 # ---------------------------------------------------------------------------
 
 # Scores strictly below 1.0 so all fallback backends are below threshold.
@@ -107,20 +109,19 @@ _sub_threshold_score_st = st.floats(
 
 
 @given(
-    tess_score=_sub_threshold_score_st,
-    paddle_score=_sub_threshold_score_st,
+    pymupdf_score=_sub_threshold_score_st,
+    plumber_score=_sub_threshold_score_st,
 )
 @settings(max_examples=200)
-def test_property10_cascade_selects_highest_scoring_ocr_backend(tess_score, paddle_score):
-    # Feature: text-extractor-restructure, Property 10: Orchestrator cascade selects the highest-scoring OCR backend
-    # Threshold is 1.0 so PyMuPDF score (0.0), pdfplumber score (0.0), and both OCR scores are below it.
+def test_property10_cascade_reaches_paddleocr_when_prior_tiers_below_threshold(
+    pymupdf_score, plumber_score
+):
+    # Feature: text-extractor-restructure, Property 10: Orchestrator cascade selects PaddleOCR as final OCR backend
+    # Threshold is 1.0 so PyMuPDF and pdfplumber scores are always below it.
     threshold = 1.0
-    pymupdf_score = 0.0   # forces cascade into pdfplumber
-    plumber_score = 0.0   # forces cascade into Tesseract
 
-    # Map each call to _compute_quality_score to the right score value.
-    # Call order: pymupdf_blocks → plumber_blocks → tess_blocks → paddle_blocks.
-    score_sequence = [pymupdf_score, plumber_score, tess_score, paddle_score]
+    # Call order: pymupdf_blocks → plumber_blocks → (PaddleOCR called unconditionally).
+    score_sequence = [pymupdf_score, plumber_score]
     score_iter = iter(score_sequence)
 
     def _side_effect_score(blocks, embed_model):
@@ -129,7 +130,6 @@ def test_property10_cascade_selects_highest_scoring_ocr_backend(tess_score, padd
     with (
         patch("pdf_extractor.extraction.extract_with_pymupdf", return_value=(_PYMUPDF_BLOCKS, _FONT_META)),
         patch("pdf_extractor.extraction.extract_with_pdfplumber", return_value=_PLUMBER_BLOCKS),
-        patch("pdf_extractor.extraction.extract_with_tesseract", return_value=_TESS_BLOCKS),
         patch("pdf_extractor.extraction.extract_with_paddleocr", return_value=_PADDLE_BLOCKS),
         patch("pdf_extractor.extraction._compute_quality_score", side_effect=_side_effect_score),
     ):
@@ -140,18 +140,9 @@ def test_property10_cascade_selects_highest_scoring_ocr_backend(tess_score, padd
             embed_model=None,
         )
 
-    # The backend with the higher score should win.
-    # Cascade rule: if paddle_score >= tess_score → paddle, else → tess.
-    if paddle_score >= tess_score:
-        assert blocks == _PADDLE_BLOCKS, (
-            f"Expected paddle blocks (paddle={paddle_score} >= tess={tess_score})"
-        )
-        assert font_meta == []
-    else:
-        assert blocks == _TESS_BLOCKS, (
-            f"Expected tess blocks (tess={tess_score} > paddle={paddle_score})"
-        )
-        assert font_meta == []
+    # PaddleOCR is the sole final-tier backend; it always wins when reached.
+    assert blocks == _PADDLE_BLOCKS, "Expected paddle blocks when all prior tiers are below threshold"
+    assert font_meta == []
 
 
 # ---------------------------------------------------------------------------
@@ -160,35 +151,31 @@ def test_property10_cascade_selects_highest_scoring_ocr_backend(tess_score, padd
 # Validates: Requirements 7.7
 # ---------------------------------------------------------------------------
 
-# Enumerate all cascade paths explicitly (now 4-tier: PyMuPDF → pdfplumber → Tesseract → PaddleOCR).
-# score_sequence entries: [pymupdf_score, plumber_score, tess_score, paddle_score]
+# Enumerate all cascade paths explicitly (now 3-tier: PyMuPDF → pdfplumber → PaddleOCR).
+# score_sequence entries: [pymupdf_score, plumber_score]
 # None entries are omitted from the sequence (path stops before reaching that tier).
 _CASCADE_PATHS = [
-    # label, pymupdf_score, plumber_score, tess_score, paddle_score, ocr, threshold, expected_blocks
+    # label, pymupdf_score, plumber_score, ocr, threshold, expected_blocks
     # Path A: PyMuPDF wins (score >= threshold)
-    ("pymupdf_wins_score", 0.9, None, None, None, True, 0.5, _PYMUPDF_BLOCKS),
+    ("pymupdf_wins_score", 0.9, None, True, 0.5, _PYMUPDF_BLOCKS),
     # Path B: PyMuPDF wins (ocr=False)
-    ("pymupdf_wins_ocr_false", 0.0, None, None, None, False, 0.5, _PYMUPDF_BLOCKS),
+    ("pymupdf_wins_ocr_false", 0.0, None, False, 0.5, _PYMUPDF_BLOCKS),
     # Path C: pdfplumber wins (plumber_score >= threshold)
-    ("plumber_wins", 0.0, 0.9, None, None, True, 0.5, _PLUMBER_BLOCKS),
-    # Path D: Tesseract wins (tess_score >= threshold)
-    ("tess_wins", 0.0, 0.0, 0.9, None, True, 0.5, _TESS_BLOCKS),
-    # Path E: PaddleOCR wins (paddle_score >= tess_score, both below threshold)
-    ("paddle_wins", 0.0, 0.0, 0.3, 0.6, True, 1.0, _PADDLE_BLOCKS),
-    # Path F: Tesseract wins over PaddleOCR (tess_score > paddle_score, both below threshold)
-    ("tess_wins_over_paddle", 0.0, 0.0, 0.6, 0.3, True, 1.0, _TESS_BLOCKS),
+    ("plumber_wins", 0.0, 0.9, True, 0.5, _PLUMBER_BLOCKS),
+    # Path D: PaddleOCR wins (all prior tiers below threshold)
+    ("paddle_wins", 0.0, 0.0, True, 1.0, _PADDLE_BLOCKS),
 ]
 
 
 @pytest.mark.parametrize(
-    "label,pymupdf_score,plumber_score,tess_score,paddle_score,ocr,threshold,expected_blocks",
+    "label,pymupdf_score,plumber_score,ocr,threshold,expected_blocks",
     _CASCADE_PATHS,
 )
 def test_property11_validate_blocks_called_exactly_once(
-    label, pymupdf_score, plumber_score, tess_score, paddle_score, ocr, threshold, expected_blocks
+    label, pymupdf_score, plumber_score, ocr, threshold, expected_blocks
 ):
     # Feature: text-extractor-restructure, Property 11: validate_blocks is always called before extract_pdf returns
-    score_sequence = [s for s in [pymupdf_score, plumber_score, tess_score, paddle_score] if s is not None]
+    score_sequence = [s for s in [pymupdf_score, plumber_score] if s is not None]
     score_iter = iter(score_sequence)
 
     def _side_effect_score(blocks, embed_model):
@@ -197,7 +184,6 @@ def test_property11_validate_blocks_called_exactly_once(
     with (
         patch("pdf_extractor.extraction.extract_with_pymupdf", return_value=(_PYMUPDF_BLOCKS, _FONT_META)),
         patch("pdf_extractor.extraction.extract_with_pdfplumber", return_value=_PLUMBER_BLOCKS),
-        patch("pdf_extractor.extraction.extract_with_tesseract", return_value=_TESS_BLOCKS),
         patch("pdf_extractor.extraction.extract_with_paddleocr", return_value=_PADDLE_BLOCKS),
         patch("pdf_extractor.extraction._compute_quality_score", side_effect=_side_effect_score),
         patch("pdf_extractor.extraction.schemas.validate_blocks") as mock_validate,
@@ -233,10 +219,8 @@ def test_property11_validate_blocks_called_exactly_once_property(score, threshol
     # Use a fixed pymupdf score; if it triggers fallback, use fixed scores for all tiers.
     pymupdf_score = score
     plumber_score = 0.3
-    tess_score = 0.3
-    paddle_score = 0.4
 
-    score_sequence = [pymupdf_score, plumber_score, tess_score, paddle_score]
+    score_sequence = [pymupdf_score, plumber_score]
     score_iter = iter(score_sequence)
 
     def _side_effect_score(blocks, embed_model):
@@ -245,7 +229,6 @@ def test_property11_validate_blocks_called_exactly_once_property(score, threshol
     with (
         patch("pdf_extractor.extraction.extract_with_pymupdf", return_value=(_PYMUPDF_BLOCKS, _FONT_META)),
         patch("pdf_extractor.extraction.extract_with_pdfplumber", return_value=_PLUMBER_BLOCKS),
-        patch("pdf_extractor.extraction.extract_with_tesseract", return_value=_TESS_BLOCKS),
         patch("pdf_extractor.extraction.extract_with_paddleocr", return_value=_PADDLE_BLOCKS),
         patch("pdf_extractor.extraction._compute_quality_score", side_effect=_side_effect_score),
         patch("pdf_extractor.extraction.schemas.validate_blocks") as mock_validate,

@@ -14,7 +14,7 @@ from __future__ import annotations
 import subprocess
 import sys
 
-from .. import schemas
+from . import schemas
 
 
 def _ensure_pdf2image() -> None:

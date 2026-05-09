@@ -18,7 +18,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .. import schemas
+from . import schemas
 
 _TABLE_SETTINGS = {
     "vertical_strategy": "lines",

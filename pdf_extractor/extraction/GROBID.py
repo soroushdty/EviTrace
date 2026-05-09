@@ -25,7 +25,7 @@ import logging
 import time
 import xml.etree.ElementTree as ET
 
-from .. import schemas
+from . import schemas
 
 logger = logging.getLogger("pdf_extractor")
 

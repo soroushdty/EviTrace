@@ -60,11 +60,11 @@ def test_pymupdf_sufficient_cascade_no_fallback():
     blocks and non-empty font_metadata without calling any fallback backend.
 
     Preservation: this behaviour must survive all structural fixes.
+    Note: Tesseract removed as of architecture-migration task 1.1.
     """
     with (
         patch("pdf_extractor.extraction.extract_with_pymupdf", return_value=(_PYMUPDF_BLOCKS, _FONT_META)) as mock_pymupdf,
         patch("pdf_extractor.extraction._compute_quality_score", return_value=0.9),
-        patch("pdf_extractor.extraction.extract_with_tesseract") as mock_tess,
         patch("pdf_extractor.extraction.extract_with_paddleocr") as mock_paddle,
     ):
         blocks, font_metadata = pdf_extractor.extraction.extract_pdf(
@@ -79,7 +79,6 @@ def test_pymupdf_sufficient_cascade_no_fallback():
     assert font_metadata, "font_metadata must be non-empty when PyMuPDF path is taken"
     assert font_metadata == _FONT_META
 
-    mock_tess.assert_not_called()
     mock_paddle.assert_not_called()
 
 
@@ -93,11 +92,11 @@ def test_ocr_false_returns_only_pymupdf_blocks():
     of quality score (even a score of 0.0 must not trigger fallback).
 
     Preservation: this behaviour must survive all structural fixes.
+    Note: Tesseract removed as of architecture-migration task 1.1.
     """
     with (
         patch("pdf_extractor.extraction.extract_with_pymupdf", return_value=(_PYMUPDF_BLOCKS, _FONT_META)),
         patch("pdf_extractor.extraction._compute_quality_score", return_value=0.0),
-        patch("pdf_extractor.extraction.extract_with_tesseract") as mock_tess,
         patch("pdf_extractor.extraction.extract_with_paddleocr") as mock_paddle,
     ):
         blocks, font_metadata = pdf_extractor.extraction.extract_pdf(
@@ -110,7 +109,6 @@ def test_ocr_false_returns_only_pymupdf_blocks():
         f"Expected PyMuPDF blocks with ocr=False, got {blocks!r}"
     )
 
-    mock_tess.assert_not_called()
     mock_paddle.assert_not_called()
 
 
@@ -274,10 +272,10 @@ def test_pbt_pymupdf_sufficient_no_fallback_for_any_score_above_threshold(score:
     """**Validates: Requirements 3.1**
 
     For any quality score in [threshold, 1.0], extract_pdf() with mocked
-    PyMuPDF returning that score does NOT call extract_with_tesseract or
-    extract_with_paddleocr.
+    PyMuPDF returning that score does NOT call extract_with_paddleocr.
 
     Preservation property: must hold on unfixed code and after every fix.
+    Note: Tesseract removed as of architecture-migration task 1.1.
     """
     threshold = 0.7
     assume(score >= threshold)
@@ -285,7 +283,6 @@ def test_pbt_pymupdf_sufficient_no_fallback_for_any_score_above_threshold(score:
     with (
         patch("pdf_extractor.extraction.extract_with_pymupdf", return_value=(_PYMUPDF_BLOCKS, _FONT_META)),
         patch("pdf_extractor.extraction._compute_quality_score", return_value=score),
-        patch("pdf_extractor.extraction.extract_with_tesseract") as mock_tess,
         patch("pdf_extractor.extraction.extract_with_paddleocr") as mock_paddle,
     ):
         blocks, font_metadata = pdf_extractor.extraction.extract_pdf(
@@ -294,7 +291,6 @@ def test_pbt_pymupdf_sufficient_no_fallback_for_any_score_above_threshold(score:
             ocr_text_quality_threshold=threshold,
         )
 
-    mock_tess.assert_not_called()
     mock_paddle.assert_not_called()
 
 
@@ -311,14 +307,14 @@ def test_pbt_ocr_false_never_calls_fallback_for_any_score(score: float):
     """**Validates: Requirements 3.2**
 
     For any quality score in [0.0, 1.0], extract_pdf() with ocr=False does
-    NOT call any fallback backend (tesseract or paddleocr).
+    NOT call any fallback backend (paddleocr).
 
     Preservation property: must hold on unfixed code and after every fix.
+    Note: Tesseract removed as of architecture-migration task 1.1.
     """
     with (
         patch("pdf_extractor.extraction.extract_with_pymupdf", return_value=(_PYMUPDF_BLOCKS, _FONT_META)),
         patch("pdf_extractor.extraction._compute_quality_score", return_value=score),
-        patch("pdf_extractor.extraction.extract_with_tesseract") as mock_tess,
         patch("pdf_extractor.extraction.extract_with_paddleocr") as mock_paddle,
     ):
         blocks, font_metadata = pdf_extractor.extraction.extract_pdf(
@@ -327,7 +323,6 @@ def test_pbt_ocr_false_never_calls_fallback_for_any_score(score: float):
             ocr_text_quality_threshold=0.7,
         )
 
-    mock_tess.assert_not_called()
     mock_paddle.assert_not_called()
 
 

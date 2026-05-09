@@ -10,7 +10,7 @@ factory functions instead of raw dict literals.
 side effects.
 """
 
-from .. import schemas
+from . import schemas
 
 
 def extract_with_pymupdf(pdf_path: str) -> tuple:

@@ -153,24 +153,22 @@ def test_qc_dataclasses():
 # Sub-check 4 — Cascade order (pdfplumber before Tesseract)
 # ---------------------------------------------------------------------------
 
-def test_cascade_order_pdfplumber_before_tesseract():
+def test_cascade_order_pdfplumber_before_paddleocr():
     """Assert extract_pdf() calls extract_with_pdfplumber before
-    extract_with_tesseract when PyMuPDF quality is below threshold.
+    extract_with_paddleocr when PyMuPDF quality is below threshold.
 
     Expected to FAIL on unfixed code:
       - extract_with_pdfplumber is never imported or called in
-        pdf_extractor/extraction/__init__.py; Tesseract is called directly.
+        pdf_extractor/extraction/__init__.py; PaddleOCR is called directly.
+
+    Note: Tesseract backend removed as of architecture-migration task 1.1.
+    The cascade is now 3-tier: PyMuPDF → pdfplumber → PaddleOCR.
     """
     import pdf_extractor.extraction
 
     # Low-quality blocks: all non-alpha characters so score ≈ 0.0
     low_quality_blocks = [{"text": "!@#$%^&*()", "page_index": 0, "block_bbox": None, "spans": []}]
     high_quality_blocks = [{"text": "good text here", "page_index": 0, "block_bbox": None, "spans": []}]
-
-    pymupdf_mock = MagicMock(return_value=(low_quality_blocks, []))
-    pdfplumber_mock = MagicMock(return_value=high_quality_blocks)
-    tesseract_mock = MagicMock(return_value=high_quality_blocks)
-    paddleocr_mock = MagicMock(return_value=high_quality_blocks)
 
     call_order: list[str] = []
 
@@ -182,34 +180,29 @@ def test_cascade_order_pdfplumber_before_tesseract():
         call_order.append("pdfplumber")
         return high_quality_blocks
 
-    def tracking_tesseract(path):
-        call_order.append("tesseract")
-        return high_quality_blocks
-
     def tracking_paddleocr(path):
         call_order.append("paddleocr")
         return high_quality_blocks
 
-    # Patch at the text_extractor module level
-    with patch.object(text_extractor, "extract_with_pymupdf", tracking_pymupdf):
-        with patch.object(text_extractor, "extract_with_tesseract", tracking_tesseract):
-            with patch.object(text_extractor, "extract_with_paddleocr", tracking_paddleocr):
-                # extract_with_pdfplumber may not exist yet — handle gracefully
-                try:
-                    with patch.object(text_extractor, "extract_with_pdfplumber", tracking_pdfplumber):
-                        pdf_extractor.extraction.extract_pdf(
-                            "dummy.pdf",
-                            ocr=True,
-                            ocr_text_quality_threshold=0.9,
-                        )
-                except AttributeError:
-                    # extract_with_pdfplumber not yet wired into text_extractor
-                    # Run without it so we can still check call_order
+    # Patch at the pdf_extractor.extraction module level
+    with patch.object(pdf_extractor.extraction, "extract_with_pymupdf", tracking_pymupdf):
+        with patch.object(pdf_extractor.extraction, "extract_with_paddleocr", tracking_paddleocr):
+            # extract_with_pdfplumber may not exist yet — handle gracefully
+            try:
+                with patch.object(pdf_extractor.extraction, "extract_with_pdfplumber", tracking_pdfplumber):
                     pdf_extractor.extraction.extract_pdf(
                         "dummy.pdf",
                         ocr=True,
                         ocr_text_quality_threshold=0.9,
                     )
+            except AttributeError:
+                # extract_with_pdfplumber not yet wired into the module
+                # Run without it so we can still check call_order
+                pdf_extractor.extraction.extract_pdf(
+                    "dummy.pdf",
+                    ocr=True,
+                    ocr_text_quality_threshold=0.9,
+                )
 
     assert "pdfplumber" in call_order, (
         f"extract_with_pdfplumber was never called. call_order={call_order!r}. "
@@ -217,11 +210,11 @@ def test_cascade_order_pdfplumber_before_tesseract():
     )
 
     pdfplumber_idx = call_order.index("pdfplumber")
-    tesseract_idx = call_order.index("tesseract") if "tesseract" in call_order else float("inf")
+    paddleocr_idx = call_order.index("paddleocr") if "paddleocr" in call_order else float("inf")
 
-    assert pdfplumber_idx < tesseract_idx, (
-        f"pdfplumber called at position {pdfplumber_idx} but tesseract at "
-        f"{tesseract_idx}; pdfplumber must come first. "
+    assert pdfplumber_idx < paddleocr_idx, (
+        f"pdfplumber called at position {pdfplumber_idx} but paddleocr at "
+        f"{paddleocr_idx}; pdfplumber must come first. "
         "Deviation 1.4: cascade order incorrect."
     )
 
