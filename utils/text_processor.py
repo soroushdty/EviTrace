@@ -5,13 +5,17 @@ normalization, comparison, OCR cleaning, word tokenization, and keyword
 extraction.  All backends are resolved at construction time; optional NLP
 backends (spaCy, NLTK) are lazy-imported inside method bodies.
 
+Also provides the :class:`SentenceSegment` abstract base class and five
+built-in concrete backends for sentence boundary detection (task 2.2).
+
 Design reference: .kiro/specs/architecture-migration/design.md §TextProcessor
-Requirements: 5.2, 5.3, 5.4, 5.5
+Requirements: 5.1, 5.2, 5.3, 5.4, 5.5
 """
 
 from __future__ import annotations
 
 import difflib
+import importlib
 import re
 import unicodedata
 from typing import TYPE_CHECKING
@@ -22,6 +26,13 @@ from typing import TYPE_CHECKING
 
 _VALID_NORMALIZERS: tuple[str, ...] = ("nfc", "nfkc")
 _VALID_WORD_TOKENIZERS: tuple[str, ...] = ("simple", "spacy", "nltk")
+_VALID_SENTENCE_TOKENIZERS: tuple[str, ...] = (
+    "scispacy",
+    "wtpsplit",
+    "nltk_punkt",
+    "spacy_sentencizer",
+    "stanza",
+)
 
 # C0 control characters to strip (per design: \x00–\x08, \x0b, \x0c, \x0e–\x1f).
 # Note: \x09 (tab), \x0a (LF), \x0d (CR) are intentionally preserved.
@@ -83,13 +94,54 @@ class TextProcessor:
         self._wt_backend: str = wt_backend
         self._wt_cfg: dict = wt_cfg
 
-        # ---- sentence segmenter (wired in task 2.2) -----------------------
-        # Kept as None by default; task 2.2 will assign a SentenceSegment
-        # instance here when constructing via the loader.
-        self._segmenter = None  # type: ignore[assignment]
+        # ---- sentence segmenter -------------------------------------------
+        # Resolved from config["sentence_tokenizer"]["backend"].
+        # SentenceSegment subclasses call super().__init__() which skips this
+        # block so they don't re-enter the wiring logic.
+        st_cfg = cfg.get("sentence_tokenizer", {})
+        st_backend = st_cfg.get("backend", "scispacy")
+        self._segmenter = self._resolve_sentence_segmenter(st_backend)
 
         # Store the full config for sub-class / future use.
         self._config: dict = cfg
+
+    # ------------------------------------------------------------------
+    # Sentence segmenter resolver (class-level, called from __init__)
+    # ------------------------------------------------------------------
+
+    def _resolve_sentence_segmenter(self, backend: str):  # type: ignore[return]
+        """Return a SentenceSegment instance for *backend*.
+
+        If *backend* is a dotted class path (contains ``"."``), it is loaded
+        via :func:`importlib.import_module`.  Otherwise it must be one of the
+        built-in keys in :data:`_VALID_SENTENCE_TOKENIZERS`.
+
+        SentenceSegment subclasses return ``None`` here (they ARE the
+        segmenter), so the caller should set ``_segmenter`` to ``self`` or
+        skip entirely.  By convention, ``SentenceSegment.__init__`` overrides
+        this method to return ``None``.
+        """
+        if "." in backend:
+            # Fully qualified class path — load via importlib (req 5.5)
+            module_path, class_name = backend.rsplit(".", 1)
+            module = importlib.import_module(module_path)
+            cls = getattr(module, class_name)
+            return cls()
+
+        _BACKEND_MAP = {
+            "scispacy": lambda: ScispaCySentenceSegment(),
+            "wtpsplit": lambda: WtpSplitSentenceSegment(),
+            "nltk_punkt": lambda: NLTKPunktSentenceSegment(),
+            "spacy_sentencizer": lambda: SpacySentencizerSegment(),
+            "stanza": lambda: StanzaSentenceSegment(),
+        }
+        if backend in _BACKEND_MAP:
+            return _BACKEND_MAP[backend]()
+
+        raise ValueError(
+            f"Unknown sentence_tokenizer backend {backend!r}. "
+            f"Valid built-in options: {sorted(_VALID_SENTENCE_TOKENIZERS)}"
+        )
 
     # -----------------------------------------------------------------------
     # normalize
@@ -246,8 +298,9 @@ class TextProcessor:
         """Delegate to the configured sentence segmenter.
 
         Raises :class:`NotImplementedError` when no segmenter has been wired
-        (i.e., ``_segmenter is None``).  Task 2.2 assigns a
-        :class:`SentenceSegment` instance at construction time via the loader.
+        (i.e., ``_segmenter is None``).  This should not happen for plain
+        ``TextProcessor`` instances after task 2.2; ``SentenceSegment``
+        subclasses override this method directly.
         """
         if self._segmenter is None:
             raise NotImplementedError(
@@ -256,3 +309,157 @@ class TextProcessor:
                 "or use a SentenceSegment subclass directly."
             )
         return self._segmenter.tokenize_sentences(text)
+
+
+# ---------------------------------------------------------------------------
+# SentenceSegment hierarchy  (task 2.2 — requirements 5.1, 5.5)
+# ---------------------------------------------------------------------------
+
+class SentenceSegment(TextProcessor):
+    """Abstract base class for sentence segmentation backends.
+
+    Inherits the full :class:`TextProcessor` interface so that any concrete
+    ``SentenceSegment`` can also serve as the top-level ``TextProcessor``
+    instance (design §TextProcessor — loader pattern).
+
+    Subclasses **must** override :meth:`tokenize_sentences`.  All other
+    ``TextProcessor`` methods are inherited and fully functional.
+
+    Lazy-loading pattern: each concrete subclass stores the loaded model in
+    ``self._model`` (``None`` until first call).  The model is loaded exactly
+    once per instance.
+    """
+
+    def _resolve_sentence_segmenter(self, backend: str):
+        """Override: SentenceSegment IS the segmenter — no child segmenter needed."""
+        return None  # _segmenter will be set to self after super().__init__
+
+    def __init__(self, config: dict | None = None) -> None:
+        # Call TextProcessor.__init__. Because _resolve_sentence_segmenter is
+        # overridden above, it returns None — no recursive instantiation.
+        super().__init__(config=config)
+        # Point _segmenter to self so that the TextProcessor.tokenize_sentences
+        # delegation path also works correctly.
+        self._segmenter = self  # type: ignore[assignment]
+        self._model = None  # lazy-loaded on first tokenize_sentences call
+
+    def tokenize_sentences(self, text: str) -> list[str]:
+        """Must be overridden by concrete backends."""
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement tokenize_sentences(). "
+            "Use a concrete SentenceSegment subclass."
+        )
+
+
+class ScispaCySentenceSegment(SentenceSegment):
+    """Sentence segmentation via scispaCy (``en_core_sci_lg``).
+
+    Lazy-loads the model on first call; raises :class:`ImportError` with an
+    exact install command when scispaCy or spaCy is not installed.
+    """
+
+    def tokenize_sentences(self, text: str) -> list[str]:
+        if self._model is None:
+            try:
+                import scispacy  # noqa: F401
+                import spacy
+                self._model = spacy.load("en_core_sci_lg")
+            except ImportError:
+                raise ImportError(
+                    "scispaCy is not installed. Install it with:\n"
+                    "  pip install scispacy\n"
+                    "  python -m spacy download en_core_sci_lg"
+                )
+        return [sent.text for sent in self._model(text).sents]
+
+
+class WtpSplitSentenceSegment(SentenceSegment):
+    """Sentence segmentation via wtpsplit (``WtP`` model).
+
+    Lazy-loads on first call; raises :class:`ImportError` with install hint
+    when the ``wtpsplit`` package is absent.
+    """
+
+    def tokenize_sentences(self, text: str) -> list[str]:
+        if self._model is None:
+            try:
+                import wtpsplit
+                self._model = wtpsplit.WtP("wtp-bert-mini")
+            except ImportError:
+                raise ImportError(
+                    "wtpsplit is not installed. Install it with:\n"
+                    "  pip install wtpsplit"
+                )
+        return list(self._model.split(text))
+
+
+class NLTKPunktSentenceSegment(SentenceSegment):
+    """Sentence segmentation via NLTK Punkt tokenizer.
+
+    Lazy-loads on first call; raises :class:`ImportError` with install hint
+    when the ``nltk`` package or Punkt data is absent.
+    """
+
+    def tokenize_sentences(self, text: str) -> list[str]:
+        if self._model is None:
+            try:
+                import nltk
+                self._model = nltk
+            except ImportError:
+                raise ImportError(
+                    "NLTK is not installed. Install it with:\n"
+                    "  pip install nltk\n"
+                    "  python -c \"import nltk; nltk.download('punkt')\""
+                )
+        try:
+            return self._model.sent_tokenize(text)
+        except LookupError:
+            raise ImportError(
+                "NLTK Punkt data not found. Download it with:\n"
+                "  python -c \"import nltk; nltk.download('punkt')\""
+            )
+
+
+class SpacySentencizerSegment(SentenceSegment):
+    """Sentence segmentation via spaCy ``Sentencizer`` component.
+
+    Lazy-loads on first call; raises :class:`ImportError` with install hint
+    when ``spacy`` is absent.
+    """
+
+    def tokenize_sentences(self, text: str) -> list[str]:
+        if self._model is None:
+            try:
+                import spacy
+                nlp = spacy.blank("en")
+                nlp.add_pipe("sentencizer")
+                self._model = nlp
+            except ImportError:
+                raise ImportError(
+                    "spaCy is not installed. Install it with:\n"
+                    "  pip install spacy"
+                )
+        doc = self._model(text)
+        return [sent.text for sent in doc.sents]
+
+
+class StanzaSentenceSegment(SentenceSegment):
+    """Sentence segmentation via Stanford Stanza.
+
+    Lazy-loads on first call; raises :class:`ImportError` with install hint
+    when the ``stanza`` package is absent.
+    """
+
+    def tokenize_sentences(self, text: str) -> list[str]:
+        if self._model is None:
+            try:
+                import stanza
+                pipeline = stanza.Pipeline(lang="en", processors="tokenize")
+                self._model = pipeline
+            except ImportError:
+                raise ImportError(
+                    "Stanza is not installed. Install it with:\n"
+                    "  pip install stanza"
+                )
+        doc = self._model(text)
+        return [sent.text for sent in doc.sentences]

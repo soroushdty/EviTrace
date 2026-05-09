@@ -36,7 +36,7 @@
   - _Requirements: 5.2, 5.3, 5.4, 5.5_
   - _Boundary: utils/text_processor_
 
-- [ ] 2.2 Implement SentenceSegment hierarchy
+- [x] 2.2 Implement SentenceSegment hierarchy
   - Define `SentenceSegment(TextProcessor)` abstract base class with `tokenize_sentences()` raising `NotImplementedError`
   - Implement `ScispaCySentenceSegment`: lazy-loads `en_core_sci_lg` on first call, caches model as instance attribute; raises `ImportError` with exact pip install command when scispaCy is absent
   - Implement `WtpSplitSentenceSegment`, `NLTKPunktSentenceSegment`, `SpacySentencizerSegment`, `StanzaSentenceSegment` following the same lazy-load + `ImportError`-with-hint pattern
