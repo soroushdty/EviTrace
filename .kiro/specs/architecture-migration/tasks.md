@@ -24,7 +24,7 @@
 ---
 
 - [ ] 2. Foundation: Pluggable TextProcessor and SentenceSegment hierarchy
-- [ ] 2.1 Implement the TextProcessor class
+- [x] 2.1 Implement the TextProcessor class
   - Create `utils/text_processor.py` with the `TextProcessor` class
   - Implement `normalize()`: NFC/NFKC unicode normalization, whitespace collapse, ligature expansion (ﬁ→fi, ﬂ→fl), idempotent
   - Implement `compare()`: apply `normalize()` to both inputs, return `difflib.SequenceMatcher` ratio in `[0.0, 1.0]`
