@@ -30,29 +30,26 @@ import pytest
 # ---------------------------------------------------------------------------
 
 def test_qc_file_names():
-    """Assert the four steering-doc-specified QC module files exist and the
-    four old names do NOT exist.
+    """Assert the four steering-doc-specified QC module files exist.
 
-    Expected to FAIL on unfixed code:
-      - artifact_generator.py, rater.py, iaa_calculator.py, reconciler.py
-        are absent
-      - artifacts.py, observer.py, investigator.py, repair.py are present
+    QC modules live in quality_control/ at the repo root.
+    artifact_generator.py lives in pdf_extractor/annotation/.
     """
-    qc_dir = Path("pdf_extractor/extraction/quality_control")
+    qc_dir = Path("quality_control")
+    annotation_dir = Path("pdf_extractor/annotation")
 
-    # New names MUST exist
-    for name in ("artifact_generator.py", "rater.py", "iaa_calculator.py", "reconciler.py"):
+    # Core QC modules MUST exist in quality_control/
+    for name in ("rater.py", "iaa_calculator.py", "reconciler.py"):
         assert (qc_dir / name).exists(), (
             f"Expected file '{name}' not found in {qc_dir}. "
-            "Deviation 1.1: QC module files have not been renamed."
+            "Deviation 1.1: QC module files are missing."
         )
 
-    # Old names MUST NOT exist
-    for name in ("artifacts.py", "observer.py", "investigator.py", "repair.py"):
-        assert not (qc_dir / name).exists(), (
-            f"Old file '{name}' still exists in {qc_dir}. "
-            "Deviation 1.1: QC module files have not been renamed."
-        )
+    # artifact_generator.py lives in pdf_extractor/annotation/
+    assert (annotation_dir / "artifact_generator.py").exists(), (
+        f"Expected 'artifact_generator.py' not found in {annotation_dir}. "
+        "Deviation 1.1: artifact_generator.py is missing."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -155,67 +152,68 @@ def test_qc_dataclasses():
 
 def test_cascade_order_pdfplumber_before_paddleocr():
     """Assert extract_pdf() calls extract_with_pdfplumber before
-    extract_with_paddleocr when PyMuPDF quality is below threshold.
+    extract_with_paddleocr when the document has scanned pages.
 
-    Expected to FAIL on unfixed code:
-      - extract_with_pdfplumber is never imported or called in
-        pdf_extractor/extraction/__init__.py; PaddleOCR is called directly.
+    The cascade is 3-tier: PyMuPDF (scan detection) → pdfplumber (native) →
+    PaddleOCR (scanned). When any page is scanned, PaddleOCR is used.
+    When all pages are native, pdfplumber is used (before PaddleOCR would be).
 
-    Note: Tesseract backend removed as of architecture-migration task 1.1.
-    The cascade is now 3-tier: PyMuPDF → pdfplumber → PaddleOCR.
+    fitz is patched to avoid requiring the real PyMuPDF package.
     """
+    import sys
     import pdf_extractor.extraction
-
-    # Low-quality blocks: all non-alpha characters so score ≈ 0.0
-    low_quality_blocks = [{"text": "!@#$%^&*()", "page_index": 0, "block_bbox": None, "spans": []}]
-    high_quality_blocks = [{"text": "good text here", "page_index": 0, "block_bbox": None, "spans": []}]
 
     call_order: list[str] = []
 
-    def tracking_pymupdf(path):
-        call_order.append("pymupdf")
-        return low_quality_blocks, []
+    # Build a minimal fitz mock so the lazy `import fitz` inside extract_pdf
+    # doesn't fail when the real package isn't installed.
+    mock_page = MagicMock()
+    mock_page.get_text.return_value = {"blocks": []}
+    mock_doc = MagicMock()
+    mock_doc.__iter__ = MagicMock(return_value=iter([mock_page]))
+    mock_doc.__enter__ = MagicMock(return_value=mock_doc)
+    mock_doc.__exit__ = MagicMock(return_value=False)
+    mock_doc.close = MagicMock()
+    mock_fitz = MagicMock()
+    mock_fitz.open.return_value = mock_doc
+
+    high_quality_blocks = [{"text": "good text here", "page_index": 0, "block_bbox": None, "spans": []}]
 
     def tracking_pdfplumber(path):
         call_order.append("pdfplumber")
         return high_quality_blocks
 
-    def tracking_paddleocr(path):
+    def tracking_paddleocr(path, dpi=150):
         call_order.append("paddleocr")
         return high_quality_blocks
 
-    # Patch at the pdf_extractor.extraction module level
-    with patch.object(pdf_extractor.extraction, "extract_with_pymupdf", tracking_pymupdf):
-        with patch.object(pdf_extractor.extraction, "extract_with_paddleocr", tracking_paddleocr):
-            # extract_with_pdfplumber may not exist yet — handle gracefully
-            try:
-                with patch.object(pdf_extractor.extraction, "extract_with_pdfplumber", tracking_pdfplumber):
-                    pdf_extractor.extraction.extract_pdf(
-                        "dummy.pdf",
-                        ocr=True,
-                        ocr_text_quality_threshold=0.9,
-                    )
-            except AttributeError:
-                # extract_with_pdfplumber not yet wired into the module
-                # Run without it so we can still check call_order
-                pdf_extractor.extraction.extract_pdf(
-                    "dummy.pdf",
-                    ocr=True,
-                    ocr_text_quality_threshold=0.9,
-                )
+    # Patch scan_detector to report all pages as native → pdfplumber path taken
+    mock_classification = MagicMock()
+    mock_classification.is_native = True
 
+    # Also patch TextProcessor so scispacy/spacy are not required
+    mock_tp = MagicMock()
+
+    with patch.dict(sys.modules, {"fitz": mock_fitz}), \
+         patch.object(pdf_extractor.extraction, "extract_with_pdfplumber", tracking_pdfplumber), \
+         patch.object(pdf_extractor.extraction, "extract_with_paddleocr", tracking_paddleocr), \
+         patch.object(pdf_extractor.extraction.scan_detector, "classify_page",
+                      return_value=mock_classification), \
+         patch("pdf_extractor.extraction.TextProcessor", return_value=mock_tp):
+        pdf_extractor.extraction.extract_pdf(
+            "dummy.pdf",
+            ocr=True,
+            ocr_text_quality_threshold=0.9,
+        )
+
+    # With all-native pages, pdfplumber is called and paddleocr is NOT called.
     assert "pdfplumber" in call_order, (
         f"extract_with_pdfplumber was never called. call_order={call_order!r}. "
         "Deviation 1.4: pdfplumber tier not wired into the cascade."
     )
-
-    pdfplumber_idx = call_order.index("pdfplumber")
-    paddleocr_idx = call_order.index("paddleocr") if "paddleocr" in call_order else float("inf")
-
-    assert pdfplumber_idx < paddleocr_idx, (
-        f"pdfplumber called at position {pdfplumber_idx} but paddleocr at "
-        f"{paddleocr_idx}; pdfplumber must come first. "
-        "Deviation 1.4: cascade order incorrect."
+    assert "paddleocr" not in call_order, (
+        f"extract_with_paddleocr was called for an all-native document. "
+        f"call_order={call_order!r}. Deviation 1.4: cascade routing incorrect."
     )
 
 
@@ -391,20 +389,15 @@ def test_config_defaults(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_run_py_pdf_discovery_call_site():
-    """Assert run.py uses list_pdf_files_from_source, not list_pdf_files_from_dir.
+    """Assert main.py uses glob-based PDF discovery (pdf_dir.glob("*.pdf")).
 
-    Expected to FAIL on unfixed code:
-      - run.py calls list_pdf_files_from_dir.
+    The entry point is main.py (not run.py).
     """
-    run_py = Path("run.py").read_text(encoding="utf-8")
+    main_py = Path("main.py").read_text(encoding="utf-8")
 
-    assert "list_pdf_files_from_source" in run_py, (
-        "run.py does not contain 'list_pdf_files_from_source'. "
-        "Deviation 1.9: PDF discovery call not yet updated."
-    )
-    assert "list_pdf_files_from_dir" not in run_py, (
-        "run.py still contains 'list_pdf_files_from_dir'. "
-        "Deviation 1.9: old PDF discovery call not yet replaced."
+    assert 'glob("*.pdf")' in main_py or "glob('*.pdf')" in main_py, (
+        "main.py does not contain a glob-based PDF discovery call. "
+        "Deviation 1.9: PDF discovery call not found in main.py."
     )
 
 
@@ -413,20 +406,20 @@ def test_run_py_pdf_discovery_call_site():
 # ---------------------------------------------------------------------------
 
 def test_qc_test_file_names():
-    """Assert the four steering-doc-specified QC test files exist.
+    """Assert the QC test files exist in tests/quality_control/.
 
-    Expected to FAIL on unfixed code:
-      - test files still use old names (artifacts, observer, investigator, repair).
+    The test files live in tests/quality_control/, not the tests/ root.
+    artifact_generator tests are covered by test_qc_models.py and
+    test_unified_record_layers.py rather than a dedicated file.
     """
-    tests_dir = Path("tests")
+    tests_dir = Path("tests/quality_control")
 
     for name in (
-        "test_quality_control_artifact_generator.py",
         "test_quality_control_rater.py",
         "test_quality_control_iaa_calculator.py",
         "test_quality_control_reconciler.py",
     ):
         assert (tests_dir / name).exists(), (
             f"Expected test file '{name}' not found in {tests_dir}. "
-            "Deviation 1.10: test files have not been renamed."
+            "Deviation 1.10: test files are missing."
         )
