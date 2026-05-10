@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from . import schemas
 from . import PyMuPDF
+from .PyMuPDF import extract_with_pymupdf          # re-export for patch target resolution
 from .pdfplumber import extract_with_pdfplumber
 from .PaddleOCR import extract_with_paddleocr
 from . import scan_detector

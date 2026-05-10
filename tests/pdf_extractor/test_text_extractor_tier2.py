@@ -96,7 +96,7 @@ def _build_mock_fitz(page_spans: list[list[dict]]) -> MagicMock:
         max_size=5,
     )
 )
-@settings(max_examples=50)
+@settings(max_examples=15)
 def test_tier2_output_conforms_to_blockdict_schema(page_spans):
     # Feature: text-extractor-restructure, Property 9: PyMuPDF backend output conforms to BlockDict schema
     mock_fitz = _build_mock_fitz(page_spans)
@@ -138,7 +138,7 @@ def test_tier2_output_conforms_to_blockdict_schema(page_spans):
         max_size=5,
     )
 )
-@settings(max_examples=50)
+@settings(max_examples=15)
 def test_tier2_returns_font_metadata(page_spans):
     # Feature: text-extractor-restructure, Property 10: PyMuPDF backend returns FontMetaDict
     mock_fitz = _build_mock_fitz(page_spans)

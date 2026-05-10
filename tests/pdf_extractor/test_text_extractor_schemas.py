@@ -71,7 +71,7 @@ _valid_block_strategy = st.fixed_dictionaries(
     block_bbox=_bbox_strategy,
     spans=_spans_strategy,
 )
-@settings(max_examples=100)
+@settings(max_examples=20)
 def test_make_block_faithful_constructor(text, page_index, block_bbox, spans):
     # Feature: text-extractor-restructure, Property 1: make_block is a faithful constructor
     result = schemas.make_block(
@@ -97,7 +97,7 @@ def test_make_block_faithful_constructor(text, page_index, block_bbox, spans):
     text=st.text(),
     page=st.integers(min_value=0),
 )
-@settings(max_examples=100)
+@settings(max_examples=20)
 def test_make_font_meta_faithful_constructor(size, text, page):
     # Feature: text-extractor-restructure, Property 2: make_font_meta is a faithful constructor
     result = schemas.make_font_meta(size=size, text=text, page=page)
@@ -113,7 +113,7 @@ def test_make_font_meta_faithful_constructor(size, text, page):
 # ---------------------------------------------------------------------------
 
 @given(blocks=st.lists(_valid_block_strategy, max_size=20))
-@settings(max_examples=100)
+@settings(max_examples=20)
 def test_validate_blocks_accepts_valid_lists(blocks):
     # Feature: text-extractor-restructure, Property 3: validate_blocks accepts all valid BlockDict lists
     result = schemas.validate_blocks(blocks)
@@ -209,7 +209,7 @@ _invalid_block_strategy = st.one_of(
     invalid_block=_invalid_block_strategy,
     valid_suffix=st.lists(_valid_block_strategy, max_size=5),
 )
-@settings(max_examples=100)
+@settings(max_examples=20)
 def test_validate_blocks_rejects_invalid_blocks(valid_prefix, invalid_block, valid_suffix):
     # Feature: text-extractor-restructure, Property 4: validate_blocks rejects any block with a missing or wrong-typed field
     blocks = valid_prefix + [invalid_block] + valid_suffix

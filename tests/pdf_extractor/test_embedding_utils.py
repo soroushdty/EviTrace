@@ -33,6 +33,13 @@ class MockModel:
         return np.ones((len(texts), self._dim), dtype=np.float32)
 
 
+class MockFaiss:
+    """Minimal faiss stand-in: normalize_L2 is a no-op (vectors already unit)."""
+
+    def normalize_L2(self, vectors) -> None:
+        pass  # no-op; MockModel.encode returns all-ones, close enough for shape tests
+
+
 # ---------------------------------------------------------------------------
 # Test 1: import succeeds when sentence_transformers is NOT installed
 # ---------------------------------------------------------------------------

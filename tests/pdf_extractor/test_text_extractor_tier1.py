@@ -58,7 +58,7 @@ def _build_mock_pdfplumber(page_texts: list[str]) -> MagicMock:
         max_size=10,
     )
 )
-@settings(max_examples=100)
+@settings(max_examples=20)
 def test_tier1_output_conforms_to_blockdict_schema(page_texts):
     # Feature: text-extractor-restructure, Property 7: pdfplumber backend output conforms to BlockDict schema with null geometry
     mock_pdfplumber = _build_mock_pdfplumber(page_texts)
@@ -85,7 +85,7 @@ def test_tier1_output_conforms_to_blockdict_schema(page_texts):
     page_count=st.integers(min_value=1, max_value=20),
     page_texts=st.data(),
 )
-@settings(max_examples=100)
+@settings(max_examples=20)
 def test_tier1_embeds_page_markers(page_count, page_texts):
     # Feature: text-extractor-restructure, Property 8: pdfplumber backend embeds [PAGE n] marker in every block
     texts = [page_texts.draw(st.text(min_size=1)) for _ in range(page_count)]

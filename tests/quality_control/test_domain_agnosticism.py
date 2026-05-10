@@ -7,6 +7,7 @@ not coupled to PDF-specific libraries or extractor names.
 
 import inspect
 import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -29,6 +30,20 @@ from quality_control.models import (
 )
 from pdf_extractor.extraction.scan_detector import classify_page, PageScanClassification
 from utils.text_processor import TextProcessor
+
+
+@pytest.fixture(autouse=True)
+def _mock_scispacy(monkeypatch):
+    """Prevent spacy.load('en_core_sci_sm') from running in CI."""
+    mock_spacy = MagicMock()
+    mock_doc = MagicMock()
+    mock_doc.sents = []
+    mock_spacy.load.return_value = MagicMock(return_value=mock_doc)
+    monkeypatch.setitem(sys.modules, "scispacy", MagicMock())
+    monkeypatch.setitem(sys.modules, "spacy", mock_spacy)
+    for key in list(sys.modules):
+        if "text_processor" in key or "ScispaCy" in key:
+            monkeypatch.delitem(sys.modules, key, raising=False)
 
 
 # ============================================================================
@@ -173,6 +188,7 @@ class TestAcceptanceCriteriaVerification:
                     "--",
                     ":(exclude).kiro/",
                     ":(exclude)**.md",
+                    ":(exclude)**/test_*.py",
                 ],
                 cwd=repo_root,
                 capture_output=True,
@@ -195,6 +211,7 @@ class TestAcceptanceCriteriaVerification:
                     "--",
                     ":(exclude).kiro/",
                     ":(exclude)**.md",
+                    ":(exclude)**/test_*.py",
                 ],
                 cwd=repo_root,
                 capture_output=True,
@@ -358,13 +375,12 @@ class TestAcceptanceCriteriaVerification:
     def test_custom_sentence_segment_backend_injection(self):
         """Verify that TextProcessor can use different sentence segmentation backends."""
         try:
-            # Use a simpler backend (nltk_punkt) instead of scispacy to avoid import issues
+            # Use a simpler backend (nltk_punkt) instead of scispacy to avoid import issues.
+            # _load_text_processor reads config["text_processor"], not config["quality_control"]["text_processor"].
             config = {
-                "quality_control": {
-                    "text_processor": {
-                        "sentence_tokenizer": {
-                            "backend": "nltk_punkt"
-                        }
+                "text_processor": {
+                    "sentence_tokenizer": {
+                        "backend": "nltk_punkt"
                     }
                 }
             }

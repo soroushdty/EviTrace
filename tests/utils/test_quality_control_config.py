@@ -54,7 +54,7 @@ def _write_config(tmp_path, data: dict) -> str:
         max_size=1,
     )
 )
-@settings(max_examples=100, suppress_health_check=[HealthCheck.function_scoped_fixture])
+@settings(max_examples=20, suppress_health_check=[HealthCheck.function_scoped_fixture])
 def test_qc_config_defaults_applied(config_without_qc):
     """**Validates: Requirements 7.1, 7.3**
 

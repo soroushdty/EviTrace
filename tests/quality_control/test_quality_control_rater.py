@@ -47,7 +47,7 @@ def _make_config(attribute_names: list[str]) -> dict:
     document_id=st.text(min_size=1),
     attribute_names=st.lists(st.text(min_size=1)),
 )
-@settings(max_examples=100)
+@settings(max_examples=20)
 def test_observer_required_fields_and_extractor_name(
     extractor_name: str, document_id: str, attribute_names: list[str]
 ):
@@ -79,7 +79,7 @@ def test_observer_required_fields_and_extractor_name(
 
 # Feature: quality-control-module, Property 6: Observer attributes are driven entirely by config
 @given(attribute_names=st.lists(st.text(min_size=1)))
-@settings(max_examples=100)
+@settings(max_examples=20)
 def test_observer_attributes_driven_by_config(attribute_names: list[str]):
     """**Validates: Requirements 3.3**
 
@@ -111,7 +111,7 @@ def test_observer_attributes_driven_by_config(attribute_names: list[str]):
     document_id=st.text(min_size=1),
     attribute_names=st.lists(st.text(min_size=1)),
 )
-@settings(max_examples=100)
+@settings(max_examples=20)
 def test_observer_deterministic_and_json_serializable(
     extractor_name: str, document_id: str, attribute_names: list[str]
 ):

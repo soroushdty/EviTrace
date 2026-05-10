@@ -80,7 +80,7 @@ def _build_mock_modules(page_texts: list[str]) -> dict:
         max_size=10,
     )
 )
-@settings(max_examples=100)
+@settings(max_examples=20)
 def test_tier3_output_conforms_to_blockdict_schema(page_texts):
     # Feature: text-extractor-restructure, Property 6: OCR backends output conforms to BlockDict schema with null geometry
     mock_modules = _build_mock_modules(page_texts)

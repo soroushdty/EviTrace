@@ -31,6 +31,24 @@ import pdf_extractor.extraction
 
 
 # ---------------------------------------------------------------------------
+# scispaCy/spaCy autouse mock — prevents spacy.load('en_core_sci_sm') in CI
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def _mock_scispacy(monkeypatch):
+    """Prevent spacy.load('en_core_sci_sm') from running in CI."""
+    mock_spacy = MagicMock()
+    mock_doc = MagicMock()
+    mock_doc.sents = []
+    mock_spacy.load.return_value = MagicMock(return_value=mock_doc)
+    monkeypatch.setitem(sys.modules, "scispacy", MagicMock())
+    monkeypatch.setitem(sys.modules, "spacy", mock_spacy)
+    for key in list(sys.modules):
+        if "text_processor" in key or "ScispaCy" in key:
+            monkeypatch.delitem(sys.modules, key, raising=False)
+
+
+# ---------------------------------------------------------------------------
 # fitz (PyMuPDF) is not installed in CI; mock it at the sys.modules level
 # so that `import fitz` inside production functions succeeds.
 # ---------------------------------------------------------------------------
@@ -589,10 +607,16 @@ class TestExtractWithPaddleOCRCoordinateConversion:
 
         dummy_array = np.zeros((10, 10, 3), dtype=np.uint8)
 
+        mock_pdf2image = MagicMock()
+        mock_pdf2image.pdfinfo_from_path.return_value = {"Pages": 1}
+        mock_pdf2image.convert_from_path.return_value = [pil_img]
+
         with (
-            patch.dict(sys.modules, {"paddleocr": mock_paddle_module, "paddlepaddle": MagicMock()}),
-            patch("pdf2image.pdfinfo_from_path", return_value={"Pages": 1}),
-            patch("pdf2image.convert_from_path", return_value=[pil_img]),
+            patch.dict(sys.modules, {
+                "paddleocr": mock_paddle_module,
+                "paddlepaddle": MagicMock(),
+                "pdf2image": mock_pdf2image,
+            }),
             patch("numpy.array", return_value=dummy_array),
         ):
             blocks = extract_with_paddleocr("fake.pdf", dpi=dpi)
@@ -694,10 +718,16 @@ class TestExtractWithPaddleOCRCoordinateConversion:
         pil_img.close = MagicMock()
         dummy_array = np.zeros((10, 10, 3), dtype=np.uint8)
 
+        mock_pdf2image = MagicMock()
+        mock_pdf2image.pdfinfo_from_path.return_value = {"Pages": 1}
+        mock_pdf2image.convert_from_path.return_value = [pil_img]
+
         with (
-            patch.dict(sys.modules, {"paddleocr": mock_paddle_module, "paddlepaddle": MagicMock()}),
-            patch("pdf2image.pdfinfo_from_path", return_value={"Pages": 1}),
-            patch("pdf2image.convert_from_path", return_value=[pil_img]),
+            patch.dict(sys.modules, {
+                "paddleocr": mock_paddle_module,
+                "paddlepaddle": MagicMock(),
+                "pdf2image": mock_pdf2image,
+            }),
             patch("numpy.array", return_value=dummy_array),
             patch.object(schemas, "make_ocr_block", wraps=schemas.make_ocr_block) as mock_make_ocr_block,
         ):
@@ -724,10 +754,16 @@ class TestExtractWithPaddleOCRBBoxParsing:
         pil_img.close = MagicMock()
         dummy_array = np.zeros((10, 10, 3), dtype=np.uint8)
 
+        mock_pdf2image = MagicMock()
+        mock_pdf2image.pdfinfo_from_path.return_value = {"Pages": 1}
+        mock_pdf2image.convert_from_path.return_value = [pil_img]
+
         with (
-            patch.dict(sys.modules, {"paddleocr": mock_paddle_module, "paddlepaddle": MagicMock()}),
-            patch("pdf2image.pdfinfo_from_path", return_value={"Pages": 1}),
-            patch("pdf2image.convert_from_path", return_value=[pil_img]),
+            patch.dict(sys.modules, {
+                "paddleocr": mock_paddle_module,
+                "paddlepaddle": MagicMock(),
+                "pdf2image": mock_pdf2image,
+            }),
             patch("numpy.array", return_value=dummy_array),
         ):
             blocks = extract_with_paddleocr("fake.pdf", dpi=dpi)

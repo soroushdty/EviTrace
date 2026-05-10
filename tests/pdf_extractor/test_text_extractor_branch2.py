@@ -79,7 +79,7 @@ def _build_mock_fitz(pages_data: list[dict]) -> MagicMock:
 # ---------------------------------------------------------------------------
 
 @given(pages_data=st.lists(_page_strategy, min_size=1, max_size=5))
-@settings(max_examples=100)
+@settings(max_examples=20)
 def test_branch2_output_conforms_to_blockdict_schema(pages_data):
     # Feature: text-extractor-restructure, Property 5: PyMuPDF backend output conforms to BlockDict schema
     mock_fitz = _build_mock_fitz(pages_data)

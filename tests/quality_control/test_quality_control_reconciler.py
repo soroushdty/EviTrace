@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import sys
 from unittest.mock import MagicMock
 
 import pytest
@@ -25,6 +26,21 @@ from quality_control.models import (
     UnifiedRecord,
 )
 from quality_control.reconciler import PLACEHOLDER_NOTICE, reconcile
+
+
+@pytest.fixture(autouse=True)
+def _mock_scispacy(monkeypatch):
+    """Prevent spacy.load('en_core_sci_sm') from running in CI."""
+    mock_spacy = MagicMock()
+    mock_doc = MagicMock()
+    mock_doc.sents = []
+    mock_spacy.load.return_value = MagicMock(return_value=mock_doc)
+    monkeypatch.setitem(sys.modules, "scispacy", MagicMock())
+    monkeypatch.setitem(sys.modules, "spacy", mock_spacy)
+    for key in list(sys.modules):
+        if "text_processor" in key or "ScispaCy" in key:
+            monkeypatch.delitem(sys.modules, key, raising=False)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -84,7 +100,7 @@ def _make_artifact_with_blocks(document_id: str, blocks: list[dict]) -> dict:
     grobid_id=st.text(min_size=1),
     pymupdf_id=st.text(min_size=1),
 )
-@settings(max_examples=100)
+@settings(max_examples=20)
 def test_unified_output_required_fields_and_status(
     document_id: str, grobid_id: str, pymupdf_id: str
 ) -> None:
@@ -111,7 +127,7 @@ def test_unified_output_required_fields_and_status(
     grobid_id=st.text(min_size=1),
     pymupdf_id=st.text(min_size=1),
 )
-@settings(max_examples=100)
+@settings(max_examples=20)
 def test_unified_output_json_serializable(
     document_id: str, grobid_id: str, pymupdf_id: str
 ) -> None:

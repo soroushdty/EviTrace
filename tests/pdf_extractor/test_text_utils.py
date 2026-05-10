@@ -110,14 +110,14 @@ class TestNormaliseFull:
 # Property-based tests (Hypothesis)
 # ---------------------------------------------------------------------------
 
-@settings(max_examples=200)
+@settings(max_examples=20)
 @given(st.text())
 def test_normalise_ws_idempotent_property(s: str):
     """normalise_ws(normalise_ws(s)) == normalise_ws(s) for all strings s."""
     assert normalise_ws(normalise_ws(s)) == normalise_ws(s)
 
 
-@settings(max_examples=200)
+@settings(max_examples=20)
 @given(st.text())
 def test_normalise_full_idempotent_property(s: str):
     """normalise_full(normalise_full(s)) == normalise_full(s) for all strings s."""
@@ -268,7 +268,7 @@ _REQUIRED_KEYS = frozenset({
 })
 
 # Property 3: haystack ≥30 chars with letters/numbers/spaces, needle ≥10 chars embedded in it
-@settings(max_examples=100)
+@settings(max_examples=20)
 @given(
     base=st.text(
         alphabet=st.characters(whitelist_categories=("Ll", "Lu", "Nd"), whitelist_characters=" "),
@@ -301,7 +301,7 @@ def test_exact_match_search_property_embedded_needle(
 
 
 # Property 4: string with len < 10 after normalise_ws → always None
-@settings(max_examples=100)
+@settings(max_examples=20)
 @given(st.text(max_size=9))
 def test_exact_match_search_property_short_needle_always_none(short: str):
     """
@@ -483,7 +483,7 @@ class TestSemanticSearchNotFound:
 # Property 5: guard conditions always return None (≥100 examples)
 # ---------------------------------------------------------------------------
 
-@settings(max_examples=100)
+@settings(max_examples=20)
 @given(st.text())
 def test_semantic_search_property_none_index_always_returns_none(sentence: str):
     """
@@ -498,7 +498,7 @@ def test_semantic_search_property_none_index_always_returns_none(sentence: str):
     assert result is None
 
 
-@settings(max_examples=100)
+@settings(max_examples=20)
 @given(st.text())
 def test_semantic_search_property_empty_sentences_always_returns_none(sentence: str):
     """

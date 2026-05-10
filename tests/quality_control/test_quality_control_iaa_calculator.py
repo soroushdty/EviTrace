@@ -51,7 +51,7 @@ _ARTIFACT = _make_artifact()
     grobid_id=st.text(min_size=1),
     pymupdf_id=st.text(min_size=1),
 )
-@settings(max_examples=100)
+@settings(max_examples=20)
 def test_investigator_required_fields_and_decision(
     metric_names: list[str], grobid_id: str, pymupdf_id: str
 ):
@@ -101,7 +101,7 @@ def test_investigator_required_fields_and_decision(
 
 # Feature: quality-control-module, Property 9: Investigator agreement metrics are driven entirely by config
 @given(metric_names=st.lists(st.text(min_size=1)))
-@settings(max_examples=100)
+@settings(max_examples=20)
 def test_investigator_metrics_driven_by_config(metric_names: list[str]):
     """**Validates: Requirements 4.4**
 

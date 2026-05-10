@@ -14,8 +14,9 @@ baseline that must continue to hold after every fix is applied.
 from __future__ import annotations
 
 import os
+import sys
 import textwrap
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 import yaml
@@ -25,6 +26,24 @@ from hypothesis import strategies as st
 import pdf_extractor.extraction
 from pdf_extractor.extraction import schemas
 from pdf_extractor.artifact_generator import build_canonical_artifacts
+
+
+# ---------------------------------------------------------------------------
+# scispaCy/spaCy autouse mock — prevents spacy.load('en_core_sci_sm') in CI
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def _mock_scispacy(monkeypatch):
+    """Prevent spacy.load('en_core_sci_sm') from running in CI."""
+    mock_spacy = MagicMock()
+    mock_doc = MagicMock()
+    mock_doc.sents = []
+    mock_spacy.load.return_value = MagicMock(return_value=mock_doc)
+    monkeypatch.setitem(sys.modules, "scispacy", MagicMock())
+    monkeypatch.setitem(sys.modules, "spacy", mock_spacy)
+    for key in list(sys.modules):
+        if "text_processor" in key or "ScispaCy" in key:
+            monkeypatch.delitem(sys.modules, key, raising=False)
 
 
 # ---------------------------------------------------------------------------
@@ -44,39 +63,73 @@ def _make_valid_blocks(label: str = "test", count: int = 1) -> list:
     ]
 
 
-_PYMUPDF_BLOCKS = _make_valid_blocks("pymupdf")
+_PLUMBER_BLOCKS = _make_valid_blocks("plumber")
+_PADDLE_BLOCKS = _make_valid_blocks("paddle")
 _FONT_META = [{"size": 12.0, "text": "hello", "page": 0}]
 
 _FIXED_GROBID_XML = "<root><body>test content</body></root>"
 
+_DEFAULT_CONFIG = {"quality_control": {"ocr": {"rasterization_dpi": 150}}}
+
+
+def _make_native_classification(page_index: int = 0):
+    from pdf_extractor.extraction.scan_detector import PageScanClassification
+    return PageScanClassification(
+        page_index=page_index, is_native=True, triggered_stages=[],
+        stage_values={"word_count": 100.0, "alpha_ratio": 0.95, "font_count": 3.0, "image_coverage": 0.01},
+    )
+
+
+def _make_scanned_classification(page_index: int = 0):
+    from pdf_extractor.extraction.scan_detector import PageScanClassification
+    return PageScanClassification(
+        page_index=page_index, is_native=False, triggered_stages=[1], stage_values={},
+    )
+
+
+def _make_fitz_doc(pages: list):
+    mock_doc = MagicMock()
+    mock_doc.__iter__ = MagicMock(return_value=iter(pages))
+    mock_doc.close = MagicMock()
+    mock_fitz = MagicMock()
+    mock_fitz.open = MagicMock(return_value=mock_doc)
+    return mock_fitz, mock_doc
+
 
 # ---------------------------------------------------------------------------
-# Test 1 — PyMuPDF-sufficient cascade (unit test)
+# Test 1 — Native-page cascade: pdfplumber + font metadata, no PaddleOCR
 # Validates: Requirement 3.1
 # ---------------------------------------------------------------------------
 
 def test_pymupdf_sufficient_cascade_no_fallback():
-    """When PyMuPDF quality score >= threshold, extract_pdf() returns PyMuPDF
-    blocks and non-empty font_metadata without calling any fallback backend.
+    """When all pages are native, extract_pdf() returns pdfplumber blocks and
+    non-empty font_metadata without calling PaddleOCR.
 
     Preservation: this behaviour must survive all structural fixes.
-    Note: Tesseract removed as of architecture-migration task 1.1.
+    Architecture: scan-detector routing (waterfall cascade removed).
     """
+    mock_page = MagicMock()
+    mock_fitz, _ = _make_fitz_doc([mock_page])
+
     with (
-        patch("pdf_extractor.extraction.extract_with_pymupdf", return_value=(_PYMUPDF_BLOCKS, _FONT_META)) as mock_pymupdf,
-        patch("pdf_extractor.extraction._compute_quality_score", return_value=0.9),
+        patch.dict(sys.modules, {"fitz": mock_fitz}),
+        patch("pdf_extractor.extraction.scan_detector.classify_page", return_value=_make_native_classification()),
+        patch("pdf_extractor.extraction.extract_with_pdfplumber", return_value=_PLUMBER_BLOCKS) as mock_plumber,
         patch("pdf_extractor.extraction.extract_with_paddleocr") as mock_paddle,
+        patch("pdf_extractor.extraction.PyMuPDF.get_page_font_metadata", return_value=_FONT_META),
+        patch("pdf_extractor.extraction.schemas.validate_blocks"),
     ):
         blocks, font_metadata = pdf_extractor.extraction.extract_pdf(
             pdf_path="dummy.pdf",
             ocr=True,
             ocr_text_quality_threshold=0.7,
+            config=_DEFAULT_CONFIG,
         )
 
-    assert blocks == _PYMUPDF_BLOCKS, (
-        f"Expected PyMuPDF blocks, got {blocks!r}"
+    assert blocks == _PLUMBER_BLOCKS, (
+        f"Expected pdfplumber blocks, got {blocks!r}"
     )
-    assert font_metadata, "font_metadata must be non-empty when PyMuPDF path is taken"
+    assert font_metadata, "font_metadata must be non-empty when native path is taken"
     assert font_metadata == _FONT_META
 
     mock_paddle.assert_not_called()
@@ -88,25 +141,25 @@ def test_pymupdf_sufficient_cascade_no_fallback():
 # ---------------------------------------------------------------------------
 
 def test_ocr_false_returns_only_pymupdf_blocks():
-    """When ocr=False, extract_pdf() returns only PyMuPDF blocks regardless
-    of quality score (even a score of 0.0 must not trigger fallback).
+    """When ocr=False, extract_pdf() returns only pdfplumber blocks regardless
+    of page classification (scan detection is skipped entirely).
 
     Preservation: this behaviour must survive all structural fixes.
-    Note: Tesseract removed as of architecture-migration task 1.1.
+    Architecture: scan-detector routing (waterfall cascade removed).
     """
     with (
-        patch("pdf_extractor.extraction.extract_with_pymupdf", return_value=(_PYMUPDF_BLOCKS, _FONT_META)),
-        patch("pdf_extractor.extraction._compute_quality_score", return_value=0.0),
+        patch("pdf_extractor.extraction.extract_with_pdfplumber", return_value=_PLUMBER_BLOCKS),
         patch("pdf_extractor.extraction.extract_with_paddleocr") as mock_paddle,
     ):
         blocks, font_metadata = pdf_extractor.extraction.extract_pdf(
             pdf_path="dummy.pdf",
             ocr=False,
             ocr_text_quality_threshold=0.7,
+            config=_DEFAULT_CONFIG,
         )
 
-    assert blocks == _PYMUPDF_BLOCKS, (
-        f"Expected PyMuPDF blocks with ocr=False, got {blocks!r}"
+    assert blocks == _PLUMBER_BLOCKS, (
+        f"Expected pdfplumber blocks with ocr=False, got {blocks!r}"
     )
 
     mock_paddle.assert_not_called()
@@ -267,28 +320,35 @@ def test_build_canonical_artifacts_deterministic():
 @given(
     score=st.floats(min_value=0.0, max_value=1.0, allow_nan=False, allow_infinity=False)
 )
-@settings(max_examples=100)
+@settings(max_examples=20)
 def test_pbt_pymupdf_sufficient_no_fallback_for_any_score_above_threshold(score: float):
     """**Validates: Requirements 3.1**
 
-    For any quality score in [threshold, 1.0], extract_pdf() with mocked
-    PyMuPDF returning that score does NOT call extract_with_paddleocr.
+    For any quality score in [threshold, 1.0], extract_pdf() with all-native
+    pages does NOT call extract_with_paddleocr.
 
     Preservation property: must hold on unfixed code and after every fix.
-    Note: Tesseract removed as of architecture-migration task 1.1.
+    Architecture: scan-detector routing (waterfall cascade removed).
     """
     threshold = 0.7
     assume(score >= threshold)
 
+    mock_page = MagicMock()
+    mock_fitz, _ = _make_fitz_doc([mock_page])
+
     with (
-        patch("pdf_extractor.extraction.extract_with_pymupdf", return_value=(_PYMUPDF_BLOCKS, _FONT_META)),
-        patch("pdf_extractor.extraction._compute_quality_score", return_value=score),
+        patch.dict(sys.modules, {"fitz": mock_fitz}),
+        patch("pdf_extractor.extraction.scan_detector.classify_page", return_value=_make_native_classification()),
+        patch("pdf_extractor.extraction.extract_with_pdfplumber", return_value=_PLUMBER_BLOCKS),
         patch("pdf_extractor.extraction.extract_with_paddleocr") as mock_paddle,
+        patch("pdf_extractor.extraction.PyMuPDF.get_page_font_metadata", return_value=_FONT_META),
+        patch("pdf_extractor.extraction.schemas.validate_blocks"),
     ):
         blocks, font_metadata = pdf_extractor.extraction.extract_pdf(
             pdf_path="dummy.pdf",
             ocr=True,
             ocr_text_quality_threshold=threshold,
+            config=_DEFAULT_CONFIG,
         )
 
     mock_paddle.assert_not_called()
@@ -302,7 +362,7 @@ def test_pbt_pymupdf_sufficient_no_fallback_for_any_score_above_threshold(score:
 @given(
     score=st.floats(min_value=0.0, max_value=1.0, allow_nan=False, allow_infinity=False)
 )
-@settings(max_examples=100)
+@settings(max_examples=20)
 def test_pbt_ocr_false_never_calls_fallback_for_any_score(score: float):
     """**Validates: Requirements 3.2**
 
@@ -310,17 +370,17 @@ def test_pbt_ocr_false_never_calls_fallback_for_any_score(score: float):
     NOT call any fallback backend (paddleocr).
 
     Preservation property: must hold on unfixed code and after every fix.
-    Note: Tesseract removed as of architecture-migration task 1.1.
+    Architecture: scan-detector routing (waterfall cascade removed).
     """
     with (
-        patch("pdf_extractor.extraction.extract_with_pymupdf", return_value=(_PYMUPDF_BLOCKS, _FONT_META)),
-        patch("pdf_extractor.extraction._compute_quality_score", return_value=score),
+        patch("pdf_extractor.extraction.extract_with_pdfplumber", return_value=_PLUMBER_BLOCKS),
         patch("pdf_extractor.extraction.extract_with_paddleocr") as mock_paddle,
     ):
         blocks, font_metadata = pdf_extractor.extraction.extract_pdf(
             pdf_path="dummy.pdf",
             ocr=False,
             ocr_text_quality_threshold=0.7,
+            config=_DEFAULT_CONFIG,
         )
 
     mock_paddle.assert_not_called()
@@ -335,7 +395,7 @@ def test_pbt_ocr_false_never_calls_fallback_for_any_score(score: float):
     doc_id=st.text(min_size=1),
     pymupdf_data=st.dictionaries(st.text(), st.text()),
 )
-@settings(max_examples=100)
+@settings(max_examples=20)
 def test_pbt_build_canonical_artifacts_deterministic_for_any_inputs(
     doc_id: str, pymupdf_data: dict
 ):

@@ -22,6 +22,24 @@ from utils.text_processor import TextProcessor
 
 
 # ---------------------------------------------------------------------------
+# Autouse fixture — prevent spacy.load('en_core_sci_sm') from running in CI
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def _mock_scispacy(monkeypatch):
+    """Prevent spacy.load('en_core_sci_sm') from running in CI."""
+    mock_spacy = MagicMock()
+    mock_doc = MagicMock()
+    mock_doc.sents = []
+    mock_spacy.load.return_value = MagicMock(return_value=mock_doc)
+    monkeypatch.setitem(sys.modules, "scispacy", MagicMock())
+    monkeypatch.setitem(sys.modules, "spacy", mock_spacy)
+    for key in list(sys.modules):
+        if "text_processor" in key or "ScispaCy" in key:
+            monkeypatch.delitem(sys.modules, key, raising=False)
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -341,6 +359,9 @@ class TestPdfExtractorPassesTextProcessor:
 
         assert len(calls) == 1, "process_sentences was not called"
         passed_tp = calls[0]["text_processor"]
-        assert isinstance(passed_tp, TextProcessor), (
+        # Use class name check to avoid module-identity issues when the autouse
+        # fixture evicts and re-imports utils.text_processor between fixture
+        # setup and the test body's own import.
+        assert type(passed_tp).__name__ == "TextProcessor", (
             f"Expected TextProcessor instance, got {type(passed_tp)}"
         )
