@@ -10,7 +10,7 @@ Properties covered:
 import sys
 from unittest.mock import MagicMock, patch
 
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings, strategies as st, HealthCheck
 
 from pdf_extractor.extraction import schemas
 from pdf_extractor.extraction import PyMuPDF as branch2
@@ -79,7 +79,7 @@ def _build_mock_fitz(pages_data: list[dict]) -> MagicMock:
 # ---------------------------------------------------------------------------
 
 @given(pages_data=st.lists(_page_strategy, min_size=1, max_size=5))
-@settings(max_examples=20)
+@settings(max_examples=20, suppress_health_check=[HealthCheck.too_slow])
 def test_branch2_output_conforms_to_blockdict_schema(pages_data):
     # Feature: text-extractor-restructure, Property 5: PyMuPDF backend output conforms to BlockDict schema
     mock_fitz = _build_mock_fitz(pages_data)

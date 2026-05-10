@@ -3,10 +3,9 @@ pdf_extractor.py
 ----------------
 CLI entry point for the pdf_extractor parser pipeline.
 
-Resolves one or more PDF sources, extracts text through a four-tier cascade
-(PyMuPDF → pdfplumber → Tesseract → PaddleOCR), processes the extracted text
-into sentence records, and writes structured parser artifacts to the output
-folder.
+Resolves one or more PDF sources, extracts text through the pdfplumber
+backend, processes the extracted text into sentence records, and writes
+structured parser artifacts to the output folder.
 
 Usage
 -----
@@ -20,7 +19,7 @@ import os
 import time
 from pathlib import Path
 
-from .extraction import extract_pdf
+from .extraction import extract_with_pymupdf, extract_with_pdfplumber
 from .processing import sentence_processor
 from utils import path_utils
 from utils.config_utils import load_config
@@ -71,8 +70,9 @@ def run_pipeline(config_path: str) -> None:
 
         t0 = time.time()
         try:
-            # Step 3 – Extract text (three-tier cascade)
-            blocks, font_metadata = extract_pdf(pdf_path, ocr, ocr_threshold)
+            # Step 3 – Extract text via pdfplumber (structural authority)
+            blocks = extract_with_pdfplumber(pdf_path)
+            font_metadata = []
         except Exception as exc:
             logger.error("Extraction failed | pdf=%s | error=%s", pdf_name, exc)
             continue

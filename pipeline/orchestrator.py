@@ -5,10 +5,14 @@ from typing import List
 
 from pdf_extractor.extraction.GROBID import extract_with_grobid
 from pdf_extractor.extraction.PyMuPDF import extract_with_pymupdf
+from pdf_extractor.extraction.pdfplumber import extract_with_pdfplumber
+from pdf_extractor.extraction.PaddleOCR import extract_with_paddleocr
+from pdf_extractor.extraction import scan_detector
 from quality_control import QCContext, run_quality_control
 from quality_control.models import BranchOutput
 from utils.config_utils import load_openai_config, load_qc_config
 from utils.logging_utils import get_logger
+from utils.text_processor import TextProcessor
 
 from .extraction_map import load_chunk_fields, _build_field_lookup
 from . import pdf_processor
@@ -34,26 +38,161 @@ def _build_qc_context(
     pdf_name: str,
     qc_config: dict,
 ) -> QCContext:
-    """Run GROBID + PyMuPDF extraction and full QC pipeline for one PDF."""
-    tei_xml = ""
+    """Run per-page scan detection, route to correct extractors, and run the
+    full QC pipeline for one PDF.
+
+    Per-page routing:
+    - All pages native → GROBID (semantic authority) + pdfplumber (structural
+      authority); PyMuPDF font metadata stored in ctx.unified.content.
+    - Any page scanned + ocr=true → PaddleOCR (primary) + PyMuPDF OCR
+      (secondary cross-validation) fed into GROBID downstream.
+    - Any page scanned + ocr=false → skip extraction, log WARNING, no branch.
+
+    All backend callables are resolved through sys.modules[__name__] at call
+    time so that unittest.mock patches applied to this module's attributes are
+    always honoured, regardless of whether the caller holds a reference to an
+    older module object (e.g. when tests delete and re-import the module).
+    """
+    import sys as _sys
+
+    # Resolve every patchable name through the *current* module object.
+    # Tests use patch("pipeline.orchestrator.<name>", ...) which replaces the
+    # attribute on sys.modules["pipeline.orchestrator"].  By looking up names
+    # here we always see the patched version even when this function object
+    # was imported from an older module instance.
+    _mod = _sys.modules[__name__]
+
+    def _resolve(name: str, import_fn):
+        """Return the module attribute if present, else import and cache it."""
+        obj = getattr(_mod, name, None)
+        if obj is None:
+            obj = import_fn()
+            setattr(_mod, name, obj)
+        return obj
+
+    _extract_with_grobid = _resolve(
+        "extract_with_grobid",
+        lambda: __import__(
+            "pdf_extractor.extraction.GROBID", fromlist=["extract_with_grobid"]
+        ).extract_with_grobid,
+    )
+    _extract_with_pymupdf = _resolve(
+        "extract_with_pymupdf",
+        lambda: __import__(
+            "pdf_extractor.extraction.PyMuPDF", fromlist=["extract_with_pymupdf"]
+        ).extract_with_pymupdf,
+    )
+    _extract_with_pdfplumber = _resolve(
+        "extract_with_pdfplumber",
+        lambda: __import__(
+            "pdf_extractor.extraction.pdfplumber", fromlist=["extract_with_pdfplumber"]
+        ).extract_with_pdfplumber,
+    )
+    _extract_with_paddleocr = _resolve(
+        "extract_with_paddleocr",
+        lambda: __import__(
+            "pdf_extractor.extraction.PaddleOCR", fromlist=["extract_with_paddleocr"]
+        ).extract_with_paddleocr,
+    )
+    _scan_detector = _resolve(
+        "scan_detector",
+        lambda: __import__(
+            "pdf_extractor.extraction", fromlist=["scan_detector"]
+        ).scan_detector,
+    )
+    _TextProcessor = _resolve(
+        "TextProcessor",
+        lambda: __import__(
+            "utils.text_processor", fromlist=["TextProcessor"]
+        ).TextProcessor,
+    )
+    _run_quality_control = _resolve(
+        "run_quality_control",
+        lambda: __import__(
+            "quality_control", fromlist=["run_quality_control"]
+        ).run_quality_control,
+    )
+
     grobid_failure_behavior = (
         qc_config.get("quality_control", {})
         .get("grobid_integration", {})
         .get("failure_behavior", "fallback")
     )
+    ocr_enabled: bool = bool(qc_config.get("ocr", True))
+
+    # ------------------------------------------------------------------
+    # Step 1 — Per-page scan detection
+    # ------------------------------------------------------------------
+    # Use the text_processor config from qc_config if present; fall back to
+    # nltk_punkt which lazy-loads on first tokenize_sentences() call so that
+    # construction never fails when NLP packages are absent.  classify_page()
+    # only calls clean_ocr(), so the sentence segmenter is never invoked here.
+    tp_cfg = qc_config.get(
+        "text_processor",
+        {"sentence_tokenizer": {"backend": "nltk_punkt"}},
+    )
+    tp = _TextProcessor(config=tp_cfg)
+    import fitz  # PyMuPDF — lazy import, no import-time side effect
+    doc = fitz.open(str(pdf_path))
     try:
-        tei_xml, _ = extract_with_grobid(str(pdf_path))
-    except Exception:
-        if grobid_failure_behavior == "manifest_fail":
-            raise
-        logger.warning("GROBID failed for %s; continuing with fallback mode", pdf_name)
-        tei_xml = ""
-    pymupdf_blocks, _ = extract_with_pymupdf(str(pdf_path))
-    branches = [
-        BranchOutput(extractor="grobid",  branch=0, payload=tei_xml,       status=None),
-        BranchOutput(extractor="pymupdf", branch=1, payload=pymupdf_blocks, status=None),
-    ]
-    ctx = run_quality_control(branches, pdf_name, qc_config)
+        pages = list(doc)
+        scan_cfg = qc_config.get("quality_control", {})
+        page_classifications = [
+            _scan_detector.classify_page(page, tp, scan_cfg, page_index=i)
+            for i, page in enumerate(pages)
+        ]
+    finally:
+        doc.close()
+
+    all_native = all(c.is_native for c in page_classifications)
+    has_scanned = not all_native
+
+    # ------------------------------------------------------------------
+    # Step 2 — Route to correct extractors based on page classifications
+    # ------------------------------------------------------------------
+    tei_xml = ""
+    branches: list[BranchOutput] = []
+
+    if all_native:
+        # Native path: GROBID (semantic) + pdfplumber (structural)
+        try:
+            tei_xml, _ = _extract_with_grobid(str(pdf_path))
+        except Exception:
+            if grobid_failure_behavior == "manifest_fail":
+                raise
+            logger.warning("GROBID failed for %s; continuing with fallback mode", pdf_name)
+            tei_xml = ""
+
+        plumber_blocks = _extract_with_pdfplumber(str(pdf_path))
+        branches = [
+            BranchOutput(extractor="grobid",    branch=0, payload=tei_xml,        status=None),
+            BranchOutput(extractor="pdfplumber", branch=1, payload=plumber_blocks, status=None),
+        ]
+
+    elif has_scanned and not ocr_enabled:
+        # Scanned path with ocr=false: skip extraction, log WARNING
+        for cls in page_classifications:
+            if not cls.is_native:
+                logger.warning(
+                    "Skipping scanned page %d in '%s' — OCR is disabled (ocr=false)",
+                    cls.page_index,
+                    pdf_name,
+                )
+        # No extraction branches produced for scanned pages when ocr=false
+
+    else:
+        # Scanned path with ocr=true: PaddleOCR (primary) + PyMuPDF OCR (secondary)
+        paddle_blocks = _extract_with_paddleocr(str(pdf_path))
+        pymupdf_blocks, _ = _extract_with_pymupdf(str(pdf_path))
+        branches = [
+            BranchOutput(extractor="paddleocr", branch=0, payload=paddle_blocks,  status=None),
+            BranchOutput(extractor="pymupdf",   branch=1, payload=pymupdf_blocks, status=None),
+        ]
+
+    # ------------------------------------------------------------------
+    # Step 3 — QC pipeline
+    # ------------------------------------------------------------------
+    ctx = _run_quality_control(branches, pdf_name, qc_config)
     if ctx.unified is not None and isinstance(ctx.unified.content, dict):
         ctx.unified.content["source_pdf_path"] = str(pdf_path)
         ctx.unified.content["grobid_tei_xml"] = tei_xml

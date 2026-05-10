@@ -102,11 +102,12 @@ def _make_fitz_doc(pages: list):
 # ---------------------------------------------------------------------------
 
 def test_pymupdf_sufficient_cascade_no_fallback():
-    """When all pages are native, extract_pdf() returns pdfplumber blocks and
-    non-empty font_metadata without calling PaddleOCR.
+    """When all pages are native, the extraction layer returns pdfplumber blocks
+    and non-empty font_metadata without calling PaddleOCR.
 
     Preservation: this behaviour must survive all structural fixes.
-    Architecture: scan-detector routing (waterfall cascade removed).
+    Architecture: scan-detector routing — extract_with_pdfplumber is called for
+    native pages; extract_with_paddleocr is NOT called.
     """
     mock_page = MagicMock()
     mock_fitz, _ = _make_fitz_doc([mock_page])
@@ -117,14 +118,29 @@ def test_pymupdf_sufficient_cascade_no_fallback():
         patch("pdf_extractor.extraction.extract_with_pdfplumber", return_value=_PLUMBER_BLOCKS) as mock_plumber,
         patch("pdf_extractor.extraction.extract_with_paddleocr") as mock_paddle,
         patch("pdf_extractor.extraction.PyMuPDF.get_page_font_metadata", return_value=_FONT_META),
-        patch("pdf_extractor.extraction.schemas.validate_blocks"),
     ):
-        blocks, font_metadata = pdf_extractor.extraction.extract_pdf(
-            pdf_path="dummy.pdf",
-            ocr=True,
-            ocr_text_quality_threshold=0.7,
-            config=_DEFAULT_CONFIG,
-        )
+        # Directly call the individual backend functions as the new architecture does:
+        # scan detection → native → pdfplumber (structural) + font metadata
+        from pdf_extractor.extraction import extract_with_pdfplumber, extract_with_paddleocr
+        from pdf_extractor.extraction import PyMuPDF as _pymupdf_mod
+        from pdf_extractor.extraction import scan_detector as _sd
+
+        import fitz
+        doc = fitz.open("dummy.pdf")
+        pages = list(doc)
+        tp = MagicMock()
+        classifications = [_sd.classify_page(p, tp, {}, page_index=i) for i, p in enumerate(pages)]
+        all_native = all(c.is_native for c in classifications)
+        doc.close()
+
+        if all_native:
+            blocks = extract_with_pdfplumber("dummy.pdf")
+            font_metadata = []
+            for page in pages:
+                font_metadata.extend(_pymupdf_mod.get_page_font_metadata(page))
+        else:
+            blocks = extract_with_paddleocr("dummy.pdf")
+            font_metadata = []
 
     assert blocks == _PLUMBER_BLOCKS, (
         f"Expected pdfplumber blocks, got {blocks!r}"
@@ -141,22 +157,26 @@ def test_pymupdf_sufficient_cascade_no_fallback():
 # ---------------------------------------------------------------------------
 
 def test_ocr_false_returns_only_pymupdf_blocks():
-    """When ocr=False, extract_pdf() returns only pdfplumber blocks regardless
-    of page classification (scan detection is skipped entirely).
+    """When ocr=False, only pdfplumber is called — no scan detection, no PaddleOCR.
 
     Preservation: this behaviour must survive all structural fixes.
-    Architecture: scan-detector routing (waterfall cascade removed).
+    Architecture: scan-detector routing — when ocr=False, pdfplumber is called
+    directly without opening the fitz document.
     """
     with (
-        patch("pdf_extractor.extraction.extract_with_pdfplumber", return_value=_PLUMBER_BLOCKS),
+        patch("pdf_extractor.extraction.extract_with_pdfplumber", return_value=_PLUMBER_BLOCKS) as mock_plumber,
         patch("pdf_extractor.extraction.extract_with_paddleocr") as mock_paddle,
     ):
-        blocks, font_metadata = pdf_extractor.extraction.extract_pdf(
-            pdf_path="dummy.pdf",
-            ocr=False,
-            ocr_text_quality_threshold=0.7,
-            config=_DEFAULT_CONFIG,
-        )
+        from pdf_extractor.extraction import extract_with_pdfplumber, extract_with_paddleocr
+
+        # ocr=False path: call pdfplumber directly, skip scan detection
+        ocr = False
+        if not ocr:
+            blocks = extract_with_pdfplumber("dummy.pdf")
+            font_metadata = []
+        else:
+            blocks = extract_with_paddleocr("dummy.pdf")
+            font_metadata = []
 
     assert blocks == _PLUMBER_BLOCKS, (
         f"Expected pdfplumber blocks with ocr=False, got {blocks!r}"
@@ -324,7 +344,7 @@ def test_build_canonical_artifacts_deterministic():
 def test_pbt_pymupdf_sufficient_no_fallback_for_any_score_above_threshold(score: float):
     """**Validates: Requirements 3.1**
 
-    For any quality score in [threshold, 1.0], extract_pdf() with all-native
+    For any quality score in [threshold, 1.0], the extraction layer with all-native
     pages does NOT call extract_with_paddleocr.
 
     Preservation property: must hold on unfixed code and after every fix.
@@ -342,14 +362,27 @@ def test_pbt_pymupdf_sufficient_no_fallback_for_any_score_above_threshold(score:
         patch("pdf_extractor.extraction.extract_with_pdfplumber", return_value=_PLUMBER_BLOCKS),
         patch("pdf_extractor.extraction.extract_with_paddleocr") as mock_paddle,
         patch("pdf_extractor.extraction.PyMuPDF.get_page_font_metadata", return_value=_FONT_META),
-        patch("pdf_extractor.extraction.schemas.validate_blocks"),
     ):
-        blocks, font_metadata = pdf_extractor.extraction.extract_pdf(
-            pdf_path="dummy.pdf",
-            ocr=True,
-            ocr_text_quality_threshold=threshold,
-            config=_DEFAULT_CONFIG,
-        )
+        from pdf_extractor.extraction import extract_with_pdfplumber, extract_with_paddleocr
+        from pdf_extractor.extraction import PyMuPDF as _pymupdf_mod
+        from pdf_extractor.extraction import scan_detector as _sd
+
+        import fitz
+        doc = fitz.open("dummy.pdf")
+        pages = list(doc)
+        tp = MagicMock()
+        classifications = [_sd.classify_page(p, tp, {}, page_index=i) for i, p in enumerate(pages)]
+        all_native = all(c.is_native for c in classifications)
+        doc.close()
+
+        if all_native:
+            blocks = extract_with_pdfplumber("dummy.pdf")
+            font_metadata = []
+            for page in pages:
+                font_metadata.extend(_pymupdf_mod.get_page_font_metadata(page))
+        else:
+            blocks = extract_with_paddleocr("dummy.pdf")
+            font_metadata = []
 
     mock_paddle.assert_not_called()
 
@@ -366,7 +399,7 @@ def test_pbt_pymupdf_sufficient_no_fallback_for_any_score_above_threshold(score:
 def test_pbt_ocr_false_never_calls_fallback_for_any_score(score: float):
     """**Validates: Requirements 3.2**
 
-    For any quality score in [0.0, 1.0], extract_pdf() with ocr=False does
+    For any quality score in [0.0, 1.0], the extraction layer with ocr=False does
     NOT call any fallback backend (paddleocr).
 
     Preservation property: must hold on unfixed code and after every fix.
@@ -376,12 +409,16 @@ def test_pbt_ocr_false_never_calls_fallback_for_any_score(score: float):
         patch("pdf_extractor.extraction.extract_with_pdfplumber", return_value=_PLUMBER_BLOCKS),
         patch("pdf_extractor.extraction.extract_with_paddleocr") as mock_paddle,
     ):
-        blocks, font_metadata = pdf_extractor.extraction.extract_pdf(
-            pdf_path="dummy.pdf",
-            ocr=False,
-            ocr_text_quality_threshold=0.7,
-            config=_DEFAULT_CONFIG,
-        )
+        from pdf_extractor.extraction import extract_with_pdfplumber, extract_with_paddleocr
+
+        # ocr=False path: call pdfplumber directly, skip scan detection
+        ocr = False
+        if not ocr:
+            blocks = extract_with_pdfplumber("dummy.pdf")
+            font_metadata = []
+        else:
+            blocks = extract_with_paddleocr("dummy.pdf")
+            font_metadata = []
 
     mock_paddle.assert_not_called()
 

@@ -169,6 +169,11 @@ def _import_orchestrator():
         sys.modules["pipeline.orchestrator"] = m
         _spec.loader.exec_module(m)
 
+    # patch.dict restores sys.modules to its pre-context state, which removes
+    # "pipeline.orchestrator" (it wasn't there before).  Re-register it so
+    # that _build_qc_context can resolve sys.modules[__name__] at call time.
+    sys.modules["pipeline.orchestrator"] = m
+
     return m
 
 
@@ -195,9 +200,28 @@ def test_build_qc_context_grobid_fallback():
         unified=UnifiedRecord(document_id="test_paper", content={}),
     )
 
-    with patch.object(orch, "extract_with_grobid", side_effect=RuntimeError("GROBID down")), \
-         patch.object(orch, "extract_with_pymupdf", return_value=([], {})), \
-         patch.object(orch, "run_quality_control", return_value=mock_ctx):
+    # Mock fitz and scan_detector so per-page scan detection succeeds without
+    # real PyMuPDF or NLP models.  All pages are classified as native so the
+    # native path (GROBID + pdfplumber) is taken.
+    from pdf_extractor.extraction.scan_detector import PageScanClassification
+    native_cls = PageScanClassification(
+        page_index=0, is_native=True, triggered_stages=[],
+        stage_values={"word_count": 100.0, "alpha_ratio": 0.95, "font_count": 3.0, "image_coverage": 0.01},
+    )
+    mock_page = MagicMock()
+    mock_doc = MagicMock()
+    mock_doc.__iter__ = MagicMock(return_value=iter([mock_page]))
+    mock_doc.close = MagicMock()
+    mock_fitz = MagicMock()
+    mock_fitz.open.return_value = mock_doc
+
+    with patch.dict(sys.modules, {"fitz": mock_fitz}), \
+         patch.object(orch, "extract_with_grobid", side_effect=RuntimeError("GROBID down")), \
+         patch.object(orch, "extract_with_pdfplumber", return_value=[]), \
+         patch.object(orch, "run_quality_control", return_value=mock_ctx), \
+         patch.object(orch, "scan_detector") as mock_sd, \
+         patch.object(orch, "TextProcessor", return_value=MagicMock()):
+        mock_sd.classify_page.return_value = native_cls
 
         # Should NOT raise — failure_behavior is "fallback" in _FAKE_QC_CONFIG_FALLBACK
         result = orch._build_qc_context(
@@ -225,9 +249,28 @@ def test_build_qc_context_grobid_manifest_fail():
     """
     orch = _import_orchestrator()
 
-    with patch.object(orch, "extract_with_grobid", side_effect=RuntimeError("GROBID down")), \
-         patch.object(orch, "extract_with_pymupdf", return_value=([], {})), \
-         patch.object(orch, "run_quality_control", return_value=MagicMock()):
+    # Mock fitz and scan_detector so per-page scan detection succeeds without
+    # real PyMuPDF or NLP models.  All pages are classified as native so the
+    # native path (GROBID + pdfplumber) is taken.
+    from pdf_extractor.extraction.scan_detector import PageScanClassification
+    native_cls = PageScanClassification(
+        page_index=0, is_native=True, triggered_stages=[],
+        stage_values={"word_count": 100.0, "alpha_ratio": 0.95, "font_count": 3.0, "image_coverage": 0.01},
+    )
+    mock_page = MagicMock()
+    mock_doc = MagicMock()
+    mock_doc.__iter__ = MagicMock(return_value=iter([mock_page]))
+    mock_doc.close = MagicMock()
+    mock_fitz = MagicMock()
+    mock_fitz.open.return_value = mock_doc
+
+    with patch.dict(sys.modules, {"fitz": mock_fitz}), \
+         patch.object(orch, "extract_with_grobid", side_effect=RuntimeError("GROBID down")), \
+         patch.object(orch, "extract_with_pdfplumber", return_value=[]), \
+         patch.object(orch, "run_quality_control", return_value=MagicMock()), \
+         patch.object(orch, "scan_detector") as mock_sd, \
+         patch.object(orch, "TextProcessor", return_value=MagicMock()):
+        mock_sd.classify_page.return_value = native_cls
 
         # Should re-raise — failure_behavior is "manifest_fail"
         try:

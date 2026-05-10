@@ -314,8 +314,8 @@ class TestPdfExtractorPassesTextProcessor:
         def mock_build_full_text(blocks):
             return ("", {})
 
-        def mock_extract_pdf(path, ocr, threshold):
-            return ([], {})
+        def mock_extract_with_pdfplumber(path):
+            return []
 
         def mock_save_artifact(output_folder, pdf_name, artifact):
             return str(tmp_path / "out.json")
@@ -342,7 +342,7 @@ class TestPdfExtractorPassesTextProcessor:
 
         monkeypatch.setattr(sp_module, "process_sentences", mock_process_sentences)
         monkeypatch.setattr(sp_module, "build_full_text", mock_build_full_text)
-        monkeypatch.setattr("pdf_extractor.pdf_extractor.extract_pdf", mock_extract_pdf)
+        monkeypatch.setattr("pdf_extractor.pdf_extractor.extract_with_pdfplumber", mock_extract_with_pdfplumber)
         monkeypatch.setattr("pdf_extractor.pdf_extractor._save_artifact", mock_save_artifact)
         monkeypatch.setattr("pdf_extractor.pdf_extractor.load_config", mock_load_config)
         monkeypatch.setattr("pdf_extractor.pdf_extractor.setup_logging", mock_setup_logging)
