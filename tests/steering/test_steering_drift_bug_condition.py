@@ -199,7 +199,7 @@ def test_cascade_order_pdfplumber_before_paddleocr():
          patch.object(pdf_extractor.extraction, "extract_with_paddleocr", tracking_paddleocr), \
          patch.object(pdf_extractor.extraction.scan_detector, "classify_page",
                       return_value=mock_classification), \
-         patch("pdf_extractor.extraction.TextProcessor", return_value=mock_tp):
+         patch("pdf_extractor.extraction.TextProcessor", return_value=mock_tp, create=True):
         pdf_extractor.extraction.extract_pdf(
             "dummy.pdf",
             ocr=True,
