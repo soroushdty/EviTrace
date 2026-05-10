@@ -1,0 +1,16 @@
+{
+  "enabled": true,
+  "name": "Auto-stage all changes",
+  "description": "Automatically stages all modified, added, and deleted files before each commit by running git add -A",
+  "version": "1",
+  "when": {
+    "type": "preToolUse",
+    "toolTypes": [
+      "shell"
+    ]
+  },
+  "then": {
+    "type": "runCommand",
+    "command": "git add -A"
+  }
+}
