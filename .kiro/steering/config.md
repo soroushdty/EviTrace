@@ -6,7 +6,7 @@ inclusion: always
 
 ## Single Source of Truth
 
-All tunable parameters live in `config/config.yaml`. The file is loaded **once at startup** via `utils/config_utils.py` and values are passed explicitly as arguments — never mutated as globals after startup.
+All tunable parameters live in `configs/config.yaml` (note: `configs/`, not `config/`). The file is loaded **once at startup** via `utils/config_utils.py` and values are passed explicitly as arguments — never mutated as globals after startup.
 
 Override rule: **env > yaml > default**
 
@@ -36,20 +36,22 @@ All `openai.*` keys can be overridden via environment variables:
 
 | Function | Returns | Use for |
 |---|---|---|
-| `load_openai_config()` | Full OpenAI + extraction + concurrency + retry dict | Pipeline orchestrator, api_client |
-| `load_qc_config()` | `{quality_control: ..., text_processor: ...}` deep-merged with defaults | QC pipeline, scan detector |
-| `load_local_config()` | Local parser settings (pdfs_path, len_filter, ocr, etc.) | main.py, GrobidServerManager |
+| `load_openai_config()` | OpenAI + extraction + concurrency + retry dict | Pipeline orchestrator, api_client |
+| `load_qc_config()` | `{quality_control: ..., text_processor: ...}` deep-merged with `_QC_DEFAULTS` | QC pipeline, scan detector, extraction_pipeline |
+| `load_local_config()` | Local parser settings (pdfs_path, len_filter, ocr, etc.) deep-merged with `_LOCAL_DEFAULTS` | main.py, GrobidServerManager, pdf_extractor CLI |
 
-All three functions accept an optional `config_path` argument. When `None`, they resolve `config/config.yaml` relative to the project root.
+All three functions accept an optional `config_path` argument. When `None`, they resolve `configs/config.yaml` first; if absent, fall back to repo-root `config.yaml`.
 
 ---
 
 ## Adding New Config Keys
 
-1. Add the key to `config/config.yaml` under the appropriate section.
+1. Add the key to `configs/config.yaml` under the appropriate section.
 2. If it is a **top-level** key, register it in `_ALL_KNOWN_TOP_LEVEL_KEYS` in `utils/config_utils.py` — otherwise `load_local_config` raises `ValueError`.
-3. Add a default value to `_QC_DEFAULTS` (for QC/text_processor keys) or `_LOCAL_DEFAULTS` (for local parser keys).
+3. Add a default value to `_QC_DEFAULTS` (for `quality_control` / `text_processor` keys) or `_LOCAL_DEFAULTS` (for local parser keys).
 4. Document the key in the relevant section below.
+
+Currently registered top-level keys: `openai`, `extraction`, `concurrency`, `retry`, `quality_control`, `text_processor`, `local`, `pdfs_path`, `output_folder_path`, `extraction_map_path`, `log_file`, `log_level`, `len_filter`, `ocr`.
 
 ---
 
@@ -98,15 +100,52 @@ retry:
   base_delay_seconds: 5          # actual delay = base * 2^(attempt-1)
 ```
 
+### Paths and Logging
+
+```yaml
+pdfs_path: "input"               # folder, single PDF, or Google Drive URL
+output_folder_path: "outputs"
+extraction_map_path: "configs/extraction_map.json"
+log_file: "run.log"
+log_level: "DEBUG"               # DEBUG | INFO | WARNING | ERROR | CRITICAL
+len_filter: 40                   # minimum sentence length for extraction (chars)
+ocr: false                       # enable PaddleOCR for scanned pages
+```
+
+### `text_processor`
+
+```yaml
+text_processor:
+  class: "utils.text_processor.TextProcessor"   # or fully-qualified SentenceSegment subclass
+  sentence_tokenizer:
+    backend: "scispacy"          # scispacy | wtpsplit | nltk_punkt | spacy_sentencizer | stanza
+    model: "en_core_sci_sm"
+  word_tokenizer:
+    backend: "spacy"             # simple | spacy | nltk
+  normalizer:
+    backend: "nfkc"              # nfc | nfkc
+  comparison:
+    metric: "levenshtein"
+    threshold: 0.85
+  ocr_cleaning:
+    weird_char_threshold: 0.05
+```
+
 ### `quality_control.grobid`
 
 ```yaml
 quality_control:
   grobid:
-    auto_start: true             # auto-start Docker container
+    auto_start: true
     docker_image: "lfoppiano/grobid:0.8.0"
     url: "http://localhost:8070"
     timeout: 180
+    consolidate_header: 0
+    consolidate_citations: 0
+    generate_ids: true
+    segment_sentences: true
+    include_raw_citations: true
+    include_raw_affiliations: false
     tei_coordinates: true        # required for evidence index coords
     max_retries: 2
 ```
@@ -135,6 +174,14 @@ quality_control:
     image_dominance_threshold: 0.85  # max image-area fraction before scanned
 ```
 
+### `quality_control.ocr`
+
+```yaml
+quality_control:
+  ocr:
+    rasterization_dpi: 150           # DPI for PaddleOCR page rasterization
+```
+
 ### `quality_control.local_metrics`
 
 ```yaml
@@ -158,8 +205,19 @@ quality_control:
   semantic_qc:
     enabled: false               # scaffolded only; not wired into adjudication
     model_name: "BAAI/bge-base-en-v1.5"
+    query_prefix: "Represent this sentence for searching relevant passages: "
     similarity_threshold: 0.85
     max_sentences: 10000
+```
+
+### `quality_control.text_fidelity` and `quality_control.section_verification`
+
+```yaml
+quality_control:
+  text_fidelity:
+    edit_distance_threshold: 0.10    # normalized Levenshtein; above = divergent
+  section_verification:
+    font_size_tolerance: 1.0         # allowable font-size delta in points
 ```
 
 ### `quality_control.addons`
@@ -172,41 +230,39 @@ quality_control:
     grobid_quantities:
       enabled: false
       url: ""
+      endpoint: "/service/process"
+      timeout: 20
     datastet:
       enabled: false
       url: ""
+      endpoint: "/service/processDataseerSentence"
+      timeout: 20
     entity_fishing:
       enabled: false
       url: ""
+      endpoint: "/service/disambiguate"
+      timeout: 20
 ```
 
-### `text_processor`
+### `quality_control` pipeline stage settings
 
 ```yaml
-text_processor:
-  class: "utils.text_processor.TextProcessor"   # or fully-qualified SentenceSegment subclass
-  sentence_tokenizer:
-    backend: "scispacy"          # scispacy | wtpsplit | nltk_punkt | spacy_sentencizer | stanza
-    model: "en_core_sci_sm"
-  word_tokenizer:
-    backend: "spacy"             # simple | spacy | nltk
-  normalizer:
-    backend: "nfkc"              # nfc | nfkc
-  comparison:
-    metric: "levenshtein"
-    threshold: 0.85
-  ocr_cleaning:
-    weird_char_threshold: 0.05
-```
-
-### Paths and Logging
-
-```yaml
-pdfs_path: "input"               # folder, single PDF, or Google Drive URL
-output_folder_path: "outputs"
-extraction_map_path: "extraction_map.json"
-log_file: "run.log"
-log_level: "DEBUG"               # DEBUG | INFO | WARNING | ERROR | CRITICAL
+quality_control:
+  discard_failed_branches: false
+  status_field_location: "both"    # "both" | "branch" | "bundle"
+  artifact_generator:
+    export_to_disk: false
+    output_dir: "output/qc_artifacts"
+  rater:
+    attributes: []
+  iaa_calculator:
+    thresholds: {}
+    agreement_metrics: []
+  adjudicator:
+    strategy: "placeholder"
+  reconciler:
+    enable_tei_export: false
+    enable_annotation_export: false
 ```
 
 ---
@@ -219,6 +275,12 @@ log_level: "DEBUG"               # DEBUG | INFO | WARNING | ERROR | CRITICAL
 python main.py --pdf-dir /path/to/pdfs   # override pdfs_path
 python main.py --concurrency 2           # override concurrency.pdf_processing
 python main.py --no-cache-prewarm        # disable prompt_cache.enable_prewarm
+```
+
+The standalone extraction CLI also accepts `--config`:
+
+```bash
+python -m pdf_extractor.pdf_extractor --config /path/to/config.yaml
 ```
 
 CLI overrides are forwarded as parameters to `run_pipeline()` — they are never written back to module-level constants.

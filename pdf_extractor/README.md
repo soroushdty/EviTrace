@@ -1,50 +1,37 @@
 # `pdf_extractor/` — Standalone PDF Text Extraction Module
 
 The PDF parser that backs EviTrace. Resolves a single PDF source,
-extracts text through a four-tier cascade (PyMuPDF → pdfplumber →
-Tesseract → PaddleOCR), processes the extracted text into clean
-sentence records, and writes structured JSON artifacts suitable for
-downstream evidence matching.
+runs per-page scan detection, routes to the correct extraction backends,
+processes the extracted text into a reconciled `UnifiedRecord`, and writes
+structured JSON artifacts suitable for downstream evidence matching.
 
 This module is **standalone**: it can be invoked directly via
 `python -m pdf_extractor.pdf_extractor` or imported and used in other
-pipelines. The [`pipeline/`](../pipeline/README.md) orchestrator and
-the [`quality_control/`](../quality_control/README.md) QC layer both
-build on it.
+pipelines. The [`pipeline/`](../pipeline/README.md) orchestrator delegates
+to `pipeline/extraction_pipeline.py::build_qc_bundle()`, which is the
+single source of truth for the full extraction flow.
 
 ---
 
 ## Where it fits
 
 ```text
-config/config.yaml
+configs/config.yaml
         │
         ▼
 pdf_extractor.pdf_extractor (CLI)
         │
         ├──► utils.path_utils.list_pdf_files_from_source   # resolve PDF source
-        ├──► pdf_extractor.extraction.extract_pdf          # 4-tier cascade
-        ├──► pdf_extractor.processing.sentence_processor   # segment + assemble
-        └──► <stem>.json                                   # write artifact
+        ├──► pipeline.extraction_pipeline.build_qc_bundle  # scan detection → routing → QC → annotation
+        └──► <stem>.extracted.json                         # write artifact
 
-quality_control.run_quality_control            # parallel use:
-        ├──► pdf_extractor.extraction.extract_with_grobid    # branch 0 (TEI XML)
-        └──► pdf_extractor.extraction.extract_with_pymupdf   # branch 1 (native blocks)
-```
-
----
-
-## Pipeline (CLI)
-
-```text
-run_pipeline()
- ├── pdf_extractor.utils.config_utils.load_config()                    # 1. load parser config
- ├── utils.path_utils.list_pdf_files_from_source()                     # 2. resolve PDF source
- └── for each PDF:
-      ├── pdf_extractor.extraction.extract_pdf()                       # 3. extract text (cascade)
-      ├── pdf_extractor.processing.sentence_processor.process_sentences()  # 4. sentence segmentation
-      ├── pdf_extractor.processing.sentence_processor.build_full_text()    # 4. assemble full text
-      └── write <stem>.json to output folder                           # 5. save artifact
+pipeline.extraction_pipeline.build_qc_bundle
+        ├──► pdf_extractor.extraction.GROBID               # semantic authority (TEI XML)
+        ├──► pdf_extractor.extraction.pdfplumber           # structural authority (text blocks)
+        ├──► pdf_extractor.extraction.PaddleOCR            # scanned primary
+        ├──► pdf_extractor.extraction.PyMuPDF              # font metadata / OCR cross-validator
+        ├──► quality_control.run_quality_control           # QCBundle + UnifiedRecord
+        └──► pdf_extractor.annotation                      # W3C JSON-LD projection
 ```
 
 ---
@@ -53,19 +40,21 @@ run_pipeline()
 
 ```text
 pdf_extractor/
-├── pdf_extractor.py        CLI entry point
-├── __init__.py             Convenience: extract_pdf_text(...) helper
-├── conftest.py             Pytest path-setup so `pdf_extractor.*` resolves
-├── pyproject.toml          Pytest config (markers, importlib mode)
-├── extraction/             Multi-backend extraction cascade  → ./extraction/README.md
-├── processing/             Sentence segmentation              → ./processing/README.md
-└── utils/                  Text / embedding / layout helpers → ./utils/README.md
+├── pdf_extractor.py        CLI entry point (standalone, no OpenAI key required)
+├── pdf_validator.py        PDF-level structural validation
+├── layout_utils.py         detect_section_heading(), location_cross_check()
+├── __init__.py             Exports: build_full_text, PDFValidationError
+├── extraction/             Multi-backend extraction + scan_detector + schemas
+├── processing/             Sentence segmentation and full-text assembly
+├── annotation/             W3C JSON-LD projection and serialization
+└── utils/                  text_utils, embedding_utils
 ```
 
 | Sub-package | README |
 | ----------- | ------ |
 | `extraction/` | [extraction/README.md](extraction/README.md) |
 | `processing/` | [processing/README.md](processing/README.md) |
+| `annotation/` | W3C annotation layer (see below) |
 | `utils/` | [utils/README.md](utils/README.md) |
 
 ---
@@ -74,50 +63,80 @@ pdf_extractor/
 
 ### `pdf_extractor.py`
 
-CLI entry point. Drives the four-tier cascade, sentence processing,
-and JSON artifact output.
+CLI entry point. Runs the full multi-backend extraction pipeline and writes
+`UnifiedRecord`-based JSON artifacts. Does **not** require an OpenAI API key.
 
 ```bash
-python -m pdf_extractor.pdf_extractor                       # default config (config/config.yaml)
-python -m pdf_extractor.pdf_extractor --config /path/to/cfg # explicit config
+python -m pdf_extractor.pdf_extractor                          # default config (configs/config.yaml)
+python -m pdf_extractor.pdf_extractor --config /path/to/cfg   # explicit config
 ```
+
+`run_pipeline(config_path)` — loads config, resolves PDF sources, starts
+`GrobidServerManager`, calls `build_qc_bundle` for each PDF, and saves
+artifacts.
+
+`_unified_to_artifact(pdf_name, pdf_info, ctx) -> dict` — serialises a
+`QCBundle` into a JSON-serialisable artifact dict.
+
+`_save_artifact(output_folder, pdf_name, artifact) -> str` — writes the
+artifact to `<output_folder>/<stem>.extracted.json`.
+
+### `pdf_validator.py`
+
+Standalone PDF file validation.
+
+`validate_pdf(path) -> None` — validates a PDF in strict short-circuit order:
+1. Magic bytes (`b"%PDF-"`).
+2. File size (non-zero).
+3. Password protection (`doc.needs_pass` must be `False`).
+4. Fitz readability (`fitz.open()` must not raise).
+
+Raises `PDFValidationError` at the first failing check.
+
+`PDFValidationError` — exception class raised by `validate_pdf`.
+
+### `layout_utils.py`
+
+Layout-aware helpers used by `pdf_extractor/utils/text_utils.py` and
+`pdf_extractor/utils/embedding_utils.py` for section heading detection
+and location cross-checking.
+
+- `detect_section_heading(page_index, font_metadata) -> str` — returns
+  the text of the nearest preceding section heading for a given page.
+  A span is classified as a heading when its font size is ≥
+  `median_size + 2.0` across all document spans. Returns `''` when no
+  heading is found.
+- `location_cross_check(found_page_index, font_metadata, claimed_location) -> tuple[str, bool]`
+  — builds a human-readable `found_location` string (e.g. `"p.3 — Introduction"`)
+  and returns `(found_location, location_drift)`. Location drift is
+  informational only — it never invalidates a match.
 
 ### `__init__.py`
 
-Exposes a thin convenience wrapper for callers that only need plain
-text:
+Exports:
+- `build_full_text` — from `pdf_extractor.processing.sentence_processor`
+- `PDFValidationError` — from `pdf_extractor.pdf_validator`
 
-```python
-from pdf_extractor import extract_pdf_text
+### `annotation/`
 
-text = extract_pdf_text("paper.pdf", ocr=False, ocr_text_quality_threshold=0.5)
-```
+W3C JSON-LD annotation layer. Sole producer of W3C annotation dicts.
 
-This is what the OpenAI orchestrator path uses indirectly (the
-`UnifiedRecord` text travels through `quality_control` first).
-
-### `conftest.py`
-
-Inserts the project root at the front of `sys.path` so that
-`pdf_extractor.*` and `utils.*` resolve correctly during pytest
-collection. Also picked up at the repo root.
-
-### `pyproject.toml`
-
-Pytest configuration only (no packaging). Registers the `slow`
-marker and configures `--import-mode=importlib`.
-
-### `next steps.txt`
-
-Free-form planning document for future work (extraction manifest,
-optional semantic QC, task-specific evaluation metrics scaffold).
-Not part of the runtime.
+- `AnnotationRecord` — dataclass for a single projected annotation record.
+  Fields: `sentence_text`, `page_index`, `selector_type`,
+  `selector_payload`, `quote_selector`, `ocr_derived`, `body_value`.
+- `project(unified, base_uri="") -> list[AnnotationRecord]` — reads only
+  `unified.semantic` and `unified.alignment`. Returns one record per
+  sentence. Uses `TextPositionSelector` for native sentences and
+  `FragmentSelector` for OCR-derived sentences.
+- `generate_w3c_jsonld(records, base_uri="") -> list[dict]` — sole
+  producer of W3C JSON-LD dicts. Each dict contains `@context`, `id`,
+  `type`, `body`, `target`. Returns `[]` when `records` is empty.
 
 ---
 
 ## Output artifact
 
-Each processed PDF produces a `<stem>.json` in
+Each processed PDF produces a `<stem>.extracted.json` in
 `output_folder_path` (default `outputs/`):
 
 ```json
@@ -125,50 +144,42 @@ Each processed PDF produces a `<stem>.json` in
   "pdf_name": "paper.pdf",
   "pdf_id": "<sha256>",
   "pdf_uri": "file:///path/to/paper.pdf",
-  "blocks": [...],
-  "sentence_records": [...],
-  "full_pdf_text": "...",
-  "page_texts": {"0": "...", "1": "..."}
+  "document_id": "paper",
+  "content": {
+    "exact_text": "...",
+    "annotations": [...],
+    "pages": [...],
+    "segments": [...],
+    "source_pdf_path": "...",
+    "grobid_tei_xml": "..."
+  },
+  "semantic": {...},
+  "structural": {...},
+  "alignment": {...},
+  "branches": [{"source": "grobid", "index": 0, "status": "pass"}, ...],
+  "metrics_hierarchy": {"local_metrics": [...], "exact_match": [...], "semantic_match": [...]}
 }
 ```
 
-> **Note:** `page_texts` uses **integer** page-index keys in Python.
-> When serialised to JSON they appear as `"0"`, `"1"`, etc.
-
 ---
 
-## Configuration (`config.yaml`)
+## Configuration (`configs/config.yaml`)
 
-Defaults to `config/config.yaml` from the project root; override with
+Defaults to `configs/config.yaml` from the project root; override with
 `--config /path/to/file.yaml`. Full schema:
-[../config/README.md](../config/README.md).
+[../configs/README.md](../configs/README.md).
 
-| Field                        | Type   | Default     | Description                                                          |
-| ---------------------------- | ------ | ----------- | -------------------------------------------------------------------- |
-| `log_file`                   | string | `"log.txt"` | Log file path (relative to project root or absolute).                |
-| `log_level`                  | string | `"INFO"`    | Console log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`). |
-| `len_filter`                 | int    | `40`        | Minimum sentence length (characters) to survive filtering.           |
-| `ocr`                        | bool   | `true`      | Enable OCR fallback tiers when PyMuPDF quality is insufficient.      |
-| `ocr_text_quality_threshold` | float  | `0.7`       | Minimum alphanumeric-ratio score to accept an extraction tier.       |
-| `pdfs_path`                  | string | —           | A single PDF file path, a folder path, or a URL.                     |
-| `output_folder_path`         | string | `"output"`  | Output folder for parser artifacts.                                  |
+| Field | Type | Default | Description |
+| ----- | ---- | ------- | ----------- |
+| `log_file` | string | `"log.txt"` | Log file path. |
+| `log_level` | string | `"INFO"` | Console log level. |
+| `len_filter` | int | `40` | Minimum sentence length (characters). |
+| `ocr` | bool | `true` | Enable PaddleOCR for scanned pages. |
+| `pdfs_path` | string | — | A single PDF, a folder, or a URL. |
+| `output_folder_path` | string | `"output"` | Output folder for artifacts. |
 
-`pdfs_path` may be:
-
-- A single `.pdf` file
-- A directory of `.pdf` files
-- An `http(s)://` URL (downloaded via `gdown`)
-- A `drive.google.com/.../folders/...` URL (downloaded via
-  `gdown.download_folder`)
-
----
-
-## Quality control
-
-Quality control is a separate module — `pdf_extractor` only feeds it
-the extraction branches. For module structure, configurable QC stages,
-and the Tier 1/2/3 metrics hierarchy, see
-[../quality_control/README.md](../quality_control/README.md).
+`pdfs_path` may be a single `.pdf` file, a directory, an `http(s)://` URL,
+or a `drive.google.com/.../folders/...` URL.
 
 ---
 
@@ -179,31 +190,23 @@ and the Tier 1/2/3 metrics hierarchy, see
 - `pdfplumber>=0.10.0`
 - `numpy>=2.0.0`
 - `gdown>=5.1.0` (for URL / Drive sources)
-- `requests>=2.28.0` (lazy import for the GROBID branch)
-- `pytesseract` + `pdf2image` (lazy; required only when the Tesseract
-  tier is reached)
-- `paddleocr` + `paddlepaddle` + `pdf2image` (lazy; required only when
-  the PaddleOCR tier is reached)
+- `requests>=2.28.0` (lazy; required for GROBID branch)
+- `paddleocr` + `paddlepaddle` + `pdf2image` (lazy; required only for scanned pages)
 
-Optional, required only when `quality_control.semantic_qc.enabled` is
-`true`:
+Optional (Tier 3 semantic QC only):
 
 - `sentence-transformers`
 - `faiss-cpu` or `faiss-gpu`
 - `torch`
-
-```bash
-pip install -r requirements.txt
-```
 
 ---
 
 ## Running tests
 
 ```bash
-python -m pytest -q                # default: skip slow tests
-python -m pytest -q -m ""          # everything
-python -m pytest -q -m slow        # only slow tests
+python -m pytest -q           # default: skip slow tests
+python -m pytest -q -m ""     # everything
+python -m pytest -q -m slow   # only slow tests
 ```
 
 Test layout: [../tests/README.md](../tests/README.md).
@@ -212,10 +215,10 @@ Test layout: [../tests/README.md](../tests/README.md).
 
 ## Related
 
+- Single source of truth for extraction flow: [../pipeline/README.md](../pipeline/README.md)
 - Multi-backend extractors: [extraction/README.md](extraction/README.md)
 - Sentence segmentation and full-text assembly: [processing/README.md](processing/README.md)
-- Text / embedding / layout helpers: [utils/README.md](utils/README.md)
-- QC layer that reuses `extract_with_grobid` / `extract_with_pymupdf`:
-  [../quality_control/README.md](../quality_control/README.md)
-- Configuration: [../config/README.md](../config/README.md)
+- Text / embedding helpers: [utils/README.md](utils/README.md)
+- QC layer: [../quality_control/README.md](../quality_control/README.md)
+- Configuration: [../configs/README.md](../configs/README.md)
 - Root overview: [../README.md](../README.md)

@@ -5,6 +5,52 @@ and should never be deleted. Add a brief entry whenever a spec is implemented,
 steering docs change, README files change, or any other significant code change
 occurs.
 
+## [2026-05] — Full README rewrite to reflect current codebase
+
+All 13 README files rewritten to match the current architecture. The previous
+READMEs contained stale references to the old waterfall-cascade architecture,
+`config/` (now `configs/`), Tesseract, `extract_pdf()`, `QCContext`, `BranchOutput`,
+`layout_utils`, and the old test layout.
+
+Key corrections across all READMEs:
+- Root README: updated workflow (evidence index, pre-filled fields 1–2, W3C annotations),
+  repository structure (added `pipeline/extraction_pipeline.py`, `pdf_extractor/annotation/`,
+  `quality_control/validate_context.py`, `quality_control/defaults/`, `quality_control/concerns/`),
+  outputs table (added `evidence_cache/` files), technologies (added `jsonschema`).
+- `utils/README.md`: added `text_processor.py` and `grobid_manager.py` documentation;
+  updated `config_utils` return values to include evidence cache and GROBID failure behavior keys;
+  corrected config path from `config/` to `configs/`.
+- `quality_control/README.md`: updated pipeline diagram (4 stages, not 5); documented
+  `validator.py`, `structure_validator.py`, `validate_context.py`, `defaults/`, `concerns/`;
+  corrected `metrics_hierarchy` key names (`local_metrics`, `exact_match`, `semantic_match`);
+  added dependency direction rule note.
+- `pipeline/README.md`: added `extraction_pipeline.py` as single source of truth;
+  documented `evidence_index.py` (EvidenceBundle, build_or_load_evidence_bundle,
+  build_chunk_evidence_package, attach_table_figure_crops); updated `pdf_processor.py`
+  steps to include evidence index and pre-filled fields; corrected config path.
+- `pdf_extractor/README.md`: removed cascade/tier/Tesseract references; documented
+  `pdf_validator.py`, `annotation/` sub-package; updated output artifact schema.
+- `pdf_extractor/extraction/README.md`: corrected backend roles (pdfplumber is structural
+  authority, not PyMuPDF); documented `PaddleOCRBlockDict`; updated `classify_page` signature.
+- `pdf_extractor/processing/README.md`: added `text_processor` parameter to
+  `process_sentences`; documented `is_noise` patterns.
+- `pdf_extractor/utils/README.md`: removed `layout_utils.py` (not present); documented
+  `semantic_search` return dict; corrected `embedding_utils` function signatures.
+- `agents/README.md`: added `validator.py` / `AgentSchemaValidator` documentation;
+  updated `get_system_prompt()` callable (replacing removed `SYSTEM_PROMPT` constant).
+- `agents/openai/README.md`: updated `extract_chunk` to return raw text (not validated list);
+  documented `source_package` parameter (evidence package, not `pdf_text`); updated
+  `paper_cache_key` signature; documented `_response_text`, `_base_request_kwargs`.
+- `configs/README.md`: corrected directory name from `config/` to `configs/`; added
+  `extraction_map.json`, `agent_schema.json`, `structure_schema.json` documentation;
+  added full `quality_control` YAML including `grobid_integration`, `scan_detection`,
+  `ocr`, `text_fidelity`, `section_verification`, `addons`.
+- `tests/README.md`: completely rewritten to reflect current test layout
+  (`tests/agents/`, `tests/pipeline/`, `tests/quality_control/`, `tests/utils/`);
+  documented all test files; added dependency direction and migration regression sections.
+- `tests/pdf_extractor/README.md`: updated file list to match current test files
+  (renamed backends, added `test_scan_detector.py`, `test_scan_detector_routing.py`,
+  `test_w3c_annotation.py`; removed stale entries).
 Format: `## [date] — title` followed by a short description of what changed
 and why. No need to be exhaustive — just enough for a future reader to
 understand what happened and where to look.
@@ -238,3 +284,4 @@ Created `quality_control/validate_context.py` as part of the `schema-validator-s
 - Added `quality_control/validate_context.py` with `ValidationError` (defined locally, not imported from `pipeline`) and `validate_qc_context_input`.
 - The function performs five pre-flight checks (isinstance QCBundle, unified not None, document_id non-empty str, content is dict, exact_text non-empty str) then delegates to `_structure_validator.validate_qc_bundle`.
 - Module-level `_structure_validator = StructureSchemaValidator()` singleton instantiated at import time.
+

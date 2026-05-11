@@ -22,13 +22,14 @@ pytest is configured in `pyproject.toml` at the repo root:
 ```toml
 [tool.pytest.ini_options]
 pythonpath = "."
+testpaths = ["tests"]
 addopts = "--import-mode=importlib -m \"not slow\""
 markers = [
     "slow: marks tests as slow (deselected by default; run with -m slow or -m \"\")",
 ]
 ```
 
-Always run from the **repo root**.
+Always run from the **repo root**. `testpaths = ["tests"]` means pytest only collects from `tests/`.
 
 ---
 
@@ -36,7 +37,7 @@ Always run from the **repo root**.
 
 Two `conftest.py` files ensure `sys.path` is correct:
 
-- `conftest.py` (repo root) — required; ensures `pdf_extractor.*`, `utils.*`, `quality_control.*`, and `pipeline.*` all resolve when pytest collects from the root.
+- `conftest.py` (repo root) — required; ensures `pdf_extractor.*`, `utils.*`, `quality_control.*`, `pipeline.*`, and `agents.*` all resolve when pytest collects from the root.
 - `pdf_extractor/conftest.py` — inserts the project root at the front of `sys.path` as a fallback for collection starting inside `pdf_extractor/`.
 
 Both must exist. The root-level one takes precedence when running `python -m pytest` from the repo root.
@@ -47,10 +48,15 @@ Both must exist. The root-level one takes precedence when running `python -m pyt
 
 ```
 tests/
-├── pdf_extractor/         mirrors pdf_extractor/
-├── quality_control/       mirrors quality_control/
-├── pipeline/              mirrors pipeline/
-└── utils/                 mirrors utils/
+├── agents/
+│   └── openai/                  # api_client, prompts (async + PBT)
+├── pdf_extractor/               mirrors pdf_extractor/
+├── pipeline/                    mirrors pipeline/
+├── quality_control/             mirrors quality_control/
+├── utils/                       mirrors utils/
+├── test_dependency_directions.py   # cross-package import enforcement (AST-based)
+├── test_migration_artifact_scrub_bug_condition.py
+└── test_migration_artifact_scrub_preservation.py
 ```
 
 All test files follow the naming convention:
@@ -62,8 +68,10 @@ test_<module-or-feature>_<aspect>.py
 Examples:
 - `test_quality_control_rater.py` — rater module
 - `test_scan_detector_routing.py` — routing aspect of scan detector
-- `test_text_extractor_branch2.py` — PyMuPDF backend
-- `test_steering_drift_bug_condition.py` — bug condition regression
+- `test_validator_base.py` — generic Validator engine
+- `test_validator_properties.py` — PBT for Validator
+- `test_structure_validator.py` — StructureSchemaValidator
+- `test_dependency_directions.py` — cross-package dependency enforcement
 
 ---
 
@@ -95,7 +103,7 @@ def test_some_property(score: float):
     ...
 ```
 
-PBT tests live alongside unit tests in their respective subdirectory under `tests/`.
+PBT tests live alongside unit tests in their respective subdirectory under `tests/`. Examples: `test_validator_properties.py`, `test_prompts_pbt.py`.
 
 ---
 
@@ -124,17 +132,32 @@ Use `MagicMock` for fitz (PyMuPDF) document/page objects. Never call real GROBID
 
 ---
 
-## Steering-Drift Regression Tests
+## Dependency Direction Tests
 
-`test_steering_drift_*.py` files verify that specific bug conditions are preserved and fixed:
+`tests/test_dependency_directions.py` enforces cross-package import rules via AST analysis. It checks every `.py` file in each package and fails if a forbidden import is found.
 
-- `test_steering_drift_bug_condition.py` — encodes the **expected post-fix state**; each sub-check fails on unfixed code and passes after the fix.
-- `test_steering_drift_preservation.py` — encodes **existing correct behaviour** that must not regress; these must pass on both unfixed and fixed code.
+Enforced rules:
+
+| Source package | Must NOT import |
+|---|---|
+| `pdf_extractor` | `quality_control` |
+| `quality_control` | `agents`, `pipeline`, `pdf_extractor` |
+| `agents` | `quality_control`, `pipeline`, `pdf_extractor` |
+
+These rules are tested individually (one test per pair) and exhaustively (one combined test). Always run this suite after adding new cross-package imports.
+
+---
+
+## Migration / Steering-Drift Regression Tests
+
+Files at the root of `tests/` (not in a subdirectory) encode migration correctness:
+
+- `test_migration_artifact_scrub_bug_condition.py` — encodes the **expected post-fix state**; each sub-check fails on unfixed code and passes after the fix.
+- `test_migration_artifact_scrub_preservation.py` — encodes **existing correct behaviour** that must not regress; these must pass on both unfixed and fixed code.
 
 Rules:
-- Both files live in `tests/steering`.
 - Sub-checks use `pytest.fail()` with descriptive messages referencing the deviation number (e.g. `"Deviation 1.4"`).
-- When writing a new bugfix spec, add a corresponding `test_steering_drift_<feature>_bug_condition.py`.
+- When writing a new bugfix spec, add a corresponding `test_migration_<feature>_bug_condition.py` and `test_migration_<feature>_preservation.py` pair at the `tests/` root.
 
 ---
 
@@ -142,15 +165,16 @@ Rules:
 
 | Area | Coverage |
 |---|---|
-| `pdf_extractor/extraction/` | Tier 1/2/3 orchestration, schemas, backends (GROBID, PyMuPDF, pdfplumber, PaddleOCR), scan detector |
-| `quality_control/` | Generic pipeline, models, local metrics, artifact generator, rater, IAA calculator, adjudicator, reconciler |
-| `pdf_extractor/utils/` | text_utils, embedding_utils, layout_utils, text_processor, sentence segmenters |
+| `pdf_extractor/extraction/` | Backends (GROBID, PyMuPDF, pdfplumber, PaddleOCR), scan detector, schemas |
+| `pdf_extractor/utils/` | `text_utils`, `embedding_utils`, `layout_utils` |
 | `pdf_extractor/annotation/` | W3C annotation projection and artifact generation |
-| `pipeline/evidence_index.py` | Evidence bundle building and caching |
-| `pipeline/validator.py` | Chunk output validation and field reconstruction |
-| `utils/` | config_utils, logging_utils, path_utils, source resolution |
-| `agents/openai/` | **No dedicated tests** — exercised via integration |
-| `pipeline/orchestrator.py` | **No dedicated tests** — exercised via integration |
+| `pdf_extractor/processing/` | Sentence processor (via `tests/utils/test_sentence_processor.py`) |
+| `quality_control/` | Pipeline, models, local metrics, rater, IAA calculator, adjudicator, reconciler, concern strategies, `Validator`, `StructureSchemaValidator`, `validate_context` |
+| `pipeline/` | Evidence index, manifest I/O, validator loc checks, extraction map grouping, extraction report QC, orchestrator concurrency, pdf_processor helpers |
+| `agents/openai/` | `api_client` (async), cache key, prompts builders, prompts PBT |
+| `utils/` | `config_utils`, `logging_utils`, source resolution, `text_processor`, sentence processor |
+| `tests/` root | Dependency direction enforcement, migration regression tests |
+| `pipeline/orchestrator.py` (full integration) | No dedicated integration test — exercised via end-to-end runs |
 
 ---
 
@@ -192,6 +216,33 @@ ctx = QCBundle(branches=branches)
 ```
 
 Import all dataclasses from `quality_control.models` — never from individual QC submodules.
+
+---
+
+## Validator Testing
+
+`quality_control/validator.py` provides a generic `Validator` + `ValidationResult`. Test it by injecting a serializer and a schema dict — no domain objects required:
+
+```python
+from quality_control.validator import Validator, ValidationResult
+
+schema = {"type": "object", "required": ["name"], "properties": {"name": {"type": "string"}}}
+v = Validator(serializer=lambda obj: obj, schema=schema)
+
+result = v.validate({"name": "test"})
+assert result.is_valid
+
+result = v.validate({"name": 42})
+assert not result.is_valid
+assert any("name" in e for e in result.errors)
+```
+
+`StructureSchemaValidator` wraps `Validator` with `configs/structure_schema.json`. Pass a `schema_path` in tests to avoid relying on the project root:
+
+```python
+from quality_control.structure_validator import StructureSchemaValidator
+validator = StructureSchemaValidator(schema_path="configs/structure_schema.json")
+```
 
 ---
 
