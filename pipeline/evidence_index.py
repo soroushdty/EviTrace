@@ -458,7 +458,20 @@ def build_chunk_evidence_package(
     max_items: int,
     max_chars: int,
 ) -> str:
-    """Build compact per-chunk evidence package with section-aware ranking."""
+    """Build a per-chunk, chunk-specific evidence package (LEGACY).
+
+    .. deprecated::
+        Prefer :func:`build_paper_evidence_package` for cache-friendly extraction
+        across multiple chunks. This helper ranks items by a score that depends
+        on the specific ``chunk_fields`` passed in, which means two different
+        chunks for the same paper produce different serialisations and defeat
+        OpenAI's prompt-prefix cache. Kept for tests and advanced callers that
+        genuinely need chunk-specific pruning.
+
+    The serialised JSON is deterministic: items that tie on score are ordered
+    by their stable ``id`` so repeated calls with the same inputs always
+    produce byte-identical output.
+    """
     if not chunk_fields:
         return '{"paper_id":"","evidence":[]}'
 
@@ -466,7 +479,7 @@ def build_chunk_evidence_package(
         f"{field.get('field_name', '')} {field.get('definition', '')} {field.get('reviewer_question', '')}"
         for field in chunk_fields
     ).lower()
-    ranked: list[tuple[int, dict[str, Any]]] = []
+    ranked: list[tuple[int, str, dict[str, Any]]] = []
     for item in bundle.evidence_items:
         text = item.get("text", "")
         overlap = 0
@@ -474,12 +487,13 @@ def build_chunk_evidence_package(
             if token in text.lower():
                 overlap += 1
         score = int(item.get("score", 0)) + overlap * 3
-        ranked.append((score, item))
+        ranked.append((score, str(item.get("id", "")), item))
 
-    ranked.sort(key=lambda x: x[0], reverse=True)
+    # Deterministic ordering: higher score first, ties broken by stable id.
+    ranked.sort(key=lambda x: (-x[0], x[1]))
     selected: list[dict[str, Any]] = []
     char_budget = 0
-    for _, item in ranked:
+    for _, _, item in ranked:
         if len(selected) >= max_items:
             break
         text = item.get("text", "")
@@ -497,6 +511,10 @@ def build_chunk_evidence_package(
             }
         )
         char_budget += len(text)
+
+    # Emit selected items in stable id order so the serialised prefix is
+    # byte-identical across repeated calls with the same inputs.
+    selected.sort(key=lambda x: str(x.get("id", "")))
     logger.debug(
         "build_chunk_evidence_package: paper=%s, fields=%d, ranked=%d, selected=%d, chars=%d",
         bundle.paper_id, len(chunk_fields), len(ranked), len(selected), char_budget,
@@ -508,6 +526,90 @@ def build_chunk_evidence_package(
         "evidence": selected,
     }
     return json.dumps(package, ensure_ascii=False)
+
+
+def build_paper_evidence_package(
+    bundle: EvidenceBundle,
+    all_fields: list[dict],
+    *,
+    max_items: int,
+    max_chars: int,
+) -> str:
+    """Build a single paper-level evidence package shared by all extraction chunks.
+
+    This is the preferred builder. It produces **one** byte-identical evidence
+    string for every chunk of a given paper so that the shared PDF prefix
+    embedded in :func:`agents.openai.prompts._shared_paper_prefix` hits
+    OpenAI's prompt cache on every call after the first.
+
+    Ranking
+    -------
+    Items are scored using the union of keywords from every field across every
+    chunk (plus the per-item section bonuses already stored on
+    :class:`EvidenceBundle`). This preserves relevance — any token that any
+    chunk cares about lifts an item's score — while keeping the score, the
+    selected set, and the serialised bytes identical across chunks.
+
+    Determinism
+    -----------
+    After score-based selection, items are emitted in stable ``id`` order so
+    two invocations with identical inputs always produce identical output.
+    """
+    if not all_fields:
+        return '{"paper_id":"","evidence":[]}'
+
+    keywords = " ".join(
+        f"{field.get('field_name', '')} {field.get('definition', '')} {field.get('reviewer_question', '')}"
+        for field in all_fields
+    ).lower()
+    keyword_tokens = set(re.findall(r"[a-z]{4,}", keywords))
+
+    ranked: list[tuple[int, str, dict[str, Any]]] = []
+    for item in bundle.evidence_items:
+        text = (item.get("text") or "").lower()
+        overlap = sum(1 for token in keyword_tokens if token in text)
+        score = int(item.get("score", 0)) + overlap * 3
+        ranked.append((score, str(item.get("id", "")), item))
+
+    # Select by score, ties broken by id.
+    ranked.sort(key=lambda x: (-x[0], x[1]))
+    selected: list[dict[str, Any]] = []
+    char_budget = 0
+    for _, _, item in ranked:
+        if len(selected) >= max_items:
+            break
+        text = item.get("text", "") or ""
+        if char_budget + len(text) > max_chars:
+            continue
+        selected.append(
+            {
+                "id": item.get("id"),
+                "type": item.get("type"),
+                "section": item.get("section_path"),
+                "page": item.get("page"),
+                "coords": item.get("coords"),
+                "text": text,
+                "annotations": item.get("annotations", {}),
+            }
+        )
+        char_budget += len(text)
+
+    # Emit selected items in stable id order so the serialised prefix is
+    # byte-identical across chunks (this is what the prompt cache keys on).
+    selected.sort(key=lambda x: str(x.get("id", "")))
+
+    logger.info(
+        "build_paper_evidence_package: paper=%s, total_fields=%d, ranked=%d, "
+        "selected=%d, chars=%d",
+        bundle.paper_id, len(all_fields), len(ranked), len(selected), char_budget,
+    )
+
+    package = {
+        "paper_id": bundle.paper_id,
+        "evidence_count": len(selected),
+        "evidence": selected,
+    }
+    return json.dumps(package, ensure_ascii=False, sort_keys=False)
 
 
 def attach_table_figure_crops(

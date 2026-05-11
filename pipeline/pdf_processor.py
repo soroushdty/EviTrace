@@ -8,6 +8,7 @@ from .evidence_index import (
     attach_table_figure_crops,
     build_chunk_evidence_package,
     build_or_load_evidence_bundle,
+    build_paper_evidence_package,
 )
 from quality_control.validate_context import validate_qc_context_input
 from .validator import reconstruct_fields, validate_chunk_output, ValidationError
@@ -184,35 +185,49 @@ async def process_pdf(
 
     chunk_fields_for_llm: dict[int, list[dict]] = {}
     chunk_sources: dict[int, str] = {}
+
+    # Build ONE paper-level evidence package shared by every chunk (extraction
+    # and synthesis). This is the keystone of the prompt-cache strategy: the
+    # shared PDF prefix in agents.openai.prompts._shared_paper_prefix must be
+    # byte-identical across chunks so the server-side prefix cache hits on
+    # chunks 2..N after warmup seeds chunk 1.
+    filtered_per_chunk: dict[int, list[dict]] = {}
+    all_llm_fields: list[dict] = []
     for chunk_num, fields in chunk_fields.items():
         filtered = [f for f in fields if f.get("field_index") not in prefilled_indices]
         if not filtered:
             continue
-        chunk_fields_for_llm[chunk_num] = filtered
-        chunk_sources[chunk_num] = build_chunk_evidence_package(
+        filtered_per_chunk[chunk_num] = filtered
+        all_llm_fields.extend(filtered)
+
+    paper_source = ""
+    if all_llm_fields:
+        paper_source = build_paper_evidence_package(
             bundle,
-            filtered,
+            all_llm_fields,
             max_items=max_evidence_items,
             max_chars=max_evidence_chars,
         )
         logger.info(
-            "Chunk %d evidence package for %s: %d chars, %d fields",
-            chunk_num,
-            pdf_name,
-            len(chunk_sources[chunk_num]),
-            len(filtered),
+            "Paper evidence package for %s: %d chars, %d fields across %d chunks",
+            pdf_name, len(paper_source), len(all_llm_fields), len(filtered_per_chunk),
+        )
+
+    for chunk_num, filtered in filtered_per_chunk.items():
+        chunk_fields_for_llm[chunk_num] = filtered
+        # Identical bytes across all chunks -> shared-prefix cache hits.
+        chunk_sources[chunk_num] = paper_source
+        logger.debug(
+            "Chunk %d evidence package for %s reuses shared paper package: %d chars, %d fields",
+            chunk_num, pdf_name, len(paper_source), len(filtered),
         )
     if chunk_sources:
-        avg_pkg = sum(len(v) for v in chunk_sources.values()) / len(chunk_sources)
         reduction = 0.0
         if pdf_text:
-            reduction = max(0.0, 1.0 - (avg_pkg / max(len(pdf_text), 1)))
+            reduction = max(0.0, 1.0 - (len(paper_source) / max(len(pdf_text), 1)))
         logger.info(
-            "Evidence token-size estimate for %s: source=%d chars, avg chunk package=%d chars, reduction=%.1f%%",
-            pdf_name,
-            len(pdf_text),
-            int(avg_pkg),
-            reduction * 100,
+            "Evidence token-size estimate for %s: source=%d chars, shared package=%d chars, reduction=%.1f%%",
+            pdf_name, len(pdf_text), len(paper_source), reduction * 100,
         )
 
     # Step 2: run parallel extraction chunks (with optional cache warmup).
@@ -285,7 +300,7 @@ async def process_pdf(
             )
             synthesis_raw = await extract_chunk(
                 synthesis_chunk,
-                chunk_sources.get(synthesis_chunk, json.dumps({"paper_id": pdf_name, "evidence": []})),
+                chunk_sources.get(synthesis_chunk, paper_source or json.dumps({"paper_id": pdf_name, "evidence": []})),
                 synthesis_fields,
                 api_semaphore,
                 valid_location_ids=valid_location_ids,
