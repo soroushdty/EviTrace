@@ -59,6 +59,9 @@ def parse_args() -> argparse.Namespace:
 
 
 async def main() -> None:
+    import time as _time
+    _t_start = _time.time()
+
     args = parse_args()
     logger.debug("Parsed CLI args: %r", vars(args))
     cfg = load_openai_config()
@@ -134,7 +137,7 @@ async def main() -> None:
         logger.error("No PDFs were successfully processed.")
         sys.exit(1)
 
-    generate_qc_report(results)
+    generate_qc_report(results, elapsed_seconds=_time.time() - _t_start)
 
 
 if __name__ == "__main__":
