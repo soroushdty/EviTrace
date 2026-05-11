@@ -114,13 +114,16 @@ class GrobidServerManager:
         print("Waiting for GROBID server to become ready (this may take a few minutes on first run)...")
         logger.debug("Polling %s/api/isalive (up to 180s)...", self.url)
         ready = False
+        t_poll_start = time.time()
         for i in range(180):
             if self._is_server_alive():
                 ready = True
+                elapsed = int(time.time() - t_poll_start)
                 logger.info("GROBID became ready after %d seconds.", i)
-                print()
+                print(f"\rGROBID ready ({elapsed}s).")
                 break
-            print(".", end="", flush=True)
+            elapsed = int(time.time() - t_poll_start)
+            print(f"\r  Waiting for GROBID... {elapsed}s", end="", flush=True)
             time.sleep(1)
         if not ready:
             # Container is running but unresponsive — likely a stale/crashed
@@ -136,13 +139,16 @@ class GrobidServerManager:
             self._create_new_container()
             # Poll again for the fresh container.
             ready = False
+            t_poll_start = time.time()
             for i in range(300):
                 if self._is_server_alive():
                     ready = True
+                    elapsed = int(time.time() - t_poll_start)
                     logger.info("GROBID (fresh) became ready after %d seconds.", i)
-                    print()
+                    print(f"\rGROBID ready ({elapsed}s).")
                     break
-                print(".", end="", flush=True)
+                elapsed = int(time.time() - t_poll_start)
+                print(f"\r  Waiting for GROBID... {elapsed}s", end="", flush=True)
                 time.sleep(1)
             if not ready:
                 print("\nGROBID server failed to start in time.")
