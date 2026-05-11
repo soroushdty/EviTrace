@@ -29,7 +29,7 @@ from quality_control.models import (
     UnifiedRecord,
 )
 from pdf_extractor.extraction.scan_detector import classify_page, PageScanClassification
-from utils.text_processor import TextProcessor
+from text_processing.base import TextProcessor
 
 
 @pytest.fixture(autouse=True)

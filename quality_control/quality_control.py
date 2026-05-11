@@ -146,11 +146,11 @@ def _load_text_processor(config: dict) -> object:
     """Resolve and instantiate the configured TextProcessor class.
 
     Expects config["quality_control"]["text_processor"]["class"] to be a
-    fully-qualified import path (eg. "utils.text_processor.TextProcessor").
-    If absent, defaults to utils.text_processor.TextProcessor.
+    fully-qualified import path (eg. "text_processing.base.ScispaCySentenceSegment").
+    If absent, defaults to text_processing.base.ScispaCySentenceSegment.
     """
     tp_cfg = (config or {}).get("text_processor", {})
-    class_path = tp_cfg.get("class", "utils.text_processor.TextProcessor")
+    class_path = tp_cfg.get("class", "text_processing.base.ScispaCySentenceSegment")
     try:
         module_name, class_name = class_path.rsplit(".", 1)
         module = importlib.import_module(module_name)

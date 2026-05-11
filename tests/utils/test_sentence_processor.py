@@ -16,7 +16,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from utils.text_processor import TextProcessor
+from text_processing.base import TextProcessor
 
 
 # ---------------------------------------------------------------------------
@@ -300,7 +300,7 @@ class TestPdfExtractorPassesTextProcessor:
 
         import pdf_extractor.pdf_extractor as pe_module
         import pdf_extractor.processing.sentence_processor as sp_module
-        from utils.text_processor import TextProcessor
+        from text_processing.base import TextProcessor
 
         calls = []
 
@@ -356,8 +356,8 @@ class TestPdfExtractorPassesTextProcessor:
         assert len(calls) == 1, "process_sentences was not called"
         passed_tp = calls[0]["text_processor"]
         # Use class name check to avoid module-identity issues when the autouse
-        # fixture evicts and re-imports utils.text_processor between fixture
+        # fixture evicts and re-imports text_processing.base between fixture
         # setup and the test body's own import.
-        assert type(passed_tp).__name__ == "TextProcessor", (
-            f"Expected TextProcessor instance, got {type(passed_tp)}"
+        assert type(passed_tp).__name__ in ("TextProcessor", "ScispaCySentenceSegment"), (
+            f"Expected TextProcessor or ScispaCySentenceSegment instance, got {type(passed_tp)}"
         )

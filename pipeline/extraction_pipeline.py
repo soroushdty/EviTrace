@@ -30,7 +30,7 @@ from pdf_extractor.annotation import w3c_annotation
 from pdf_extractor.annotation import artifact_generator as annotation_artifact_generator
 from quality_control import QCBundle, run_quality_control
 from quality_control.models import Candidate
-from utils.text_processor import TextProcessor
+from text_processing.base import TextProcessor
 
 logger = logging.getLogger("pdf_extractor")
 
@@ -145,13 +145,15 @@ def build_qc_bundle(
     # ------------------------------------------------------------------
     # Step 3 — QC pipeline
     # ------------------------------------------------------------------
-    from pdf_extractor.utils.text_utils import exact_match_search, semantic_search  # noqa: PLC0415
+    from text_processing.matchers import LexicalMatcher, SemanticMatcher  # noqa: PLC0415
+    _lexical_matcher = LexicalMatcher()
+    _semantic_matcher = SemanticMatcher()
     ctx = run_quality_control(
         branches,
         pdf_name,
         qc_config,
-        exact_match_fn=exact_match_search,
-        semantic_search_fn=semantic_search,
+        exact_match_fn=_lexical_matcher.search,
+        semantic_search_fn=_semantic_matcher.search,
     )
     if ctx.unified is not None and isinstance(ctx.unified.content, dict):
         ctx.unified.content["source_pdf_path"] = str(pdf_path)

@@ -59,7 +59,7 @@ ocr: false
 # class: fully-qualified class path resolved via importlib
 #   valid values: "utils.text_processor.TextProcessor" (default) or any SentenceSegment subclass path
 text_processor:
-  class: "utils.text_processor.TextProcessor"
+  class: "text_processing.base.ScispaCySentenceSegment"
   # sentence_tokenizer.backend: "scispacy" (default) | "wtpsplit" | "nltk_punkt" | "spacy_sentencizer" | "stanza"
   sentence_tokenizer:
     backend: "scispacy"

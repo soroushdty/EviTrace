@@ -28,10 +28,16 @@ main.py  (CLI entry — asyncio.run)
         │     │     ├── scan_detector.py # stateless per-page classifier
         │     │     └── schemas.py       # shared extraction schemas
         │     ├── processing/            # sentence_processor.py — sentence segmentation + full-text assembly
-        │     ├── utils/                 # text_utils.py, embedding_utils.py (no layout_utils here)
+        │     ├── utils/                 # (legacy files deleted; see text_processing/)
         │     ├── annotation/            # w3c_annotation.py + artifact_generator.py
         │     ├── pdf_extractor.py       # standalone CLI (no OpenAI key required)
         │     └── pdf_validator.py       # PDF-level structural validation
+        ├── text_processing/             # standalone text processing package
+        │     ├── base.py                # TextProcessor ABC, SentenceSegment ABC, 5 backends
+        │     ├── normalizers.py         # WhitespaceNormalizer, FullNormalizer, LineHealingNormalizer, UnicodeNormalizer, OcrCleaner
+        │     ├── tokenizers.py          # SimpleWordTokenizer
+        │     ├── matchers.py            # LexicalMatcher, SemanticMatcher
+        │     └── embedding.py           # EmbeddingProcessor (lazy faiss/torch/sentence-transformers)
         ├── quality_control/             # generic 4-stage QC: rater → IAA → adjudicator → reconciler
         │     ├── models.py              # ALL shared dataclasses — import from here only
         │     ├── concerns/              # injectable strategy objects
@@ -147,7 +153,13 @@ Configuration lives in `configs/config.yaml` (note: `configs/`, not `config/`). 
 | `utils/config_utils.py` | `load_openai_config`, `load_qc_config`, `load_local_config`; QC defaults deep-merge |
 | `utils/path_utils.py` | `PROJECT_ROOT`, `PDF_DIR`, `OUTPUT_DIR`, `EXTRACTION_MAP`, `MANIFEST_FILE`, `QC_REPORT_FILE`; PDF source resolution |
 | `utils/logging_utils.py` | Shared `evi_trace` root logger; `setup_logging`; `log_cache_usage` |
-| `utils/text_processor.py` | `TextProcessor` hub; `SentenceSegment` ABC + 5 concrete backends (scispaCy default) |
+| `utils/text_processor.py` | **DELETED** — migrated to `text_processing/` package |
+| `text_processing/` | Standalone text processing package: ABCs, normalizers, tokenizers, matchers (lexical + semantic), embedding processor, sentence-segmentation backends |
+| `text_processing/base.py` | `TextProcessor` ABC + `SentenceSegment` ABC + 5 concrete backends (ScispaCy, WtpSplit, NLTKPunkt, SpacySentencizer, Stanza) |
+| `text_processing/normalizers.py` | `WhitespaceNormalizer`, `FullNormalizer`, `LineHealingNormalizer`, `UnicodeNormalizer`, `OcrCleaner` |
+| `text_processing/tokenizers.py` | `SimpleWordTokenizer` |
+| `text_processing/matchers.py` | `LexicalMatcher` (two-pass exact match), `SemanticMatcher` (FAISS-based) |
+| `text_processing/embedding.py` | `EmbeddingProcessor` (lazy-loaded sentence-transformers + FAISS) |
 | `utils/grobid_manager.py` | `GrobidServerManager` context manager; Docker lifecycle; `/api/isalive` polling |
 
 ---

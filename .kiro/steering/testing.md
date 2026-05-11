@@ -54,7 +54,19 @@ tests/
 ├── pipeline/                    mirrors pipeline/
 ├── quality_control/             mirrors quality_control/
 ├── steering/                    cross-cutting structural / separation tests
-│   └── test_qc_textprocessor_separation.py
+│   ├── test_qc_textprocessor_separation.py
+│   └── test_text_processing_separation.py
+├── text_processing/             mirrors text_processing/
+│   ├── test_base_abc.py         # ABC enforcement + lazy model loading
+│   ├── test_normalizers.py      # example-based normalizer tests
+│   ├── test_normalizers_properties.py  # PBT idempotence (Hypothesis)
+│   ├── test_tokenizers.py       # SimpleWordTokenizer tests
+│   ├── test_matchers.py         # LexicalMatcher + SemanticMatcher example-based
+│   ├── test_matchers_properties.py    # PBT for matcher properties
+│   ├── test_embedding.py        # EmbeddingProcessor tests (mark slow)
+│   ├── test_embedding_properties.py   # PBT for embedding (mark slow)
+│   ├── test_import_isolation.py # verify import without heavy deps
+│   └── test_deleted_paths.py    # verify ModuleNotFoundError for legacy paths
 ├── utils/                       mirrors utils/
 ├── test_dependency_directions.py   # cross-package import enforcement (AST-based)
 ├── test_migration_artifact_scrub_bug_condition.py

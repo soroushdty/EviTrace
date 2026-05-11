@@ -379,7 +379,7 @@ def reconcile(
         DEFAULT_TABLE_FIGURE_MERGE,
         DEFAULT_TEXT_FIDELITY,
     )
-    from utils.text_processor import TextProcessor
+    from text_processing.base import TextProcessor
 
     if text_fidelity_strategy is None:
         text_fidelity_strategy = DEFAULT_TEXT_FIDELITY

@@ -26,7 +26,7 @@ _QC_DEFAULTS: dict = {
     # word_tokenizer.backend: valid values — "simple" | "spacy" | "nltk"
     # normalizer.backend: valid values — "nfc" | "nfkc"
     "text_processor": {
-        "class": "utils.text_processor.TextProcessor",
+        "class": "text_processing.base.ScispaCySentenceSegment",
         "sentence_tokenizer": {"backend": "scispacy", "model": "en_core_sci_sm"},
         "word_tokenizer": {"backend": "simple"},
         "normalizer": {"backend": "nfkc"},

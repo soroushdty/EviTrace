@@ -5,6 +5,38 @@ and should never be deleted. Add a brief entry whenever a spec is implemented,
 steering docs change, README files change, or any other significant code change
 occurs.
 
+## [2026-05] — Text Processing Migration (`text-processing-migration`)
+
+Extracted all text processing utilities into a standalone `text_processing/` package at the repository root. This completes Phase 2 of the QC/TextProcessor split.
+
+**New package: `text_processing/`**
+- `base.py` — `TextProcessor` ABC (6 abstract methods), `SentenceSegment` ABC, and 5 concrete sentence-segmentation backends (ScispaCy, WtpSplit, NLTKPunkt, SpacySentencizer, Stanza)
+- `normalizers.py` — `WhitespaceNormalizer`, `FullNormalizer`, `LineHealingNormalizer`, `UnicodeNormalizer`, `OcrCleaner`
+- `tokenizers.py` — `SimpleWordTokenizer`
+- `matchers.py` — `LexicalMatcher` (two-pass exact string match), `SemanticMatcher` (FAISS-based)
+- `embedding.py` — `EmbeddingProcessor` (lazy-loaded sentence-transformers + FAISS)
+
+**Deleted legacy files:**
+- `utils/text_processor.py` (migrated to `text_processing/base.py`)
+- `pdf_extractor/utils/text_utils.py` (migrated to `text_processing/matchers.py` + `text_processing/normalizers.py`)
+- `pdf_extractor/utils/embedding_utils.py` (migrated to `text_processing/embedding.py`)
+
+**Updated callers:**
+- `pdf_extractor/processing/sentence_processor.py` — replaced `normalise_text()` with `LineHealingNormalizer` instance
+- `pipeline/extraction_pipeline.py` — replaced `exact_match_search`/`semantic_search` imports with `LexicalMatcher`/`SemanticMatcher`
+- `quality_control/quality_control.py` — updated `_load_text_processor` default to `text_processing.base.ScispaCySentenceSegment`
+- `utils/config_utils.py` — updated `_QC_DEFAULTS` class path
+- `configs/config.yaml` — updated `text_processor.class`
+
+**New tests:**
+- `tests/text_processing/` — full test suite: ABC enforcement, normalizer examples + PBT, tokenizer, matcher examples + PBT, embedding (mark slow), import isolation, deleted path verification
+- `tests/steering/test_text_processing_separation.py` — AST-walker enforcing `text_processing/` does not import from `quality_control/`
+- Added `("text_processing", "quality_control")` forbidden pair to `tests/test_dependency_directions.py`
+
+**Updated steering:**
+- `.kiro/steering/product.md` — architecture diagram and module responsibilities table updated
+- `.kiro/steering/testing.md` — test layout table updated with `tests/text_processing/`
+
 ## [2025-07] — QC migration (`qc-migration`)
 
 Reorganised the `quality_control/` package with descriptive naming throughout, a new

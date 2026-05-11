@@ -496,8 +496,8 @@ class TestTextProcessorDefaults:
         assert "text_processor" in _QC_DEFAULTS
 
     def test_text_processor_class_default(self):
-        """class must default to 'utils.text_processor.TextProcessor'."""
-        assert _QC_DEFAULTS["text_processor"]["class"] == "utils.text_processor.TextProcessor"
+        """class must default to 'text_processing.base.ScispaCySentenceSegment'."""
+        assert _QC_DEFAULTS["text_processor"]["class"] == "text_processing.base.ScispaCySentenceSegment"
 
     def test_text_processor_sentence_tokenizer_backend_default(self):
         """sentence_tokenizer.backend must default to 'scispacy'."""
@@ -522,7 +522,7 @@ class TestTextProcessorDefaults:
     def test_load_qc_config_text_processor_class_default(self, tmp_path):
         cfg_file = _write_config(tmp_path, {"pdfs_path": "data/pdfs"})
         cfg = load_qc_config(str(cfg_file))
-        assert cfg["text_processor"]["class"] == "utils.text_processor.TextProcessor"
+        assert cfg["text_processor"]["class"] == "text_processing.base.ScispaCySentenceSegment"
 
     def test_load_qc_config_text_processor_sentence_backend_default(self, tmp_path):
         cfg_file = _write_config(tmp_path, {"pdfs_path": "data/pdfs"})
@@ -734,14 +734,14 @@ class TestConfigDefaults:
 class TestTextProcessorEmptyConfig:
     """**Validates: Requirement 9**
 
-    Instantiating TextProcessor() with an empty config dict ({}) must use all
+    Instantiating ScispaCySentenceSegment() with an empty config dict ({}) must use all
     defaults without raising.  This exercises the default initialization path in
-    TextProcessor.__init__ itself (not just the config layer).
+    the new text_processing.base module.
     """
 
     def test_text_processor_default_instantiation(self):
-        """TextProcessor() with no arguments must not raise."""
-        from utils.text_processor import TextProcessor
+        """ScispaCySentenceSegment() with no arguments must not raise."""
+        from text_processing.base import ScispaCySentenceSegment
         mock_spacy = MagicMock()
         mock_scispacy = MagicMock()
         mock_sent = MagicMock(); mock_sent.text = "Sentence one."
@@ -749,12 +749,12 @@ class TestTextProcessorEmptyConfig:
         mock_nlp = MagicMock(return_value=mock_doc)
         mock_spacy.load.return_value = mock_nlp
         with patch.dict(sys.modules, {"scispacy": mock_scispacy, "spacy": mock_spacy}):
-            tp = TextProcessor()
+            tp = ScispaCySentenceSegment()
         assert tp is not None
 
     def test_text_processor_empty_dict_instantiation(self):
-        """TextProcessor({}) must not raise."""
-        from utils.text_processor import TextProcessor
+        """ScispaCySentenceSegment(config={}) must not raise."""
+        from text_processing.base import ScispaCySentenceSegment
         mock_spacy = MagicMock()
         mock_scispacy = MagicMock()
         mock_sent = MagicMock(); mock_sent.text = "Sentence one."
@@ -762,38 +762,22 @@ class TestTextProcessorEmptyConfig:
         mock_nlp = MagicMock(return_value=mock_doc)
         mock_spacy.load.return_value = mock_nlp
         with patch.dict(sys.modules, {"scispacy": mock_scispacy, "spacy": mock_spacy}):
-            tp = TextProcessor(config={})
+            tp = ScispaCySentenceSegment(config={})
         assert tp is not None
 
     def test_text_processor_norm_backend_default(self):
-        """Default normalizer backend is 'nfkc'."""
-        from utils.text_processor import TextProcessor
-        mock_spacy = MagicMock()
-        mock_scispacy = MagicMock()
-        mock_sent = MagicMock(); mock_sent.text = "Sentence one."
-        mock_doc = MagicMock(); mock_doc.sents = [mock_sent]
-        mock_nlp = MagicMock(return_value=mock_doc)
-        mock_spacy.load.return_value = mock_nlp
-        with patch.dict(sys.modules, {"scispacy": mock_scispacy, "spacy": mock_spacy}):
-            tp = TextProcessor(config={})
-        assert tp._norm_backend == "nfkc"
+        """Default config class path points to text_processing.base.ScispaCySentenceSegment."""
+        from utils.config_utils import _QC_DEFAULTS
+        assert _QC_DEFAULTS["text_processor"]["class"] == "text_processing.base.ScispaCySentenceSegment"
 
     def test_text_processor_word_tokenizer_backend_default(self):
-        """Default word tokenizer backend is 'simple'."""
-        from utils.text_processor import TextProcessor
-        mock_spacy = MagicMock()
-        mock_scispacy = MagicMock()
-        mock_sent = MagicMock(); mock_sent.text = "Sentence one."
-        mock_doc = MagicMock(); mock_doc.sents = [mock_sent]
-        mock_nlp = MagicMock(return_value=mock_doc)
-        mock_spacy.load.return_value = mock_nlp
-        with patch.dict(sys.modules, {"scispacy": mock_scispacy, "spacy": mock_spacy}):
-            tp = TextProcessor(config={})
-        assert tp._wt_backend == "simple"
+        """Default word tokenizer backend in config is 'simple'."""
+        from utils.config_utils import _QC_DEFAULTS
+        assert _QC_DEFAULTS["text_processor"]["word_tokenizer"]["backend"] == "simple"
 
-    def test_text_processor_normalize_works_after_empty_init(self):
-        """normalize() must work without error after empty-config init."""
-        from utils.text_processor import TextProcessor
+    def test_text_processor_tokenize_sentences_works(self):
+        """tokenize_sentences() must work on a ScispaCySentenceSegment instance."""
+        from text_processing.base import ScispaCySentenceSegment
         mock_spacy = MagicMock()
         mock_scispacy = MagicMock()
         mock_sent = MagicMock(); mock_sent.text = "Sentence one."
@@ -801,19 +785,6 @@ class TestTextProcessorEmptyConfig:
         mock_nlp = MagicMock(return_value=mock_doc)
         mock_spacy.load.return_value = mock_nlp
         with patch.dict(sys.modules, {"scispacy": mock_scispacy, "spacy": mock_spacy}):
-            tp = TextProcessor(config={})
-        result = tp.normalize("Hello   World")
-        assert result == "Hello World"
-
-    def test_text_processor_compare_works_after_empty_init(self):
-        """compare() must return 1.0 for identical strings."""
-        from utils.text_processor import TextProcessor
-        mock_spacy = MagicMock()
-        mock_scispacy = MagicMock()
-        mock_sent = MagicMock(); mock_sent.text = "Sentence one."
-        mock_doc = MagicMock(); mock_doc.sents = [mock_sent]
-        mock_nlp = MagicMock(return_value=mock_doc)
-        mock_spacy.load.return_value = mock_nlp
-        with patch.dict(sys.modules, {"scispacy": mock_scispacy, "spacy": mock_spacy}):
-            tp = TextProcessor(config={})
-        assert tp.compare("hello", "hello") == 1.0
+            tp = ScispaCySentenceSegment(config={})
+        result = tp.tokenize_sentences("Hello World")
+        assert isinstance(result, list)

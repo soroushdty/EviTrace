@@ -32,6 +32,8 @@ FORBIDDEN_PAIRS = [
     ("agents", "pipeline"),
     # Requirement 9.5: agents must not import pdf_extractor
     ("agents", "pdf_extractor"),
+    # text_processing must not import quality_control
+    ("text_processing", "quality_control"),
 ]
 
 
@@ -181,6 +183,17 @@ def test_agents_does_not_import_pdf_extractor():
     violations = _check_forbidden_imports("agents", "pdf_extractor")
     assert not violations, (
         "agents imports pdf_extractor (forbidden by Requirement 9.5):\n"
+        + "\n".join(violations)
+    )
+
+
+def test_text_processing_does_not_import_quality_control():
+    """
+    text_processing SHALL NOT import quality_control.
+    """
+    violations = _check_forbidden_imports("text_processing", "quality_control")
+    assert not violations, (
+        "text_processing imports quality_control (forbidden):\n"
         + "\n".join(violations)
     )
 
