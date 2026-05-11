@@ -1,14 +1,35 @@
 # Runtime dependencies
-# Requires Python 3.10+ (codebase uses union-type hints)
+# Requires Python >=3.10, <3.13  (scispacy==0.6.2 caps at <3.13; Python 3.14 is not supported)
+# Recommended: Python 3.12  (use: uv venv --python 3.12 .venv)
 gdown>=5.1.0
 PyMuPDF>=1.24.0
-numpy>=2.0.0
+numpy>=1.24.0,<2.0.0  # scispacy==0.6.2 requires numpy<2.0
 PyYAML>=6.0
 pdfplumber>=0.10.0
 openai>=1.0.0
 requests>=2.28.0
-scispacy==0.6.2
+scispacy==0.5.5
+spacy>=3.7.0,<3.8.0   # pinned to range compatible with scispacy==0.5.5
 
+# NOTE: GROBID is a Docker service, not a pip package.
+# The pipeline calls it via HTTP (requests) and manages the container via subprocess.
+# See quality_control.grobid.docker_image in config/config.yaml.
+
+# Optional / heavy dependencies (lazy-loaded; install only what you need)
+# OCR path (scanned PDFs)
+# paddleocr>=2.7.0
+# paddlepaddle>=2.5.0
+# pdf2image>=1.17.0
+
+# Semantic QC — Tier 3 (disabled by default; set quality_control.semantic_qc.enabled: true)
+# faiss-cpu>=1.7.4      # or faiss-gpu for GPU support
+# sentence-transformers>=2.7.0
+
+# Alternative sentence segmentation backends (default is scispacy)
+# nltk>=3.8.1           # NLTKPunktSentenceSegment
+# stanza>=1.7.0         # StanzaSentenceSegment
+# wtpsplit>=2.1.0       # WtpSplitSentenceSegment
 
 # Development / testing
 pytest>=8.0.0
+hypothesis>=6.100.0   # property-based tests
