@@ -53,11 +53,15 @@ tests/
 ├── pdf_extractor/               mirrors pdf_extractor/
 ├── pipeline/                    mirrors pipeline/
 ├── quality_control/             mirrors quality_control/
+├── steering/                    cross-cutting structural / separation tests
+│   └── test_qc_textprocessor_separation.py
 ├── utils/                       mirrors utils/
 ├── test_dependency_directions.py   # cross-package import enforcement (AST-based)
 ├── test_migration_artifact_scrub_bug_condition.py
 └── test_migration_artifact_scrub_preservation.py
 ```
+
+`tests/steering/` holds tests that enforce architectural rules which span multiple packages and don't belong to any single mirrored subdirectory. Files here are collected automatically by pytest because `testpaths = ["tests"]` recurses into all subdirectories.
 
 All test files follow the naming convention:
 
@@ -169,12 +173,52 @@ Rules:
 | `pdf_extractor/utils/` | `text_utils`, `embedding_utils`, `layout_utils` |
 | `pdf_extractor/annotation/` | W3C annotation projection and artifact generation |
 | `pdf_extractor/processing/` | Sentence processor (via `tests/utils/test_sentence_processor.py`) |
-| `quality_control/` | Pipeline, models, local metrics, rater, IAA calculator, adjudicator, reconciler, concern strategies, `Validator`, `StructureSchemaValidator`, `validate_context` |
+| `quality_control/` | Pipeline, models, local metrics, rater, IAA calculator, adjudicator, reconciler, concern strategies, `Validator`, `StructureSchemaValidator`, `validate_context`, checks package (separation + integration) |
 | `pipeline/` | Evidence index, manifest I/O, validator loc checks, extraction map grouping, extraction report QC, orchestrator concurrency, pdf_processor helpers |
 | `agents/openai/` | `api_client` (async), cache key, prompts builders, prompts PBT |
 | `utils/` | `config_utils`, `logging_utils`, source resolution, `text_processor`, sentence processor |
+| `tests/steering/` | QC/TextProcessor separation enforcement (AST-based) |
 | `tests/` root | Dependency direction enforcement, migration regression tests |
 | `pipeline/orchestrator.py` (full integration) | No dedicated integration test — exercised via end-to-end runs |
+
+---
+
+## QC Migration Test Contracts
+
+### `tests/steering/test_qc_textprocessor_separation.py`
+
+**What it checks:** Uses AST analysis (same pattern as `test_dependency_directions.py`) to walk every `.py` file under `quality_control/checks/` and inspect all import statements.
+
+**Passes when:** No file under `quality_control/checks/` contains any of the following:
+- An import from `text_processing` (any submodule)
+- An import of `TextProcessor` by name or from `utils.text_processor`
+- A top-level import (outside function/method bodies) of `faiss`, `torch`, `sentence_transformers`, `spacy`, `scispacy`, `stanza`, or `wtpsplit`
+
+**Fails when:** Any `.py` file under `quality_control/checks/` — including `__init__.py` — contains one of the forbidden imports listed above. The failure message names the offending file, the import node, and the forbidden symbol.
+
+This test must pass at all times. It is the automated guard for Requirements 1.4, 1.5, and 1.6 (QC/TextProcessor separation boundary).
+
+---
+
+### `tests/quality_control/test_qc_pipeline_integration.py`
+
+**What it checks:** End-to-end integration of `run_quality_control` with the migrated QC package, plus output-preservation assertions.
+
+**Passes when all of the following hold:**
+
+1. `run_quality_control` completes without error when `semantic_verification.enabled=false`.
+2. `ctx.metrics_hierarchy` contains **exactly** the keys `"extraction_coverage"`, `"source_text_verification"`, and `"semantic_verification"` — no legacy keys (`"local_metrics"`, `"exact_match"`, `"semantic_match"`, `"semantic_qc"`) are present.
+3. `metrics_hierarchy["semantic_verification"]["extractor_agreement"]` is absent or has `status="skipped"` when `extractor_agreement.enabled=false`.
+4. Manifest status values (`complete`, `failed_qc_pipeline`, `failed_chunks`, `failed_chunk_<n>`) are unchanged after migration.
+5. `ExtractionCoverageReport` and the legacy `LocalQCReport` alias produce identical pass/fail boolean outcomes for the same inputs (preservation parametrized case).
+6. Importing `quality_control`, `quality_control.checks`, and `quality_control.builtin_impls` does not cause `sentence_transformers`, `faiss`, or `torch` to appear in `sys.modules`.
+7. `build_task_quality_scaffold()` return value serializes with `json.dumps()` without error.
+
+**Fails when:** Any of the above assertions is violated. Specific failure cases:
+- `metrics_hierarchy` contains a legacy key → fails with a message naming the unexpected key.
+- `ExtractionCoverageReport` and the alias produce different pass/fail outcomes for the same input → fails with the differing input and both outcomes.
+- A heavy dependency (`sentence_transformers`, `faiss`, `torch`) appears in `sys.modules` after a plain import of the QC package → fails naming the leaked module.
+- `json.dumps(build_task_quality_scaffold())` raises → fails with the serialization error.
 
 ---
 

@@ -1,7 +1,7 @@
 """
 tests/test_qc_models.py
 =======================
-Tests for LocalQCMetricRecord dataclass in pdf_extractor/extraction/quality_control/models.py.
+Tests for ExtractionCoverageMetricRecord dataclass in pdf_extractor/extraction/quality_control/models.py.
 
 Covers:
   - Requirements 13.11, 14.4
@@ -16,18 +16,18 @@ import pytest
 
 
 # ---------------------------------------------------------------------------
-# Import test (TDD: this test fails until LocalQCMetricRecord is added)
+# Import test (TDD: this test fails until ExtractionCoverageMetricRecord is added)
 # ---------------------------------------------------------------------------
 
 def test_local_qc_metric_record_importable():
-    """LocalQCMetricRecord must be importable from the public package."""
-    from quality_control import LocalQCMetricRecord  # noqa: F401
+    """ExtractionCoverageMetricRecord must be importable from the public package."""
+    from quality_control import ExtractionCoverageMetricRecord  # noqa: F401
 
 
 def test_local_qc_metric_record_in_all():
-    """LocalQCMetricRecord must appear in __all__ of the quality_control package."""
+    """ExtractionCoverageMetricRecord must appear in __all__ of the quality_control package."""
     import quality_control as qc
-    assert "LocalQCMetricRecord" in qc.__all__
+    assert "ExtractionCoverageMetricRecord" in qc.__all__
 
 
 # ---------------------------------------------------------------------------
@@ -36,9 +36,9 @@ def test_local_qc_metric_record_in_all():
 
 def test_local_qc_metric_record_basic_instantiation():
     """Creates a valid instance with float computed_value and float threshold."""
-    from quality_control import LocalQCMetricRecord
+    from quality_control import ExtractionCoverageMetricRecord
 
-    rec = LocalQCMetricRecord(
+    rec = ExtractionCoverageMetricRecord(
         metric_name="min_chars_per_page",
         computed_value=0.5,
         threshold=0.7,
@@ -52,9 +52,9 @@ def test_local_qc_metric_record_basic_instantiation():
 
 def test_local_qc_metric_record_int_values():
     """computed_value and threshold accept int values."""
-    from quality_control import LocalQCMetricRecord
+    from quality_control import ExtractionCoverageMetricRecord
 
-    rec = LocalQCMetricRecord(
+    rec = ExtractionCoverageMetricRecord(
         metric_name="page_count",
         computed_value=3,
         threshold=1,
@@ -67,9 +67,9 @@ def test_local_qc_metric_record_int_values():
 
 def test_local_qc_metric_record_bool_computed_value():
     """computed_value accepts bool (boolean checks)."""
-    from quality_control import LocalQCMetricRecord
+    from quality_control import ExtractionCoverageMetricRecord
 
-    rec = LocalQCMetricRecord(
+    rec = ExtractionCoverageMetricRecord(
         metric_name="has_text",
         computed_value=True,
         threshold=None,
@@ -81,9 +81,9 @@ def test_local_qc_metric_record_bool_computed_value():
 
 def test_local_qc_metric_record_none_threshold():
     """threshold can be None for boolean checks."""
-    from quality_control import LocalQCMetricRecord
+    from quality_control import ExtractionCoverageMetricRecord
 
-    rec = LocalQCMetricRecord(
+    rec = ExtractionCoverageMetricRecord(
         metric_name="weird_char_ratio",
         computed_value=0.02,
         threshold=None,
@@ -94,9 +94,9 @@ def test_local_qc_metric_record_none_threshold():
 
 def test_local_qc_metric_record_triggered_true():
     """triggered=True when metric fires (issue detected)."""
-    from quality_control import LocalQCMetricRecord
+    from quality_control import ExtractionCoverageMetricRecord
 
-    rec = LocalQCMetricRecord(
+    rec = ExtractionCoverageMetricRecord(
         metric_name="weird_char_ratio",
         computed_value=0.9,
         threshold=0.3,
@@ -111,10 +111,10 @@ def test_local_qc_metric_record_triggered_true():
 
 def test_local_qc_metric_record_field_annotations():
     """Verify field names exist as expected on the dataclass."""
-    from quality_control import LocalQCMetricRecord
+    from quality_control import ExtractionCoverageMetricRecord
     import dataclasses
 
-    field_names = {f.name for f in dataclasses.fields(LocalQCMetricRecord)}
+    field_names = {f.name for f in dataclasses.fields(ExtractionCoverageMetricRecord)}
     assert "metric_name" in field_names
     assert "computed_value" in field_names
     assert "threshold" in field_names
@@ -122,11 +122,11 @@ def test_local_qc_metric_record_field_annotations():
 
 
 def test_local_qc_metric_record_is_dataclass():
-    """LocalQCMetricRecord must be a dataclass."""
-    from quality_control import LocalQCMetricRecord
+    """ExtractionCoverageMetricRecord must be a dataclass."""
+    from quality_control import ExtractionCoverageMetricRecord
     import dataclasses
 
-    assert dataclasses.is_dataclass(LocalQCMetricRecord)
+    assert dataclasses.is_dataclass(ExtractionCoverageMetricRecord)
 
 
 # ---------------------------------------------------------------------------
@@ -411,3 +411,186 @@ def test_unified_record_content_alongside_new_fields():
     assert rec.semantic is not None
     assert rec.structural is not None
     assert rec.alignment is not None
+
+
+# ---------------------------------------------------------------------------
+# VerificationResult tests (Req 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7)
+# ---------------------------------------------------------------------------
+
+def test_verification_result_importable():
+    """VerificationResult must be importable from the public quality_control package."""
+    from quality_control import VerificationResult  # noqa: F401
+
+
+def test_verification_result_in_all():
+    """VerificationResult must appear in __all__ of the quality_control package."""
+    import quality_control as qc
+    assert "VerificationResult" in qc.__all__
+
+
+def test_verification_result_is_dataclass():
+    """VerificationResult must be a dataclass."""
+    from quality_control import VerificationResult
+    import dataclasses
+    assert dataclasses.is_dataclass(VerificationResult)
+
+
+def test_verification_result_valid_statuses():
+    """All five valid status values construct without error."""
+    from quality_control import VerificationResult
+
+    valid_statuses = ["verified", "candidate_match", "no_match", "skipped", "unavailable"]
+    for status in valid_statuses:
+        result = VerificationResult(
+            check_name="test_check",
+            status=status,
+            score=0.5,
+            evidence={},
+            details={},
+        )
+        assert result.status == status
+
+
+def test_verification_result_invalid_status_raises():
+    """Invalid status raises ValueError."""
+    from quality_control import VerificationResult
+    import pytest
+
+    with pytest.raises(ValueError, match="status"):
+        VerificationResult(
+            check_name="test_check",
+            status="invalid_status",
+            score=0.5,
+            evidence={},
+            details={},
+        )
+
+
+def test_verification_result_score_valid_range():
+    """Score at boundary values 0.0 and 1.0 constructs without error."""
+    from quality_control import VerificationResult
+
+    for score in (0.0, 0.5, 1.0):
+        result = VerificationResult(
+            check_name="test_check",
+            status="verified",
+            score=score,
+            evidence={},
+            details={},
+        )
+        assert result.score == score
+
+
+def test_verification_result_score_below_zero_raises():
+    """Score below 0.0 raises ValueError."""
+    from quality_control import VerificationResult
+    import pytest
+
+    with pytest.raises(ValueError, match="score"):
+        VerificationResult(
+            check_name="test_check",
+            status="verified",
+            score=-0.1,
+            evidence={},
+            details={},
+        )
+
+
+def test_verification_result_score_above_one_raises():
+    """Score above 1.0 raises ValueError."""
+    from quality_control import VerificationResult
+    import pytest
+
+    with pytest.raises(ValueError, match="score"):
+        VerificationResult(
+            check_name="test_check",
+            status="verified",
+            score=1.1,
+            evidence={},
+            details={},
+        )
+
+
+def test_verification_result_six_standard_evidence_keys():
+    """Evidence dict with all six standard keys is accepted."""
+    from quality_control import VerificationResult
+
+    evidence = {
+        "found_sentence": "The treatment was effective.",
+        "page_index": 3,
+        "prefix": "Results show that",
+        "suffix": "in all cases.",
+        "block_bbox": [0, 100, 200, 120],
+        "span_bboxes": [[10, 100, 190, 115]],
+    }
+    result = VerificationResult(
+        check_name="source_text_presence",
+        status="verified",
+        score=1.0,
+        evidence=evidence,
+        details={},
+    )
+    assert result.evidence["found_sentence"] == "The treatment was effective."
+    assert result.evidence["page_index"] == 3
+
+
+def test_verification_result_all_none_evidence_keys():
+    """When no evidence is available, all six standard keys are present with None values."""
+    from quality_control import VerificationResult
+
+    evidence = {
+        "found_sentence": None,
+        "page_index": None,
+        "prefix": None,
+        "suffix": None,
+        "block_bbox": None,
+        "span_bboxes": None,
+    }
+    result = VerificationResult(
+        check_name="source_text_presence",
+        status="no_match",
+        score=0.0,
+        evidence=evidence,
+        details={},
+    )
+    for key in ("found_sentence", "page_index", "prefix", "suffix", "block_bbox", "span_bboxes"):
+        assert key in result.evidence
+        assert result.evidence[key] is None
+
+
+def test_verification_result_field_annotations():
+    """Verify all expected field names exist on the dataclass."""
+    from quality_control import VerificationResult
+    import dataclasses
+
+    field_names = {f.name for f in dataclasses.fields(VerificationResult)}
+    assert "check_name" in field_names
+    assert "status" in field_names
+    assert "score" in field_names
+    assert "evidence" in field_names
+    assert "details" in field_names
+
+
+def test_verification_result_details_stores_below_threshold_score():
+    """details dict can store below_threshold_score for semantic check diagnostics."""
+    from quality_control import VerificationResult
+
+    result = VerificationResult(
+        check_name="semantic_source_verification",
+        status="no_match",
+        score=0.0,
+        evidence={},
+        details={"below_threshold_score": 0.72},
+    )
+    assert result.details["below_threshold_score"] == 0.72
+
+
+def test_verification_result_no_forbidden_attributes():
+    """VerificationResult must not define semantic_qc, exact_match, or semantic_match."""
+    from quality_control import VerificationResult
+    import dataclasses
+
+    field_names = {f.name for f in dataclasses.fields(VerificationResult)}
+    assert "semantic_qc" not in field_names
+    assert "exact_match" not in field_names
+    assert "semantic_match" not in field_names

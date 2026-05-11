@@ -167,7 +167,7 @@ All pipeline stages communicate through a single `QCBundle` instance mutated in 
 | `AlignmentRecord` | `source`, `ocr_derived`, `agreement`, `edit_distance`, `preferred_reading`, `confidence` |
 | `DocumentAlignment` | `paragraph_to_blocks`, `sentence_to_char_range`, `section_header_to_block`, `reconciliation_flags` |
 | `UnifiedRecord` | Final output: `document_id`, `content`, `semantic`, `structural`, `alignment` |
-| `LocalQCMetricRecord` | `metric_name`, `computed_value`, `threshold`, `triggered` |
+| `ExtractionCoverageMetricRecord` | `metric_name`, `computed_value`, `threshold`, `triggered` |
 | `QCBundle` | Full run state: `branches`, `reports`, `iaa_metrics`, `decision`, `unified`, `metrics_hierarchy` |
 
 Default concrete implementations live in `quality_control/defaults/` and are exported from `quality_control.defaults`: `QualityReport`, `InterRaterReport`, `AdjudicationDecision`.

@@ -188,7 +188,7 @@ quality_control:
 quality_control:
   local_metrics:
     min_chars_per_page: 100
-    grobid_vs_native_ratio_threshold: 0.6
+    extraction_coverage_ratio_threshold: 0.6   # renamed from grobid_vs_native_ratio_threshold
     long_sentence_word_threshold: 120
     long_sentence_max_fraction: 0.12
     expected_sections: ["abstract", "introduction", "methods", "results"]
@@ -198,17 +198,52 @@ quality_control:
     weird_char_ratio_threshold: 0.05
 ```
 
-### `quality_control.semantic_qc`
+Results from `ExtractionCoverageReport` are stored in `ctx.metrics_hierarchy["extraction_coverage"]`.
+
+### `quality_control.source_text_verification`
 
 ```yaml
 quality_control:
-  semantic_qc:
-    enabled: false               # scaffolded only; not wired into adjudication
-    model_name: "BAAI/bge-base-en-v1.5"
-    query_prefix: "Represent this sentence for searching relevant passages: "
+  source_text_verification:
+    enabled: true                # set false to bypass lexical source-text check
+```
+
+When `enabled` is `false`, the source-text check is bypassed without evaluating any check logic and the result is recorded as passed in `ctx.metrics_hierarchy["source_text_verification"]`.
+
+### `quality_control.semantic_verification`
+
+```yaml
+quality_control:
+  semantic_verification:
+    enabled: false               # set true to run SemanticSourceVerificationCheck
+    model_name: "BAAI/bge-base-en-v1.5"   # stored but model is never loaded by QC pipeline
     similarity_threshold: 0.85
     max_sentences: 10000
+    on_index_unavailable: "skip"  # "skip" | "fail" | "degrade"
+    extractor_agreement:
+      enabled: false             # set true to run ExtractorAgreementCheck
+      len_filter: 40             # discard candidate sentences shorter than this (chars)
+      max_examples: 10           # max items per list key in the examples dict
 ```
+
+`on_index_unavailable` controls behaviour when the sentence store is absent or empty:
+- `"skip"` — return `VerificationResult` with `status="unavailable"` (default)
+- `"fail"` — raise `RuntimeError`
+- `"degrade"` — call the injected matcher as a lexical fallback and emit a `WARNING` log
+
+When `enabled` is `false`, `sentence_transformers`, `faiss`, and `torch` are never imported through the QC code path.
+
+Results are stored in `ctx.metrics_hierarchy["semantic_verification"]`. When `extractor_agreement.enabled` is `true`, the agreement report dict is stored under `ctx.metrics_hierarchy["semantic_verification"]["extractor_agreement"]`.
+
+### `quality_control.task_quality_scaffold`
+
+```yaml
+quality_control:
+  task_quality_scaffold:
+    enabled: true                # include scaffold placeholders in per-PDF output
+```
+
+When `enabled` is `true`, `build_task_quality_scaffold()` returns a JSON-serializable dict with placeholder entries (`status="scaffolded"`, `value=null`) for: `field_recall`, `critical_field_recall`, `evidence_validity`, `evidence_compactness`, `cost_reduction`, `manual_qc_rate`, `interobserver_agreement`, `pipeline_agreement`. The scaffold is stored under the key `"task_quality_scaffold"` in per-PDF output JSON.
 
 ### `quality_control.text_fidelity` and `quality_control.section_verification`
 

@@ -115,17 +115,28 @@ quality_control:
       url: "http://localhost:8090"
       endpoint: "/service/disambiguate"
       timeout: 60
-  # Semantic quality scoring
-  semantic_qc:
+  # Source text presence verification
+  source_text_verification:
+    enabled: true
+  # Semantic source verification (scaffolded; disabled by default)
+  semantic_verification:
     enabled: false
     model_name: "BAAI/bge-base-en-v1.5"
     query_prefix: "Represent this sentence for searching relevant passages: "
     similarity_threshold: 0.85
     max_sentences: 10000
+    on_index_unavailable: "skip"
+    extractor_agreement:
+      enabled: false
+      len_filter: 40
+      max_examples: 10
+  # Task quality scaffold (placeholder metrics; enabled by default)
+  task_quality_scaffold:
+    enabled: true
   # Local heuristic quality metrics
   local_metrics:
     min_chars_per_page: 100
-    grobid_vs_native_ratio_threshold: 0.6
+    extraction_coverage_ratio_threshold: 0.6
     long_sentence_word_threshold: 120
     long_sentence_max_fraction: 0.12
     expected_sections: ["abstract", "introduction", "methods", "results"]

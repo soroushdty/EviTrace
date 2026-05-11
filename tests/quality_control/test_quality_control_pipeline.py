@@ -315,6 +315,17 @@ def test_full_pipeline_integration():
     # Must be JSON-serializable without custom encoders
     json.dumps(result.unified.content)
 
+    # metrics_hierarchy must use the new descriptive key names (Requirements 8.9, 8.13)
+    mh = result.metrics_hierarchy
+    assert "extraction_coverage" in mh, "metrics_hierarchy must contain 'extraction_coverage'"
+    assert "source_text_verification" in mh, "metrics_hierarchy must contain 'source_text_verification'"
+    assert "semantic_verification" in mh, "metrics_hierarchy must contain 'semantic_verification'"
+    # Old key names must not be present
+    assert "local_metrics" not in mh, "metrics_hierarchy must not contain legacy key 'local_metrics'"
+    assert "exact_match" not in mh, "metrics_hierarchy must not contain legacy key 'exact_match'"
+    assert "semantic_match" not in mh, "metrics_hierarchy must not contain legacy key 'semantic_match'"
+    assert "semantic_qc" not in mh, "metrics_hierarchy must not contain legacy key 'semantic_qc'"
+
 
 def test_sentence_records_use_text_processor_mock():
     """Verify run_quality_control uses TextProcessor.tokenize_sentences (mocked)."""

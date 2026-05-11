@@ -366,7 +366,7 @@ def test_rater_observe_returns_object():
     """
     from quality_control import rater
     from quality_control.models import Candidate
-    from quality_control.defaults import QualityReport
+    from quality_control.builtin_impls import QualityReport
 
     cfg = _make_minimal_config()
     branch = Candidate(source="grobid", index=0, payload="<TEI/>", status=None)

@@ -1,5 +1,5 @@
 """
-quality_control/defaults/
+quality_control/builtin_impls/
 --------------------------
 Concrete default implementations of the three QC pipeline ABCs.
 

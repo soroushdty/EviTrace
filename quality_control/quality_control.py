@@ -13,7 +13,7 @@ of branch outputs — not just PDF extraction results.
 PDF pipeline
 ------------
 ``run_quality_control`` builds PDF-specific stage closures and delegates to
-``run_pipeline``.  Tier 1 / 2 / 3 metrics tracking is layered on top via
+``run_pipeline``.  Metrics tracking is layered on top via
 ``ctx.metrics_hierarchy``.
 
 Public API
@@ -29,7 +29,12 @@ import logging
 from typing import Callable
 
 from . import rater, iaa_calculator, adjudicator, reconciler
-from .local_metrics import LocalQCReport
+from .checks import (
+    ExtractorAgreementCheck,
+    SemanticSourceVerificationCheck,
+    SourceTextPresenceCheck,
+)
+from .local_metrics import ExtractionCoverageReport
 from .models import (
     AdjudicationRules,
     DocumentAlignment,
@@ -40,8 +45,9 @@ from .models import (
     SemanticLayer,
     StructuralLayer,
     UnifiedRecord,
+    VerificationResult,
 )
-from .defaults import (
+from .builtin_impls import (
     AdjudicationDecision,
     InterRaterReport,
     QualityReport,
@@ -225,7 +231,7 @@ def _build_local_metrics_report(
     branch_index: int,
     config: dict,
     text_processor,
-) -> LocalQCReport:
+) -> ExtractionCoverageReport:
     """Create and evaluate the local metrics report for a single branch."""
     full_text, page_texts, blocks = _extract_branch_payload(branch.payload)
     sentence_records = [
@@ -234,7 +240,7 @@ def _build_local_metrics_report(
     ]
     native_page_texts = _build_native_page_texts(branches, branch_index)
 
-    report = LocalQCReport(
+    report = ExtractionCoverageReport(
         config=config,
         blocks=blocks,
         sentence_records=sentence_records,
@@ -247,7 +253,7 @@ def _build_local_metrics_report(
 
 
 def _build_placeholder_sentence_store(full_text: str, text_processor) -> dict:
-    """Return a scaffold sentence store used only to record Tier 3 attempts."""
+    """Return a scaffold sentence store used only to record semantic verification attempts."""
     first_sentence = (
         (text_processor.tokenize_sentences(full_text)[:1] if text_processor else [])
     )
@@ -283,16 +289,16 @@ def run_quality_control(
 
     Metrics hierarchy
     -----------------
-    The pipeline runs three tiers of quality checks, independent of the
+    The pipeline runs three layers of quality checks, independent of the
     extractor hierarchy:
 
-    - **Tier 1** (Local_QC_Metrics) — cheap heuristics, always run.
-    - **Tier 2** (exact/fuzzy text comparison) — run on borderline Tier 1
-      results (1–2 triggered metrics).  Requires ``exact_match_fn`` to be
+    - **Extraction coverage** — cheap heuristics, always run.
+    - **Source text verification** (exact/fuzzy text comparison) — run on
+      borderline extraction-coverage results (1–2 triggered metrics).
+      Requires ``exact_match_fn`` to be provided; skipped when ``None``.
+    - **Semantic verification** (FAISS semantic comparison) — scaffolded; not
+      yet wired into adjudication.  Requires ``semantic_search_fn`` to be
       provided; skipped when ``None``.
-    - **Tier 3** (FAISS semantic comparison) — scaffolded; not yet wired into
-      adjudication.  Requires ``semantic_search_fn`` to be provided; skipped
-      when ``None``.
 
     Parameters
     ----------
@@ -304,10 +310,12 @@ def run_quality_control(
         Loaded pipeline config dict.
     exact_match_fn:
         Optional callable ``(sentence, full_text, page_texts, blocks) -> result``
-        used for Tier 2 exact-match search.  When ``None``, Tier 2 is skipped.
+        used for source-text verification search.  When ``None``, source-text
+        verification is skipped.
     semantic_search_fn:
-        Optional callable used for Tier 3 semantic search.  When ``None``,
-        Tier 3 is skipped even when ``semantic_qc.enabled`` is ``True``.
+        Optional callable used for semantic verification search.  When ``None``,
+        semantic verification is skipped even when ``semantic_verification.enabled``
+        is ``True``.
 
     Returns
     -------
@@ -329,22 +337,9 @@ def run_quality_control(
 
     logger.info("QC pipeline start: document_id=%s", document_id)
 
-    # Tier 3 scaffolding check: enabled flag is recorded but does NOT alter
-    # any branch selection or adjudication outcome.
-    semantic_qc_enabled = (
-        config.get("quality_control", {})
-        .get("semantic_qc", {})
-        .get("enabled", False)
-    )
-    if semantic_qc_enabled:
-        logger.debug(
-            "Metrics Tier 3 (semantic QC) is enabled but not yet wired into adjudication"
-            " — scaffolded only"
-        )
-
     # --- PDF-specific state captured by stage closures ---
-    borderline_branches: list[tuple[int, Candidate, LocalQCReport]] = []
-    metrics_hierarchy: dict = {"local_metrics": [], "exact_match": [], "semantic_match": []}
+    borderline_branches: list[tuple[int, Candidate, ExtractionCoverageReport]] = []
+    metrics_hierarchy: dict = {"extraction_coverage": [], "source_text_verification": [], "semantic_verification": {}}
 
     try:
         text_processor = _load_text_processor(config)
@@ -352,7 +347,7 @@ def run_quality_control(
         # Fall back to None to preserve behavior in test environments
         text_processor = None
 
-    # --- Stage 1: PDF rater (Tier 1 LocalQCReport) ---
+    # --- Stage 1: PDF rater (ExtractionCoverageReport) ---
     def _pdf_rater_fn(
         branch: Candidate,
         all_branches: list[Candidate],
@@ -362,7 +357,7 @@ def run_quality_control(
         report = _build_local_metrics_report(branch, all_branches, index, cfg, text_processor)
         passed = not any(m.triggered for m in report.metric_records)
         report.status = "pass" if passed else "fail"
-        metrics_hierarchy["local_metrics"].append(
+        metrics_hierarchy["extraction_coverage"].append(
             {"source": branch.source, "index": branch.index, "report": report}
         )
         triggered_count = sum(1 for m in report.metric_records if m.triggered)
@@ -501,9 +496,38 @@ def run_quality_control(
     )
     ctx.metrics_hierarchy = metrics_hierarchy
 
-    # --- Tier 2: exact-match search on borderline branches ---
-    tier2_result = None
-    if exact_match_fn is not None:
+    qc_cfg = config.get("quality_control", {})
+    stv_cfg = qc_cfg.get("source_text_verification", {})
+    sem_cfg = qc_cfg.get("semantic_verification", {})
+    ea_cfg = sem_cfg.get("extractor_agreement", {})
+
+    stv_enabled: bool = stv_cfg.get("enabled", True)
+    sem_enabled: bool = sem_cfg.get("enabled", False)
+    ea_enabled: bool = ea_cfg.get("enabled", False)
+
+    _SENTINEL_EVIDENCE = {
+        "found_sentence": None,
+        "page_index": None,
+        "prefix": None,
+        "suffix": None,
+        "block_bbox": None,
+        "span_bboxes": None,
+    }
+
+    # --- Source text verification ---
+    if not stv_enabled:
+        # Bypass: record a passing sentinel result
+        metrics_hierarchy["source_text_verification"].append(
+            VerificationResult(
+                check_name="source_text_presence",
+                status="skipped",
+                score=1.0,
+                evidence=dict(_SENTINEL_EVIDENCE),
+                details={},
+            )
+        )
+    elif exact_match_fn is not None:
+        stv_check = SourceTextPresenceCheck(matcher=exact_match_fn)
         for branch_index, branch, report in borderline_branches:
             exact_sentence = (
                 report.sentence_records[0]["sentence"]
@@ -520,50 +544,99 @@ def run_quality_control(
                 candidate_text, candidate_page_texts, candidate_blocks = _extract_branch_payload(
                     candidate_branch.payload
                 )
-                candidate_result = exact_match_fn(
+                vr = stv_check.run(
                     exact_sentence,
                     candidate_text,
                     candidate_page_texts,
                     candidate_blocks,
                 )
-                metrics_hierarchy["exact_match"].append(
-                    {
-                        "source_index": branch.index,
-                        "target_index": candidate_branch.index,
-                        "result": candidate_result,
-                    }
-                )
-                if candidate_result is not None:
-                    tier2_result = candidate_result
+                metrics_hierarchy["source_text_verification"].append(vr)
+                if vr.status == "verified":
                     break
 
-            if tier2_result is not None:
-                break
+            else:
+                continue
+            break
 
-    # --- Tier 3: semantic search (scaffolded only) ---
-    if semantic_qc_enabled and tier2_result is None and borderline_branches and semantic_search_fn is not None:
+    # --- Semantic verification ---
+    if not sem_enabled:
+        # Bypass: record a passing sentinel result
+        metrics_hierarchy["semantic_verification"]["result"] = VerificationResult(
+            check_name="semantic_source_verification",
+            status="skipped",
+            score=1.0,
+            evidence=dict(_SENTINEL_EVIDENCE),
+            details={},
+        )
+    elif semantic_search_fn is not None and borderline_branches:
+        on_index_unavailable: str = sem_cfg.get("on_index_unavailable", "skip")
+        similarity_threshold: float = sem_cfg.get("similarity_threshold", 0.85)
+
+        sem_check = SemanticSourceVerificationCheck(
+            matcher=semantic_search_fn,
+            on_index_unavailable=on_index_unavailable,
+        )
+
         branch_index, branch, report = borderline_branches[0]
-        exact_sentence = (
+        query_sentence = (
             report.sentence_records[0]["sentence"]
             if report.sentence_records
             else report.full_pdf_text
         )
-        if exact_sentence:
-            semantic_result = semantic_search_fn(
-                exact_sentence,
-                _build_placeholder_sentence_store(report.full_pdf_text, text_processor),
-                lambda query_text, model=None, query_prefix="": None,
-                config.get("quality_control", {})
-                .get("semantic_qc", {})
-                .get("similarity_threshold", 0.85),
-                None,
+        if query_sentence:
+            sentence_store = _build_placeholder_sentence_store(
+                report.full_pdf_text, text_processor
             )
-        else:
-            semantic_result = None
+            _, candidate_page_texts, _ = _extract_branch_payload(branch.payload)
+            try:
+                sem_vr = sem_check.run(
+                    query_sentence,
+                    sentence_store,
+                    lambda query_text, model=None, query_prefix="": None,
+                    similarity_threshold,
+                    candidate_page_texts,
+                )
+            except RuntimeError as exc:
+                logger.warning(
+                    "Semantic verification failed for document_id=%s: %s",
+                    document_id,
+                    exc,
+                )
+                sem_vr = VerificationResult(
+                    check_name="semantic_source_verification",
+                    status="unavailable",
+                    score=0.0,
+                    evidence=dict(_SENTINEL_EVIDENCE),
+                    details={"error": str(exc)},
+                )
+            metrics_hierarchy["semantic_verification"]["result"] = sem_vr
 
-        metrics_hierarchy["semantic_match"].append(
-            {"source_index": branch.index, "result": semantic_result}
+    # --- Extractor agreement (optional, observational only) ---
+    if ea_enabled and exact_match_fn is not None:
+        ea_check = ExtractorAgreementCheck(
+            exact_matcher=exact_match_fn,
+            semantic_matcher=semantic_search_fn if sem_enabled else None,
         )
+        # Use the first two branches for agreement comparison
+        primary_blocks: list = []
+        candidate_blocks: list = []
+        if len(branches) >= 1:
+            _, _, primary_blocks = _extract_branch_payload(branches[0].payload)
+        if len(branches) >= 2:
+            _, _, candidate_blocks = _extract_branch_payload(branches[1].payload)
+        try:
+            ea_result = ea_check.run(primary_blocks, candidate_blocks, config)
+        except ImportError as exc:
+            logger.warning(
+                "ExtractorAgreementCheck failed for document_id=%s: %s",
+                document_id,
+                exc,
+            )
+            ea_result = {
+                "status": "error",
+                "error": str(exc),
+            }
+        metrics_hierarchy["semantic_verification"]["extractor_agreement"] = ea_result
 
     logger.info("QC pipeline complete: document_id=%s", document_id)
     return ctx

@@ -17,7 +17,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from quality_control.models import Candidate
-from quality_control.defaults import QualityReport
+from quality_control.builtin_impls import QualityReport
 from quality_control.rater import observe
 
 

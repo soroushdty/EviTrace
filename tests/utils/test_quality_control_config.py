@@ -248,15 +248,15 @@ class TestGetQcConfig:
 
 
 # ---------------------------------------------------------------------------
-# Unit tests: semantic_qc defaults (Requirements 7.1, 7.2, 7.3, 7.4, 7.5)
+# Unit tests: semantic_verification defaults (Requirements 9.2, 9.6, 9.7, 9.8, 9.9, 9.10, 9.11, 9.12)
 # ---------------------------------------------------------------------------
 
 class TestSemanticQCDefaults:
-    """**Validates: Requirements 7.1, 7.2, 7.3, 7.4, 7.5**
+    """**Validates: Requirements 9.2, 9.6, 9.7, 9.8, 9.9, 9.10, 9.11, 9.12**
 
-    The semantic_qc sub-section must be present in _QC_DEFAULTS and must
+    The semantic_verification sub-section must be present in _QC_DEFAULTS and must
     be surfaced via load_local_config even when the caller omits quality_control
-    entirely from config.yaml.
+    entirely from config.yaml. The old semantic_qc key must NOT be present.
     """
 
     def _load(self, tmp_path, qc_override: dict | None = None) -> dict:
@@ -268,74 +268,88 @@ class TestSemanticQCDefaults:
 
     # --- presence ---
 
-    def test_semantic_qc_in_qc_defaults_dict(self):
-        """semantic_qc must exist directly in _QC_DEFAULTS['quality_control']."""
-        assert "semantic_qc" in _QC_DEFAULTS["quality_control"]
+    def test_semantic_verification_in_qc_defaults_dict(self):
+        """semantic_verification must exist directly in _QC_DEFAULTS['quality_control']."""
+        assert "semantic_verification" in _QC_DEFAULTS["quality_control"]
 
-    def test_semantic_qc_present_when_qc_omitted(self, tmp_path):
-        """load_local_config must produce semantic_qc even when quality_control is absent."""
+    def test_semantic_qc_not_in_qc_defaults_dict(self):
+        """semantic_qc must NOT exist in _QC_DEFAULTS['quality_control'] (deleted key)."""
+        assert "semantic_qc" not in _QC_DEFAULTS["quality_control"]
+
+    def test_semantic_verification_present_when_qc_omitted(self, tmp_path):
+        """load_local_config must produce semantic_verification even when quality_control is absent."""
         cfg = self._load(tmp_path)
-        assert "semantic_qc" in cfg["quality_control"]
+        assert "semantic_verification" in cfg["quality_control"]
 
-    def test_semantic_qc_present_when_qc_empty(self, tmp_path):
-        """load_local_config must produce semantic_qc when quality_control is an empty dict."""
+    def test_semantic_verification_present_when_qc_empty(self, tmp_path):
+        """load_local_config must produce semantic_verification when quality_control is an empty dict."""
         cfg = self._load(tmp_path, qc_override={})
-        assert "semantic_qc" in cfg["quality_control"]
+        assert "semantic_verification" in cfg["quality_control"]
 
     # --- default values ---
 
-    def test_semantic_qc_enabled_default_false(self, tmp_path):
+    def test_semantic_verification_enabled_default_false(self, tmp_path):
         cfg = self._load(tmp_path)
-        assert cfg["quality_control"]["semantic_qc"]["enabled"] is False
+        assert cfg["quality_control"]["semantic_verification"]["enabled"] is False
 
-    def test_semantic_qc_model_name_default(self, tmp_path):
+    def test_semantic_verification_model_name_default(self, tmp_path):
         cfg = self._load(tmp_path)
-        assert cfg["quality_control"]["semantic_qc"]["model_name"] == "BAAI/bge-base-en-v1.5"
+        assert cfg["quality_control"]["semantic_verification"]["model_name"] == "BAAI/bge-base-en-v1.5"
 
-    def test_semantic_qc_query_prefix_default(self, tmp_path):
+    def test_semantic_verification_similarity_threshold_default(self, tmp_path):
         cfg = self._load(tmp_path)
-        assert cfg["quality_control"]["semantic_qc"]["query_prefix"] == (
-            "Represent this sentence for searching relevant passages: "
-        )
+        assert cfg["quality_control"]["semantic_verification"]["similarity_threshold"] == 0.85
 
-    def test_semantic_qc_similarity_threshold_default(self, tmp_path):
+    def test_semantic_verification_max_sentences_default(self, tmp_path):
         cfg = self._load(tmp_path)
-        assert cfg["quality_control"]["semantic_qc"]["similarity_threshold"] == 0.85
+        assert cfg["quality_control"]["semantic_verification"]["max_sentences"] == 10000
 
-    def test_semantic_qc_max_sentences_default(self, tmp_path):
+    def test_semantic_verification_on_index_unavailable_default(self, tmp_path):
         cfg = self._load(tmp_path)
-        assert cfg["quality_control"]["semantic_qc"]["max_sentences"] == 10000
+        assert cfg["quality_control"]["semantic_verification"]["on_index_unavailable"] == "skip"
+
+    def test_semantic_verification_extractor_agreement_enabled_default_false(self, tmp_path):
+        cfg = self._load(tmp_path)
+        assert cfg["quality_control"]["semantic_verification"]["extractor_agreement"]["enabled"] is False
+
+    def test_semantic_verification_extractor_agreement_len_filter_default(self, tmp_path):
+        cfg = self._load(tmp_path)
+        assert cfg["quality_control"]["semantic_verification"]["extractor_agreement"]["len_filter"] == 40
+
+    def test_semantic_verification_extractor_agreement_max_examples_default(self, tmp_path):
+        cfg = self._load(tmp_path)
+        assert cfg["quality_control"]["semantic_verification"]["extractor_agreement"]["max_examples"] == 10
 
     # --- deep-merge: user value wins ---
 
-    def test_semantic_qc_user_enabled_true_overrides(self, tmp_path):
-        cfg = self._load(tmp_path, qc_override={"semantic_qc": {"enabled": True}})
-        assert cfg["quality_control"]["semantic_qc"]["enabled"] is True
+    def test_semantic_verification_user_enabled_true_overrides(self, tmp_path):
+        cfg = self._load(tmp_path, qc_override={"semantic_verification": {"enabled": True}})
+        assert cfg["quality_control"]["semantic_verification"]["enabled"] is True
 
-    def test_semantic_qc_partial_override_preserves_other_defaults(self, tmp_path):
+    def test_semantic_verification_partial_override_preserves_other_defaults(self, tmp_path):
         """Overriding enabled must not wipe out model_name."""
-        cfg = self._load(tmp_path, qc_override={"semantic_qc": {"enabled": True}})
-        assert cfg["quality_control"]["semantic_qc"]["model_name"] == "BAAI/bge-base-en-v1.5"
+        cfg = self._load(tmp_path, qc_override={"semantic_verification": {"enabled": True}})
+        assert cfg["quality_control"]["semantic_verification"]["model_name"] == "BAAI/bge-base-en-v1.5"
 
-    def test_semantic_qc_user_threshold_overrides(self, tmp_path):
-        cfg = self._load(tmp_path, qc_override={"semantic_qc": {"similarity_threshold": 0.9}})
-        assert cfg["quality_control"]["semantic_qc"]["similarity_threshold"] == 0.9
+    def test_semantic_verification_user_threshold_overrides(self, tmp_path):
+        cfg = self._load(tmp_path, qc_override={"semantic_verification": {"similarity_threshold": 0.9}})
+        assert cfg["quality_control"]["semantic_verification"]["similarity_threshold"] == 0.9
 
     # --- no faiss/torch/sentence_transformers keys (Req 14.1) ---
 
-    def test_semantic_qc_no_faiss_key(self):
-        sqc = _QC_DEFAULTS["quality_control"]["semantic_qc"]
-        for key in sqc:
+    def test_semantic_verification_no_faiss_key(self):
+        sv = _QC_DEFAULTS["quality_control"]["semantic_verification"]
+        for key in sv:
             assert "faiss" not in key.lower()
 
-    def test_semantic_qc_no_torch_key(self):
-        sqc = _QC_DEFAULTS["quality_control"]["semantic_qc"]
-        for key in sqc:
+    def test_semantic_verification_no_torch_key(self):
+        sv = _QC_DEFAULTS["quality_control"]["semantic_verification"]
+        for key in sv:
             assert "torch" not in key.lower()
 
-    def test_semantic_qc_no_sentence_transformers_key(self):
-        sqc = _QC_DEFAULTS["quality_control"]["semantic_qc"]
-        for key in sqc:
+    def test_semantic_verification_no_sentence_transformers_key(self):
+        sv = _QC_DEFAULTS["quality_control"]["semantic_verification"]
+        for key in sv:
             assert "sentence_transformers" not in key.lower()
 
 
@@ -378,9 +392,9 @@ class TestLocalMetricsDefaults:
         cfg = self._load(tmp_path)
         assert cfg["quality_control"]["local_metrics"]["min_chars_per_page"] == 100
 
-    def test_local_metrics_grobid_vs_native_ratio_threshold(self, tmp_path):
+    def test_local_metrics_extraction_coverage_ratio_threshold(self, tmp_path):
         cfg = self._load(tmp_path)
-        assert cfg["quality_control"]["local_metrics"]["grobid_vs_native_ratio_threshold"] == 0.6
+        assert cfg["quality_control"]["local_metrics"]["extraction_coverage_ratio_threshold"] == 0.6
 
     def test_local_metrics_long_sentence_word_threshold(self, tmp_path):
         cfg = self._load(tmp_path)
@@ -421,7 +435,7 @@ class TestLocalMetricsDefaults:
     def test_local_metrics_partial_override_preserves_other_defaults(self, tmp_path):
         """Overriding one key must leave unrelated defaults intact."""
         cfg = self._load(tmp_path, qc_override={"local_metrics": {"min_chars_per_page": 50}})
-        assert cfg["quality_control"]["local_metrics"]["grobid_vs_native_ratio_threshold"] == 0.6
+        assert cfg["quality_control"]["local_metrics"]["extraction_coverage_ratio_threshold"] == 0.6
 
     def test_local_metrics_user_expected_sections_overrides(self, tmp_path):
         cfg = self._load(tmp_path, qc_override={
@@ -456,11 +470,11 @@ class TestLocalMetricsDefaults:
         qc = get_qc_config(cfg)
         assert "local_metrics" in qc
 
-    def test_get_qc_config_includes_semantic_qc(self, tmp_path):
+    def test_get_qc_config_includes_semantic_verification(self, tmp_path):
         cfg_file = _write_config(tmp_path, {"pdfs_path": "data/pdfs"})
         cfg = load_local_config(cfg_file)
         qc = get_qc_config(cfg)
-        assert "semantic_qc" in qc
+        assert "semantic_verification" in qc
 
 
 # ---------------------------------------------------------------------------

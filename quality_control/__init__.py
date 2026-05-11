@@ -14,7 +14,8 @@ Module files
 - iaa_calculator.py       — inter-rater agreement computation
 - adjudicator.py          — quality-based selection / adjudication
 - reconciler.py           — output reconciliation into UnifiedRecord
-- defaults/               — concrete default implementations of the three ABCs
+- builtin_impls/          — concrete default implementations of the three ABCs
+- checks/                 — QC check classes (SourceTextPresenceCheck, etc.)
 - concerns/               — injectable strategy objects (TextFidelity, etc.)
 
 Note: artifact_generator.py (canonical artifact generation, PDF-specific pre-QC)
@@ -46,18 +47,26 @@ from .models import (
     InterRaterMetrics,
     AdjudicationRules,
     UnifiedRecord,
-    LocalQCMetricRecord,
+    ExtractionCoverageMetricRecord,
+    VerificationResult,
 )
 
 # Concrete defaults — re-exported here for backwards compatibility;
-# prefer importing directly from quality_control.defaults for new code
-from .defaults import (
+# prefer importing directly from quality_control.builtin_impls for new code
+from .builtin_impls import (
     QualityReport,
     InterRaterReport,
     AdjudicationDecision,
 )
 
-from .local_metrics import LocalQCReport
+from .local_metrics import ExtractionCoverageReport
+
+from .checks import (
+    SourceTextPresenceCheck,
+    SemanticSourceVerificationCheck,
+    ExtractorAgreementCheck,
+    build_task_quality_scaffold,
+)
 
 from .structure_validator import StructureSchemaLoadError, StructureSchemaValidator
 
@@ -77,7 +86,8 @@ __all__ = [
     "Candidate",
     "QCBundle",
     "UnifiedRecord",
-    "LocalQCMetricRecord",
+    "ExtractionCoverageMetricRecord",
+    "VerificationResult",
     # ABCs
     "QualityMetrics",
     "InterRaterMetrics",
@@ -87,7 +97,12 @@ __all__ = [
     "InterRaterReport",
     "AdjudicationDecision",
     # local metrics
-    "LocalQCReport",
+    "ExtractionCoverageReport",
+    # QC check classes
+    "SourceTextPresenceCheck",
+    "SemanticSourceVerificationCheck",
+    "ExtractorAgreementCheck",
+    "build_task_quality_scaffold",
     # structure validator
     "StructureSchemaLoadError",
     "StructureSchemaValidator",

@@ -1,5 +1,5 @@
 """
-quality_control/defaults/quality_report.py
+quality_control/builtin_impls/quality_report.py
 -------------------------------------------
 Default concrete quality report produced by the rater for one candidate.
 

@@ -5,6 +5,52 @@ and should never be deleted. Add a brief entry whenever a spec is implemented,
 steering docs change, README files change, or any other significant code change
 occurs.
 
+## [2025-07] — QC migration (`qc-migration`)
+
+Reorganised the `quality_control/` package with descriptive naming throughout, a new
+`checks/` sub-package for injectable QC check classes, and updated config keys. This
+is Phase 1 of the QC/TextProcessor split; Phase 2 (TextProcessor migration) must not
+begin until all tasks here are complete.
+
+**Renamed symbols:**
+- `LocalQCReport` → `ExtractionCoverageReport` (in `quality_control/local_metrics.py`)
+- `LocalQCMetricRecord` → `ExtractionCoverageMetricRecord` (in `quality_control/models.py`)
+- `_check_grobid_vs_native_ratio` → `_check_extraction_coverage_ratio` (in `local_metrics.py`)
+- metric name `"grobid_vs_native_ratio"` → `"extraction_coverage_ratio"` (all `ExtractionCoverageMetricRecord` instances)
+
+**Renamed config keys:**
+- `quality_control.local_metrics.grobid_vs_native_ratio_threshold` → `extraction_coverage_ratio_threshold`
+- `quality_control.semantic_qc` → `quality_control.semantic_verification`
+
+**Updated `metrics_hierarchy` keys** (in `QCBundle` and all write sites):
+- `"local_metrics"` → `"extraction_coverage"`
+- `"exact_match"` → `"source_text_verification"`
+- `"semantic_match"` → `"semantic_verification"`
+
+**Deleted:**
+- `quality_control/defaults/` directory (all contents removed)
+
+**Added:**
+- `quality_control/builtin_impls/` — replacement for `defaults/`; exports `QualityReport`, `InterRaterReport`, `AdjudicationDecision`
+- `quality_control/checks/` package — exports `SourceTextPresenceCheck`, `SemanticSourceVerificationCheck`, `ExtractorAgreementCheck`, `build_task_quality_scaffold`
+- `quality_control/checks/source_text.py` — `SourceTextPresenceCheck` (injected lexical matcher)
+- `quality_control/checks/semantic_source.py` — `SemanticSourceVerificationCheck` (injected semantic-search dependency; three `on_index_unavailable` modes)
+- `quality_control/checks/extractor_agreement.py` — `ExtractorAgreementCheck` (optional; disabled by default)
+- `quality_control/checks/task_quality.py` — `build_task_quality_scaffold` (JSON-serializable scaffold for 8 task-quality metrics)
+- `VerificationResult` dataclass to `quality_control/models.py` (fields: `check_name`, `status`, `score`, `evidence`, `details`; score constrained to `[0.0, 1.0]`)
+
+**Added config keys** (in `_QC_DEFAULTS` and `configs/config.yaml`):
+- `quality_control.source_text_verification.enabled` (default `true`)
+- `quality_control.semantic_verification.enabled` (default `false`)
+- `quality_control.semantic_verification.similarity_threshold` (default `0.85`)
+- `quality_control.semantic_verification.max_sentences` (default `10000`)
+- `quality_control.semantic_verification.model_name` (default `"BAAI/bge-base-en-v1.5"`)
+- `quality_control.semantic_verification.on_index_unavailable` (default `"skip"`)
+- `quality_control.semantic_verification.extractor_agreement.enabled` (default `false`)
+- `quality_control.semantic_verification.extractor_agreement.len_filter` (default `40`)
+- `quality_control.semantic_verification.extractor_agreement.max_examples` (default `10`)
+- `quality_control.task_quality_scaffold.enabled` (default `true`)
+
 ## [2026-05] — Full README rewrite to reflect current codebase
 
 All 13 README files rewritten to match the current architecture. The previous

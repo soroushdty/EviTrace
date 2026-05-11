@@ -10,11 +10,11 @@ at any point.
 
 This module contains **only** abstract base classes and pure data containers.
 Concrete default implementations of the ABCs live in
-``quality_control/defaults/``:
+``quality_control/builtin_impls/``:
 
-- :class:`~quality_control.defaults.QualityReport`
-- :class:`~quality_control.defaults.InterRaterReport`
-- :class:`~quality_control.defaults.AdjudicationDecision`
+- :class:`~quality_control.builtin_impls.QualityReport`
+- :class:`~quality_control.builtin_impls.InterRaterReport`
+- :class:`~quality_control.builtin_impls.AdjudicationDecision`
 
 Classes
 -------
@@ -51,7 +51,7 @@ DocumentAlignment
 UnifiedRecord
     Final reconciled output produced by the Reconciler.
 
-LocalQCMetricRecord
+ExtractionCoverageMetricRecord
     Structured record for a single Metrics Tier 1 (Local_QC_Metrics) result.
 
 QCBundle
@@ -367,7 +367,7 @@ class UnifiedRecord:
 # ---------------------------------------------------------------------------
 
 @dataclass
-class LocalQCMetricRecord:
+class ExtractionCoverageMetricRecord:
     """Structured record for a single Metrics Tier 1 (Local_QC_Metrics) result.
 
     Attributes
@@ -387,6 +387,58 @@ class LocalQCMetricRecord:
     computed_value: float | int | bool
     threshold: float | int | bool | None
     triggered: bool
+
+
+# ---------------------------------------------------------------------------
+# Verification result
+# ---------------------------------------------------------------------------
+
+@dataclass
+class VerificationResult:
+    """Stable result dataclass produced by QC check classes.
+
+    Each QC check class produces one ``VerificationResult`` per invocation,
+    describing the outcome of a single verification check.
+
+    Attributes
+    ----------
+    check_name:
+        Identifier for the check that produced this result
+        (e.g. ``"source_text_presence"``).
+    status:
+        Outcome of the check.  Must be one of ``"verified"``,
+        ``"candidate_match"``, ``"no_match"``, ``"skipped"``, or
+        ``"unavailable"``.
+    score:
+        Confidence score in the closed range ``[0.0, 1.0]``.  Raises
+        ``ValueError`` on construction if outside this range.
+    evidence:
+        Evidence dict.  When produced by source-verification checks the dict
+        contains exactly the six standard keys: ``found_sentence``,
+        ``page_index``, ``prefix``, ``suffix``, ``block_bbox``,
+        ``span_bboxes``.  Each key is ``None`` when no evidence is available.
+    details:
+        Free-form additional information.  The semantic check stores a
+        below-threshold diagnostic score here under the key
+        ``"below_threshold_score"``.
+    """
+
+    check_name: str
+    status: str
+    score: float
+    evidence: dict
+    details: dict
+
+    def __post_init__(self) -> None:
+        _VALID_STATUSES = {"verified", "candidate_match", "no_match", "skipped", "unavailable"}
+        if self.status not in _VALID_STATUSES:
+            raise ValueError(
+                f"status must be one of {_VALID_STATUSES!r}; got {self.status!r}"
+            )
+        if not (0.0 <= self.score <= 1.0):
+            raise ValueError(
+                f"score must be in [0.0, 1.0]; got {self.score!r}"
+            )
 
 
 # ---------------------------------------------------------------------------

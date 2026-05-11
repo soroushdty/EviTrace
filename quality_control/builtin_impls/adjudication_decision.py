@@ -1,5 +1,5 @@
 """
-quality_control/defaults/adjudication_decision.py
+quality_control/builtin_impls/adjudication_decision.py
 ---------------------------------------------------
 Default concrete adjudication decision produced by the Adjudicator.
 

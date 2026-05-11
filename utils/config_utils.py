@@ -41,16 +41,27 @@ _QC_DEFAULTS: dict = {
         "iaa_calculator": {"thresholds": {}, "agreement_metrics": []},
         "adjudicator": {"strategy": "placeholder"},
         "reconciler": {"enable_tei_export": False, "enable_annotation_export": False},
-        "semantic_qc": {
+        "source_text_verification": {
+            "enabled": True,
+        },
+        "semantic_verification": {
             "enabled": False,
-            "model_name": "BAAI/bge-base-en-v1.5",
-            "query_prefix": "Represent this sentence for searching relevant passages: ",
             "similarity_threshold": 0.85,
             "max_sentences": 10000,
+            "model_name": "BAAI/bge-base-en-v1.5",
+            "on_index_unavailable": "skip",
+            "extractor_agreement": {
+                "enabled": False,
+                "len_filter": 40,
+                "max_examples": 10,
+            },
+        },
+        "task_quality_scaffold": {
+            "enabled": True,
         },
         "local_metrics": {
             "min_chars_per_page": 100,
-            "grobid_vs_native_ratio_threshold": 0.6,
+            "extraction_coverage_ratio_threshold": 0.6,
             "long_sentence_word_threshold": 120,
             "long_sentence_max_fraction": 0.12,
             "expected_sections": ["abstract", "introduction", "methods", "results"],

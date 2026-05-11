@@ -1,5 +1,5 @@
 """
-quality_control/defaults/inter_rater_report.py
+quality_control/builtin_impls/inter_rater_report.py
 ------------------------------------------------
 Default concrete inter-rater agreement report produced by the IAA Calculator.
 

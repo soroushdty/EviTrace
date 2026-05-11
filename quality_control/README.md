@@ -18,7 +18,7 @@ pdf_extractor.extraction.pdfplumber ──► blocks
                                    ▼ Candidate[]
 quality_control.run_quality_control(branches, document_id, config)
         │
-        ├── stage 1: Rater          (per-branch LocalQCReport via Tier 1 heuristics)
+        ├── stage 1: Rater          (per-branch ExtractionCoverageReport via heuristics)
         ├── stage 2: IAA Calculator (inter-rater agreement)
         ├── stage 3: Adjudicator    (pick the primary branch via concern strategies)
         └── stage 4: Reconciler     (build UnifiedRecord with semantic/structural/alignment layers)
@@ -37,8 +37,9 @@ pipeline.extraction_pipeline.build_qc_bundle  (stores exact_text + W3C annotatio
 The `quality_control` package sits between extractor branches and
 downstream reconciliation. For each document it:
 
-1. Evaluates every branch against a shared quality contract (Tier 1 local
-   heuristics, Tier 2 exact-match search, Tier 3 semantic search scaffold).
+1. Evaluates every branch against a shared quality contract (extraction
+   coverage heuristics, source-text presence verification, semantic
+   source verification scaffold).
 2. Computes inter-rater agreement metrics.
 3. Selects a preferred result via injectable concern strategies.
 4. Builds the `UnifiedRecord` consumed by the rest of the system.
@@ -61,6 +62,15 @@ from quality_control import QCBundle, Candidate
 from quality_control import Validator, ValidationResult
 from quality_control import StructureSchemaValidator, StructureSchemaLoadError
 from quality_control import validate_qc_context_input, ValidationError
+from quality_control import ExtractionCoverageReport, ExtractionCoverageMetricRecord
+from quality_control import VerificationResult
+from quality_control.checks import (
+    SourceTextPresenceCheck,
+    SemanticSourceVerificationCheck,
+    ExtractorAgreementCheck,
+    build_task_quality_scaffold,
+)
+from quality_control.builtin_impls import QualityReport, InterRaterReport, AdjudicationDecision
 ```
 
 | Entry point | Use when |
@@ -81,12 +91,10 @@ Pipeline orchestrator.
   Raises `TypeError` if `branches` is not a list.
 - `run_quality_control(branches, document_id, config, *, exact_match_fn=None, semantic_search_fn=None) -> QCBundle`
   — wires the PDF-specific branch flow into `run_pipeline`. Tracks the
-  three-tier metrics hierarchy on `ctx.metrics_hierarchy`:
-  - **`"local_metrics"`** — `LocalQCReport` heuristics (always run).
-  - **`"exact_match"`** — exact-match search for borderline branches (1–2
-    triggered Tier 1 metrics); requires `exact_match_fn` to be provided.
-  - **`"semantic_match"`** — semantic search scaffold; not currently part of
-    final adjudication; requires `semantic_search_fn` to be provided.
+  metrics hierarchy on `ctx.metrics_hierarchy`:
+  - **`"extraction_coverage"`** — `ExtractionCoverageReport` heuristics (always run).
+  - **`"source_text_verification"`** — `SourceTextPresenceCheck` results; requires `exact_match_fn` to be provided; bypassed (passing sentinel) when `source_text_verification.enabled` is `false`.
+  - **`"semantic_verification"`** — `SemanticSourceVerificationCheck` results and optional `"extractor_agreement"` sub-dict; requires `semantic_search_fn` to be provided; bypassed when `semantic_verification.enabled` is `false`.
 
 ### `models.py`
 
@@ -104,25 +112,43 @@ submodules.
 | `AlignmentRecord` | `source`, `ocr_derived`, `agreement`, `edit_distance`, `preferred_reading`, `confidence`. |
 | `DocumentAlignment` | `paragraph_to_blocks`, `sentence_to_char_range`, `section_header_to_block`, `reconciliation_flags`. |
 | `UnifiedRecord` | Final output: `document_id`, `content`, `semantic`, `structural`, `alignment`. |
-| `LocalQCMetricRecord` | `metric_name`, `computed_value`, `threshold`, `triggered`. |
+| `ExtractionCoverageMetricRecord` | `metric_name`, `computed_value`, `threshold`, `triggered`. Holds a single heuristic metric result produced by `ExtractionCoverageReport`. |
+| `VerificationResult` | `check_name`, `status`, `score`, `evidence`, `details`. Stable result type produced by all QC check classes. `score` is constrained to `[0.0, 1.0]`; valid `status` values are `"verified"`, `"candidate_match"`, `"no_match"`, `"skipped"`, `"unavailable"`. |
 | `QCBundle` | Full run state: `branches`, `reports`, `iaa_metrics`, `decision`, `unified`, `metrics_hierarchy`. |
 
-### `local_metrics.py` — `LocalQCReport`
+### `local_metrics.py` — `ExtractionCoverageReport`
 
-Concrete Tier 1 quality checks. Reads thresholds from
+Concrete heuristic quality checks. Reads thresholds from
 `config["quality_control"]["local_metrics"]` and produces one
-`LocalQCMetricRecord` per metric when `passes_check()` is called.
+`ExtractionCoverageMetricRecord` per metric when `passes_check()` is called.
 
 | # | Metric name | Threshold key |
 | - | ----------- | ------------- |
 | 1 | `min_chars_per_page` | `min_chars_per_page` |
-| 2 | `grobid_vs_native_ratio` | `grobid_vs_native_ratio_threshold` |
+| 2 | `extraction_coverage_ratio` | `extraction_coverage_ratio_threshold` |
 | 3 | `long_sentence_fraction` | `long_sentence_word_threshold`, `long_sentence_max_fraction` |
 | 4 | `section_coverage` | `expected_sections` |
 | 5 | `caption_table_figure_coverage` | `caption_table_figure_check_enabled` |
 | 6 | `coordinate_availability` | `coordinate_coverage_threshold` |
 | 7 | `references_in_body` | `references_in_body_threshold` |
 | 8 | `weird_char_ratio` | `weird_char_ratio_threshold` |
+
+### `checks/`
+
+QC check classes that consume injected matcher dependencies. All modules in
+this sub-package are subject to hard constraints: no import of `TextProcessor`
+or from `utils.text_processor`; no import from the `text_processing` package;
+no top-level import of `faiss`, `torch`, `sentence_transformers`, `spacy`,
+`scispacy`, `stanza`, or `wtpsplit`; no inline matching or embedding logic.
+
+Exported from `quality_control.checks`:
+
+| Class / function | Role |
+| ---------------- | ---- |
+| `SourceTextPresenceCheck` | Verifies source-text presence via an injected lexical matcher. `check_name = "source_text_presence"`. Constructor accepts `matcher: Callable`. `run(needle, full_text, page_texts, blocks) -> VerificationResult`. Returns `status="verified"` when the matcher finds a match, `status="no_match"` otherwise. |
+| `SemanticSourceVerificationCheck` | Verifies source text semantically via an injected semantic-search dependency. `check_name = "semantic_source_verification"`. Constructor accepts `matcher: Callable` and `on_index_unavailable: str` (`"skip"` \| `"fail"` \| `"degrade"`). `run(query, sentence_store, embed_fn, threshold, page_texts) -> VerificationResult`. Returns `status="candidate_match"` when a candidate meets the threshold, `status="no_match"` otherwise, or `status="unavailable"` when the sentence store is absent and mode is `"skip"`. |
+| `ExtractorAgreementCheck` | **Optional.** Compares two extractor branch payloads and emits an agreement report. Only runs when `quality_control.semantic_verification.extractor_agreement.enabled` is `true`. Constructor accepts `exact_matcher: Callable` and optional `semantic_matcher: Callable \| None`. `run(primary_blocks, candidate_blocks, config) -> dict`. Result is stored in `ctx.metrics_hierarchy["semantic_verification"]["extractor_agreement"]` and does not influence adjudication or reconciliation. |
+| `build_task_quality_scaffold` | Returns a JSON-serializable scaffold dict with placeholder entries for task-quality metrics (`field_recall`, `critical_field_recall`, `evidence_validity`, `evidence_compactness`, `cost_reduction`, `manual_qc_rate`, `interobserver_agreement`, `pipeline_agreement`). Makes no HTTP requests and calls no LLM API. When included in per-PDF output, stored under key `"task_quality_scaffold"`. |
 
 ### `rater.py`
 
@@ -191,10 +217,10 @@ QC-to-LLM handoff guard.
   5. `ctx.unified.content['exact_text']` is a non-empty `str`.
   6. Structural schema check via `_structure_validator.validate_qc_bundle`.
 
-### `defaults/`
+### `builtin_impls/`
 
 Concrete default implementations of the three ABCs, exported from
-`quality_control.defaults`:
+`quality_control.builtin_impls`:
 
 - `QualityReport` — default per-branch quality report (unconditional pass).
 - `InterRaterReport` — default inter-rater agreement report (pairwise pass/fail).
@@ -229,6 +255,19 @@ Injectable strategy objects, exported from `quality_control.concerns`:
 
 ---
 
+## Metrics hierarchy
+
+After `run_quality_control` completes, `ctx.metrics_hierarchy` contains
+exactly three top-level keys:
+
+| Key | Value type | Populated by |
+| --- | ---------- | ------------ |
+| `"extraction_coverage"` | `list[ExtractionCoverageMetricRecord]` | `ExtractionCoverageReport` — always runs |
+| `"source_text_verification"` | `list[VerificationResult]` | `SourceTextPresenceCheck` — bypassed (passing sentinel) when `source_text_verification.enabled` is `false` |
+| `"semantic_verification"` | `dict` containing `VerificationResult` instances and optionally `"extractor_agreement"` | `SemanticSourceVerificationCheck` + optional `ExtractorAgreementCheck` — bypassed when `semantic_verification.enabled` is `false` |
+
+---
+
 ## Configuration surface
 
 Defaults live in
@@ -243,8 +282,11 @@ deep-merged with user values from `configs/config.yaml`.
 | `grobid_integration` | `failure_behavior` (`"manifest_fail"` \| `"fallback"`), `crop_figures`, `crop_tables`. |
 | `scan_detection` | `text_density_threshold`, `alpha_ratio_threshold`, `image_dominance_threshold`. |
 | `ocr` | `rasterization_dpi` for PaddleOCR page rasterization. |
-| `local_metrics` | Tier 1 thresholds (see table above). |
-| `semantic_qc` | Tier 3 scaffold. `enabled: false` keeps all heavy deps unimported. |
+| `local_metrics` | Heuristic thresholds (see table above). Key `extraction_coverage_ratio_threshold` controls the extraction coverage ratio check. |
+| `source_text_verification` | `enabled` (default `true`). When `false`, the source-text check is bypassed and a passing sentinel is recorded. |
+| `semantic_verification` | `enabled` (default `false`), `similarity_threshold` (default `0.85`), `max_sentences` (default `10000`), `model_name` (default `"BAAI/bge-base-en-v1.5"`), `on_index_unavailable` (`"skip"` \| `"fail"` \| `"degrade"`, default `"skip"`). When `enabled` is `false`, no heavy dependencies (`sentence_transformers`, `faiss`, `torch`) are imported through the QC code path. |
+| `semantic_verification.extractor_agreement` | `enabled` (default `false`), `len_filter` (default `40`), `max_examples` (default `10`). `ExtractorAgreementCheck` only runs when `enabled` is `true`. |
+| `task_quality_scaffold` | `enabled` (default `true`). Controls whether `build_task_quality_scaffold()` output is included in per-PDF JSON under `"task_quality_scaffold"`. |
 | `text_fidelity` | `edit_distance_threshold` for `TextFidelityConcern`. |
 | `section_verification` | `font_size_tolerance` for `SectionVerificationConcern`. |
 | `artifact_generator` | `export_to_disk` toggle and `output_dir`. |
@@ -266,12 +308,22 @@ For the full YAML schema see [../configs/README.md](../configs/README.md).
 function was placed in `quality_control/validate_context.py` specifically
 to respect this boundary.
 
+The `quality_control/checks/` sub-package inherits this rule. Check modules
+must not import `TextProcessor` by name, must not import from
+`utils.text_processor`, and must not import from the `text_processing`
+package. This is enforced by `tests/steering/test_qc_textprocessor_separation.py`.
+
 ---
 
 ## Caveats
 
-- Tier 3 semantic QC is **scaffolded only**. The adjudicator does not
-  consume Tier 3 output today.
+- Semantic verification is **report-only**. The adjudicator does not
+  consume `semantic_verification` output; it does not influence branch
+  selection, `UnifiedRecord` construction, or any field written to
+  `outputs/<paper>.extracted.json`.
+- `ExtractorAgreementCheck` is **optional** and disabled by default. It
+  compares extractor branches for observability purposes only and has no
+  effect on adjudication or reconciliation.
 - The adjudicator currently uses placeholder logic — configurable
   per-block / per-page strategies are planned.
 - `run_quality_control` produces a structural-placeholder `UnifiedRecord`

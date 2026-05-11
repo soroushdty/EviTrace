@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 
 from quality_control.models import Candidate
-from quality_control.defaults import QualityReport
+from quality_control.builtin_impls import QualityReport
 
 logger = logging.getLogger("pdf_extractor")
 

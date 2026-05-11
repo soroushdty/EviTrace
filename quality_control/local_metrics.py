@@ -1,24 +1,24 @@
 """
 quality_control/local_metrics.py
 ------------------------------------------------
-Concrete LocalQCReport dataclass implementing all 8 Metrics Tier 1
+Concrete ExtractionCoverageReport dataclass implementing all 8 Metrics Tier 1
 (Local_QC_Metrics) checks for the pdf_extractor QC pipeline.
 
 All extractor branches in a given run must use the same QualityReport
-subclass (Universal_Metrics constraint).  LocalQCReport reads thresholds
-from the pipeline config dict and produces one LocalQCMetricRecord per
+subclass (Universal_Metrics constraint).  ExtractionCoverageReport reads thresholds
+from the pipeline config dict and produces one ExtractionCoverageMetricRecord per
 metric when ``passes_check()`` is called.
 
 Metrics (Tier 1)
 ----------------
-1. min_chars_per_page        — per-page character-count coverage
-2. grobid_vs_native_ratio    — GROBID branch text vs. native backend length ratio
-3. long_sentence_fraction    — fraction of sentences exceeding a word-count threshold
-4. section_coverage          — presence of expected section headings in full text
+1. min_chars_per_page          — per-page character-count coverage
+2. extraction_coverage_ratio   — GROBID branch text vs. native backend length ratio
+3. long_sentence_fraction      — fraction of sentences exceeding a word-count threshold
+4. section_coverage            — presence of expected section headings in full text
 5. caption_table_figure_coverage — table/figure references in text matched to blocks
-6. coordinate_availability   — fraction of blocks missing bounding-box coordinates
-7. references_in_body        — reference/bibliography keywords leaking into body sentences
-8. weird_char_ratio          — ratio of replacement / control / overlong unicode chars
+6. coordinate_availability     — fraction of blocks missing bounding-box coordinates
+7. references_in_body          — reference/bibliography keywords leaking into body sentences
+8. weird_char_ratio            — ratio of replacement / control / overlong unicode chars
 """
 
 from __future__ import annotations
@@ -26,17 +26,17 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from .models import LocalQCMetricRecord
-from .defaults import QualityReport
+from .models import ExtractionCoverageMetricRecord
+from .builtin_impls import QualityReport
 
 
 @dataclass
-class LocalQCReport(QualityReport):
+class ExtractionCoverageReport(QualityReport):
     """Concrete QualityReport with all 8 Metrics Tier 1 (Local_QC_Metrics) checks.
 
     All extractor branches in a given run must use the same QualityReport subclass
-    (Universal_Metrics constraint). LocalQCReport reads thresholds from config and
-    produces one LocalQCMetricRecord per metric.
+    (Universal_Metrics constraint). ExtractionCoverageReport reads thresholds from config and
+    produces one ExtractionCoverageMetricRecord per metric.
 
     Attributes
     ----------
@@ -55,7 +55,7 @@ class LocalQCReport(QualityReport):
         Mapping of ``{page_index: page_text}`` from the native backend
         (PyMuPDF / pdfplumber), used for GROBID-vs-native comparisons.
     metric_records:
-        Populated by ``passes_check()``.  One ``LocalQCMetricRecord`` per metric.
+        Populated by ``passes_check()``.  One ``ExtractionCoverageMetricRecord`` per metric.
     """
 
     config: dict = field(default_factory=dict)
@@ -84,10 +84,10 @@ class LocalQCReport(QualityReport):
             ``True`` when **no** metric fired; ``False`` when at least one triggered.
         """
         lm: dict = (self.config.get("quality_control") or {}).get("local_metrics") or {}
-        records: list[LocalQCMetricRecord] = []
+        records: list[ExtractionCoverageMetricRecord] = []
 
         records.append(self._check_min_chars_per_page(lm))
-        records.append(self._check_grobid_vs_native_ratio(lm))
+        records.append(self._check_extraction_coverage_ratio(lm))
         records.append(self._check_long_sentence_fraction(lm))
         records.append(self._check_section_coverage(lm))
         records.append(self._check_caption_table_figure_coverage(lm))
@@ -102,7 +102,7 @@ class LocalQCReport(QualityReport):
     # Metric 1 — per-page text coverage
     # ------------------------------------------------------------------
 
-    def _check_min_chars_per_page(self, lm: dict) -> LocalQCMetricRecord:
+    def _check_min_chars_per_page(self, lm: dict) -> ExtractionCoverageMetricRecord:
         """Triggered if any page in this branch has fewer characters than the
         configured threshold AND the native backend had substantially more on
         that same page.
@@ -114,7 +114,7 @@ class LocalQCReport(QualityReport):
                 native_text = self.native_page_texts.get(page_idx, "")
                 if len(native_text) > min_chars:
                     triggered_pages.append(page_idx)
-        return LocalQCMetricRecord(
+        return ExtractionCoverageMetricRecord(
             metric_name="min_chars_per_page",
             computed_value=len(triggered_pages),
             threshold=min_chars,
@@ -122,23 +122,23 @@ class LocalQCReport(QualityReport):
         )
 
     # ------------------------------------------------------------------
-    # Metric 2 — GROBID-vs-native length ratio
+    # Metric 2 — extraction coverage ratio
     # ------------------------------------------------------------------
 
-    def _check_grobid_vs_native_ratio(self, lm: dict) -> LocalQCMetricRecord:
+    def _check_extraction_coverage_ratio(self, lm: dict) -> ExtractionCoverageMetricRecord:
         """Compute the average ratio of this branch's page text length versus the
         native backend's page text length.  Triggered when the average ratio is
         below the configured threshold.
         """
-        ratio_threshold: float = lm.get("grobid_vs_native_ratio_threshold", 0.6)
+        ratio_threshold: float = lm.get("extraction_coverage_ratio_threshold", 0.6)
         ratios: list[float] = []
         for page_idx, page_text in self.page_texts.items():
             native_text = self.native_page_texts.get(page_idx, "")
             if len(native_text) > 0:
                 ratios.append(len(page_text) / len(native_text))
         avg_ratio: float = float(sum(ratios) / len(ratios)) if ratios else 1.0
-        return LocalQCMetricRecord(
-            metric_name="grobid_vs_native_ratio",
+        return ExtractionCoverageMetricRecord(
+            metric_name="extraction_coverage_ratio",
             computed_value=avg_ratio,
             threshold=ratio_threshold,
             triggered=avg_ratio < ratio_threshold,
@@ -148,7 +148,7 @@ class LocalQCReport(QualityReport):
     # Metric 3 — long-sentence fraction
     # ------------------------------------------------------------------
 
-    def _check_long_sentence_fraction(self, lm: dict) -> LocalQCMetricRecord:
+    def _check_long_sentence_fraction(self, lm: dict) -> ExtractionCoverageMetricRecord:
         """Triggered when the fraction of sentences whose word count exceeds
         ``long_sentence_word_threshold`` is greater than ``long_sentence_max_fraction``.
         """
@@ -163,7 +163,7 @@ class LocalQCReport(QualityReport):
             fraction = long_count / len(self.sentence_records)
         else:
             fraction = 0.0
-        return LocalQCMetricRecord(
+        return ExtractionCoverageMetricRecord(
             metric_name="long_sentence_fraction",
             computed_value=fraction,
             threshold=max_fraction,
@@ -174,7 +174,7 @@ class LocalQCReport(QualityReport):
     # Metric 4 — section coverage
     # ------------------------------------------------------------------
 
-    def _check_section_coverage(self, lm: dict) -> LocalQCMetricRecord:
+    def _check_section_coverage(self, lm: dict) -> ExtractionCoverageMetricRecord:
         """Triggered when one or more expected section headings are absent from
         the full document text.
 
@@ -186,7 +186,7 @@ class LocalQCReport(QualityReport):
         )
         # No document text means there is nothing to evaluate; skip the check.
         if not self.full_pdf_text:
-            return LocalQCMetricRecord(
+            return ExtractionCoverageMetricRecord(
                 metric_name="section_coverage",
                 computed_value=0,
                 threshold=len(expected_sections),
@@ -195,7 +195,7 @@ class LocalQCReport(QualityReport):
         full_lower = self.full_pdf_text.lower()
         missing = [s for s in expected_sections if s.lower() not in full_lower]
         found_count = len(expected_sections) - len(missing)
-        return LocalQCMetricRecord(
+        return ExtractionCoverageMetricRecord(
             metric_name="section_coverage",
             computed_value=found_count,
             threshold=len(expected_sections),
@@ -206,7 +206,7 @@ class LocalQCReport(QualityReport):
     # Metric 5 — table/figure caption coverage
     # ------------------------------------------------------------------
 
-    def _check_caption_table_figure_coverage(self, lm: dict) -> LocalQCMetricRecord:
+    def _check_caption_table_figure_coverage(self, lm: dict) -> ExtractionCoverageMetricRecord:
         """Triggered when "Table N" / "Figure N" references appear in the full
         text but none of those references can be matched to any block's text.
 
@@ -214,7 +214,7 @@ class LocalQCReport(QualityReport):
         """
         caption_check: bool = lm.get("caption_table_figure_check_enabled", True)
         if not caption_check:
-            return LocalQCMetricRecord(
+            return ExtractionCoverageMetricRecord(
                 metric_name="caption_table_figure_coverage",
                 computed_value=0,
                 threshold=None,
@@ -234,7 +234,7 @@ class LocalQCReport(QualityReport):
             if any(ref.lower() in bt for bt in block_texts_lower)
         ]
         triggered_caption = bool(table_figure_refs) and not caption_hits
-        return LocalQCMetricRecord(
+        return ExtractionCoverageMetricRecord(
             metric_name="caption_table_figure_coverage",
             computed_value=len(table_figure_refs),
             threshold=None,
@@ -245,7 +245,7 @@ class LocalQCReport(QualityReport):
     # Metric 6 — coordinate availability
     # ------------------------------------------------------------------
 
-    def _check_coordinate_availability(self, lm: dict) -> LocalQCMetricRecord:
+    def _check_coordinate_availability(self, lm: dict) -> ExtractionCoverageMetricRecord:
         """Triggered when the fraction of blocks missing both ``block_bbox`` and
         ``page_index`` exceeds the configured threshold.
         """
@@ -261,7 +261,7 @@ class LocalQCReport(QualityReport):
             missing_fraction = missing_coords / len(self.blocks)
         else:
             missing_fraction = 0.0
-        return LocalQCMetricRecord(
+        return ExtractionCoverageMetricRecord(
             metric_name="coordinate_availability",
             computed_value=missing_fraction,
             threshold=coord_threshold,
@@ -272,7 +272,7 @@ class LocalQCReport(QualityReport):
     # Metric 7 — header/body/back-matter separation (references in body)
     # ------------------------------------------------------------------
 
-    def _check_references_in_body(self, lm: dict) -> LocalQCMetricRecord:
+    def _check_references_in_body(self, lm: dict) -> ExtractionCoverageMetricRecord:
         """Triggered when reference / bibliography keywords appear in more than
         ``references_in_body_threshold`` fraction of the sentence records,
         suggesting that back-matter content has leaked into body sentences.
@@ -288,7 +288,7 @@ class LocalQCReport(QualityReport):
             ref_fraction = ref_pattern_count / len(self.sentence_records)
         else:
             ref_fraction = 0.0
-        return LocalQCMetricRecord(
+        return ExtractionCoverageMetricRecord(
             metric_name="references_in_body",
             computed_value=ref_fraction,
             threshold=ref_threshold,
@@ -299,7 +299,7 @@ class LocalQCReport(QualityReport):
     # Metric 8 — weird character ratio
     # ------------------------------------------------------------------
 
-    def _check_weird_char_ratio(self, lm: dict) -> LocalQCMetricRecord:
+    def _check_weird_char_ratio(self, lm: dict) -> ExtractionCoverageMetricRecord:
         """Triggered when the ratio of replacement / control / overlong non-ASCII
         characters to total document length exceeds the configured threshold.
 
@@ -317,7 +317,7 @@ class LocalQCReport(QualityReport):
             weird_ratio = len(weird_chars) / max(len(self.full_pdf_text), 1)
         else:
             weird_ratio = 0.0
-        return LocalQCMetricRecord(
+        return ExtractionCoverageMetricRecord(
             metric_name="weird_char_ratio",
             computed_value=weird_ratio,
             threshold=weird_threshold,
