@@ -49,7 +49,9 @@ def _call_grobid_api(
     """POST *pdf_path* to the GROBID REST API and return the raw TEI XML string.
 
     Retries on HTTP 5xx and timeout with exponential backoff (1 s, 2 s).
-    Never retries on HTTP 4xx client errors.
+    Never retries on HTTP 4xx client errors. Emits an INFO-level timing log
+    for every attempt so per-request latency can be separated from parsing
+    and end-to-end wall time.
 
     Raises
     ------
@@ -65,6 +67,7 @@ def _call_grobid_api(
     with open(pdf_path, "rb") as fh:
         for attempt in range(max_retries + 1):
             fh.seek(0)
+            t_start = time.monotonic()
             try:
                 response = requests.post(
                     endpoint,
@@ -77,12 +80,24 @@ def _call_grobid_api(
                     f"GROBID server not reachable at {url}: {exc}"
                 ) from exc
             except requests.exceptions.Timeout as exc:
+                dt = time.monotonic() - t_start
+                logger.warning(
+                    "GROBID request timed out after %.1fs (limit=%ds) on attempt %d/%d",
+                    dt, timeout, attempt + 1, max_retries + 1,
+                )
                 if attempt < max_retries:
                     time.sleep(2**attempt)
                     continue
                 raise RuntimeError(
                     f"GROBID request timed out after {timeout}s"
                 ) from exc
+
+            dt = time.monotonic() - t_start
+            logger.info(
+                "GROBID request returned in %.1fs (status=%d, attempt=%d/%d, bytes=%d)",
+                dt, response.status_code, attempt + 1, max_retries + 1,
+                len(response.content or b""),
+            )
 
             if response.status_code >= 500:
                 if attempt < max_retries:

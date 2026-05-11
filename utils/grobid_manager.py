@@ -13,12 +13,19 @@ class GrobidServerManager:
     def __init__(self, config: dict):
         self.config = config.get("quality_control", {}).get("grobid", {})
         self.auto_start = self.config.get("auto_start", False)
-        self.image = self.config.get("docker_image", "lfoppiano/grobid:0.8.0")
+        self.image = self.config.get("docker_image", "lfoppiano/grobid:0.8.0-crf")
         self.url = self.config.get("url", "http://localhost:8070")
+        self.java_opts = str(self.config.get("java_opts", "") or "").strip()
+        self.cpus = str(self.config.get("cpus", "") or "").strip()
+        self.concurrency = int(self.config.get("concurrency", 0) or 0)
+        self.container_name = str(self.config.get("container_name", "evi-grobid") or "evi-grobid").strip() or "evi-grobid"
         self.container_id = None
+        self._started_by_us = False
         logger.debug(
-            "GrobidServerManager init: auto_start=%s, image=%s, url=%s",
+            "GrobidServerManager init: auto_start=%s, image=%s, url=%s, "
+            "container_name=%s, java_opts=%r, concurrency=%s, cpus=%r",
             self.auto_start, self.image, self.url,
+            self.container_name, self.java_opts, self.concurrency, self.cpus,
         )
 
     def __enter__(self):
@@ -64,10 +71,16 @@ class GrobidServerManager:
         print(f"Starting temporary GROBID server ({self.image})...")
         try:
             # GROBID defaults to port 8070.
-            cmd = ["docker", "run", "--rm", "-d", "-p", "8070:8070", self.image]
+            cmd = ["docker", "run", "--rm", "-d"]
+            if self.cpus:
+                cmd += ["--cpus", self.cpus]
+            if self.java_opts:
+                cmd += ["-e", f"JAVA_OPTS={self.java_opts}"]
+            cmd += ["-p", "8070:8070", self.image]
             logger.debug("docker run command: %s", " ".join(cmd))
             result = subprocess.run(cmd, capture_output=True, text=True, check=True)
             self.container_id = result.stdout.strip()
+            self._started_by_us = True
             logger.debug("GROBID container id=%s", self.container_id)
             
             # Poll /api/isalive

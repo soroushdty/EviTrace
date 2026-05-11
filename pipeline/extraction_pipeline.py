@@ -132,8 +132,21 @@ def build_qc_bundle(
     if all_native:
         # Native path: GROBID (semantic) + pdfplumber (structural)
         logger.debug("Routing %s: native path (GROBID + pdfplumber)", pdf_name)
+        grobid_cfg = qc_config.get("quality_control", {}).get("grobid", {})
         try:
-            tei_xml, _ = extract_with_grobid(str(pdf_path))
+            tei_xml, _ = extract_with_grobid(
+                str(pdf_path),
+                grobid_url=grobid_cfg.get("url", "http://localhost:8070"),
+                timeout=int(grobid_cfg.get("timeout", 180)),
+                consolidate_header=int(grobid_cfg.get("consolidate_header", 0)),
+                consolidate_citations=int(grobid_cfg.get("consolidate_citations", 0)),
+                generate_ids=bool(grobid_cfg.get("generate_ids", True)),
+                segment_sentences=bool(grobid_cfg.get("segment_sentences", True)),
+                include_raw_citations=bool(grobid_cfg.get("include_raw_citations", True)),
+                include_raw_affiliations=bool(grobid_cfg.get("include_raw_affiliations", False)),
+                tei_coordinates=bool(grobid_cfg.get("tei_coordinates", True)),
+                max_retries=int(grobid_cfg.get("max_retries", 2)),
+            )
             logger.debug("GROBID returned TEI XML: %d chars", len(tei_xml))
         except Exception:
             if grobid_failure_behavior == "manifest_fail":
