@@ -3,6 +3,10 @@ import json
 import re
 from typing import Any
 
+from utils.logging_utils import get_logger
+
+logger = get_logger(__name__)
+
 # Validation constants
 ALLOWED_CONFIDENCE = {"h", "m", "l", "nr"}
 REQUIRED_KEYS = {"i", "v", "loc", "c"}
@@ -43,14 +47,25 @@ def _unwrap_top_level(data: Any) -> list[dict]:
 
 def _parse_response_json(raw: str) -> list[dict]:
     """Parse raw API text to a validated list of extraction dicts."""
+    cleaned = clean_json_string(raw)
+    logger.debug(
+        "validator: parsing JSON (raw=%d chars, cleaned=%d chars, tail=%r)",
+        len(raw), len(cleaned), cleaned[-60:] if cleaned else "",
+    )
     try:
-        parsed = json.loads(clean_json_string(raw))
+        parsed = json.loads(cleaned)
     except json.JSONDecodeError as exc:
+        logger.debug(
+            "validator: JSON parse failed at pos %s; raw output (full) = %r",
+            getattr(exc, "pos", "?"), raw,
+        )
         raise ValidationError(
             f"JSON parse failed: {exc}\n"
             f"Raw output (first 500 chars):\n{raw[:500]}"
         ) from exc
-    return _unwrap_top_level(parsed)
+    items = _unwrap_top_level(parsed)
+    logger.debug("validator: parsed %d extraction items", len(items))
+    return items
 
 
 def _validate_extraction_item(

@@ -67,6 +67,7 @@ def build_qc_bundle(
         ``decision``, and ``unified`` set.
     """
     pdf_path = Path(pdf_path)
+    logger.debug("build_qc_bundle: pdf=%s, pdf_name=%s", pdf_path, pdf_name)
 
     grobid_failure_behavior = (
         qc_config.get("quality_control", {})
@@ -74,6 +75,10 @@ def build_qc_bundle(
         .get("failure_behavior", "fallback")
     )
     ocr_enabled: bool = bool(qc_config.get("ocr", True))
+    logger.debug(
+        "grobid_failure_behavior=%s, ocr_enabled=%s",
+        grobid_failure_behavior, ocr_enabled,
+    )
 
     # ------------------------------------------------------------------
     # Step 1 — Per-page scan detection
@@ -84,25 +89,39 @@ def build_qc_bundle(
     )
     import importlib as _importlib  # noqa: PLC0415
     _tp_class_path = tp_cfg.get("class", "text_processing.composite.DefaultTextProcessor")
+    logger.debug("Loading text_processor class: %s", _tp_class_path)
     _tp_module_name, _tp_class_name = _tp_class_path.rsplit(".", 1)
     _tp_module = _importlib.import_module(_tp_module_name)
     _tp_cls = getattr(_tp_module, _tp_class_name)
     tp = _tp_cls(config=tp_cfg)
+    logger.debug("text_processor instance: %s", type(tp).__name__)
 
     import fitz as _fitz  # noqa: PLC0415 — lazy; not installed in all envs
     doc = _fitz.open(str(pdf_path))
     try:
         pages = list(doc)
+        logger.debug("%s opened with fitz: %d pages", pdf_name, len(pages))
         scan_cfg = qc_config.get("quality_control", {})
         page_classifications = [
             scan_detector.classify_page(page, tp, scan_cfg, page_index=i)
             for i, page in enumerate(pages)
         ]
+        for cls in page_classifications:
+            logger.debug(
+                "  scan page %d: native=%s, triggered_stages=%s, values=%s",
+                cls.page_index, cls.is_native, cls.triggered_stages, cls.stage_values,
+            )
     finally:
         doc.close()
 
     all_native = all(c.is_native for c in page_classifications)
     has_scanned = not all_native
+    logger.debug(
+        "scan summary: all_native=%s, has_scanned=%s, native_pages=%d/%d",
+        all_native, has_scanned,
+        sum(1 for c in page_classifications if c.is_native),
+        len(page_classifications),
+    )
 
     # ------------------------------------------------------------------
     # Step 2 — Route to correct extractors based on page classifications
@@ -112,17 +131,21 @@ def build_qc_bundle(
 
     if all_native:
         # Native path: GROBID (semantic) + pdfplumber (structural)
+        logger.debug("Routing %s: native path (GROBID + pdfplumber)", pdf_name)
         try:
             tei_xml, _ = extract_with_grobid(str(pdf_path))
+            logger.debug("GROBID returned TEI XML: %d chars", len(tei_xml))
         except Exception:
             if grobid_failure_behavior == "manifest_fail":
                 raise
             logger.warning(
                 "GROBID failed for %s; continuing with fallback mode", pdf_name
             )
+            logger.debug("GROBID exception for %s", pdf_name, exc_info=True)
             tei_xml = ""
 
         plumber_blocks = extract_with_pdfplumber(str(pdf_path))
+        logger.debug("pdfplumber returned %d blocks", len(plumber_blocks))
         branches = [
             Candidate(source="grobid",     index=0, payload=tei_xml,        status=None),
             Candidate(source="pdfplumber",  index=1, payload=plumber_blocks, status=None),
@@ -130,6 +153,7 @@ def build_qc_bundle(
 
     elif has_scanned and not ocr_enabled:
         # Scanned path with ocr=false: skip extraction, log WARNING
+        logger.debug("Routing %s: scanned pages present + ocr=false -> skipping", pdf_name)
         for cls in page_classifications:
             if not cls.is_native:
                 logger.warning(
@@ -140,8 +164,13 @@ def build_qc_bundle(
 
     else:
         # Scanned path with ocr=true: PaddleOCR (primary) + PyMuPDF OCR (secondary)
+        logger.debug("Routing %s: OCR path (PaddleOCR + PyMuPDF)", pdf_name)
         paddle_blocks = extract_with_paddleocr(str(pdf_path))
         pymupdf_blocks, _ = extract_with_pymupdf(str(pdf_path))
+        logger.debug(
+            "paddleocr=%d blocks, pymupdf=%d blocks",
+            len(paddle_blocks), len(pymupdf_blocks),
+        )
         branches = [
             Candidate(source="paddleocr", index=0, payload=paddle_blocks,  status=None),
             Candidate(source="pymupdf",   index=1, payload=pymupdf_blocks, status=None),
@@ -153,6 +182,10 @@ def build_qc_bundle(
     from text_processing.matchers import LexicalMatcher, SemanticMatcher  # noqa: PLC0415
     _lexical_matcher = LexicalMatcher()
     _semantic_matcher = SemanticMatcher()
+    logger.debug(
+        "Running QC pipeline for %s with %d branches: %s",
+        pdf_name, len(branches), [b.source for b in branches],
+    )
     ctx = run_quality_control(
         branches,
         pdf_name,
@@ -163,15 +196,24 @@ def build_qc_bundle(
     if ctx.unified is not None and isinstance(ctx.unified.content, dict):
         ctx.unified.content["source_pdf_path"] = str(pdf_path)
         ctx.unified.content["grobid_tei_xml"] = tei_xml
+        logger.debug(
+            "QC unified content keys for %s: %s",
+            pdf_name, sorted(ctx.unified.content.keys()),
+        )
 
     # ------------------------------------------------------------------
     # Step 4 — Annotation chain (project W3C JSON-LD from unified record)
     # ------------------------------------------------------------------
     if ctx.unified is not None:
         annotation_records = w3c_annotation.project(ctx.unified)
+        logger.debug(
+            "W3C annotation projection produced %d records for %s",
+            len(annotation_records), pdf_name,
+        )
         jsonld = annotation_artifact_generator.generate_w3c_jsonld(annotation_records)
         if not isinstance(ctx.unified.content, dict):
             ctx.unified.content = {}
         ctx.unified.content["annotations"] = jsonld
 
+    logger.debug("build_qc_bundle complete for %s", pdf_name)
     return ctx

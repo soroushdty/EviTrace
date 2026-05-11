@@ -34,6 +34,9 @@ _FILE_FORMAT = (
     "%(asctime)s | %(levelname)-8s | %(name)s | %(module)s:%(lineno)d | %(message)s"
 )
 _CONSOLE_FORMAT = "%(levelname)-8s | %(message)s"
+_CONSOLE_DEBUG_FORMAT = (
+    "%(asctime)s | %(levelname)-8s | %(module)s:%(lineno)d | %(message)s"
+)
 
 # Sentinel logger name used to identify handlers set up by this module so
 # that duplicate detection works correctly across repeated calls.
@@ -47,8 +50,14 @@ _ROOT_LOGGER_NAME = "evi_trace"
 def get_logger(name: str) -> logging.Logger:
     """Get a logger for the given module name.
 
-    All loggers are children of the root ``"evi_trace"`` logger, so they
-    inherit its handlers and configuration.
+    All loggers returned here are rooted under the ``"evi_trace"`` namespace
+    so that they inherit the handlers installed by :func:`setup_logging` on
+    the ``"evi_trace"`` logger. Without this rerooting, ``get_logger(__name__)``
+    would return a logger whose ancestor is the *root* logger (which has no
+    handlers), and the messages would be silently dropped.
+
+    The ``evi_trace`` name itself is returned unchanged, and a logger whose
+    name already starts with ``"evi_trace."`` is left alone.
 
     Parameters
     ----------
@@ -58,14 +67,18 @@ def get_logger(name: str) -> logging.Logger:
     Returns
     -------
     logging.Logger
-        A logger instance for the given name.
+        A logger instance rooted under ``"evi_trace"``.
 
     Examples
     --------
     >>> logger = get_logger(__name__)
     >>> logger.info("Module initialized")
     """
-    return logging.getLogger(name)
+    if not name or name == _ROOT_LOGGER_NAME:
+        return logging.getLogger(_ROOT_LOGGER_NAME)
+    if name.startswith(_ROOT_LOGGER_NAME + "."):
+        return logging.getLogger(name)
+    return logging.getLogger(f"{_ROOT_LOGGER_NAME}.{name}")
 
 
 def get_root_logger(root_logger_name: str = _ROOT_LOGGER_NAME) -> logging.Logger:
@@ -213,17 +226,22 @@ def setup_logging(
 
     # Obtain (or create) the named logger
     logger = logging.getLogger(root_logger_name)
+    # Also configure the legacy "pdf_extractor" logger root used by several
+    # subsystems (scan_detector, grobid_manager, quality_control.*).  Without
+    # this, messages emitted through that root are dropped silently.
+    legacy_logger = logging.getLogger("pdf_extractor")
 
     # Remove any handlers previously added by this function to avoid
     # duplicate output on repeated runs.
-    logger.handlers = [
-        h for h in logger.handlers
-        if not getattr(h, "_evi_trace_managed", False)
-    ]
-
-    # Logger itself should pass everything through; individual handlers
-    # apply their own level filters.
-    logger.setLevel(logging.DEBUG)
+    for target in (logger, legacy_logger):
+        target.handlers = [
+            h for h in target.handlers
+            if not getattr(h, "_evi_trace_managed", False)
+        ]
+        # Logger itself should pass everything through; individual handlers
+        # apply their own level filters.
+        target.setLevel(logging.DEBUG)
+        target.propagate = False
 
     # ------------------------------------------------------------------
     # File handler
@@ -234,15 +252,24 @@ def setup_logging(
     fh.setFormatter(logging.Formatter(_FILE_FORMAT))
     fh._evi_trace_managed = True  # type: ignore[attr-defined]
     logger.addHandler(fh)
+    legacy_logger.addHandler(fh)
 
     # ------------------------------------------------------------------
     # Console / stream handler
     # ------------------------------------------------------------------
     sh = logging.StreamHandler()
     sh.setLevel(numeric_console_level)
-    sh.setFormatter(logging.Formatter(_CONSOLE_FORMAT))
+    # When the console is at DEBUG, use a richer format so users can trace
+    # execution; keep the concise format at INFO+ to avoid clutter.
+    console_format = (
+        _CONSOLE_DEBUG_FORMAT
+        if numeric_console_level <= logging.DEBUG
+        else _CONSOLE_FORMAT
+    )
+    sh.setFormatter(logging.Formatter(console_format))
     sh._evi_trace_managed = True  # type: ignore[attr-defined]
     logger.addHandler(sh)
+    legacy_logger.addHandler(sh)
 
     logger.info(
         "Logging initialised | file=%s (level=DEBUG) | console level=%s",
