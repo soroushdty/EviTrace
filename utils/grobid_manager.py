@@ -7,27 +7,13 @@ import platform
 
 logger = logging.getLogger("pdf_extractor")
 
-
-_DEPRECATED_GROBID_IMAGE_MAP = {
-    "lfoppiano/grobid:0.8.0": "lfoppiano/grobid:0.9.0-crf",
-    "lfoppiano/grobid:0.8.0-crf": "lfoppiano/grobid:0.9.0-crf",
-}
-
-
 class GrobidServerManager:
     """Context manager to automate the local GROBID server lifecycle."""
     
     def __init__(self, config: dict):
         self.config = config.get("quality_control", {}).get("grobid", {})
         self.auto_start = self.config.get("auto_start", False)
-        configured_image = self.config.get("docker_image", "lfoppiano/grobid:0.9.0-crf")
-        self.image = _DEPRECATED_GROBID_IMAGE_MAP.get(configured_image, configured_image)
-        if self.image != configured_image:
-            logger.warning(
-                "Configured deprecated GROBID image '%s'; using '%s' instead.",
-                configured_image,
-                self.image,
-            )
+        self.image = self.config.get("docker_image", "lfoppiano/grobid:0.8.0")
         self.url = self.config.get("url", "http://localhost:8070")
         self.container_id = None
         logger.debug(
