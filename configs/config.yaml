@@ -133,7 +133,7 @@ quality_control:
     # EVI_GROBID_STOP_ON_EXIT=1, or flip this to true for CI teardown.
     container_name: "evi-grobid"
     stop_on_exit: false
-    timeout: 300
+    timeout: 600
     consolidate_header: 0
     consolidate_citations: 0
     generate_ids: true

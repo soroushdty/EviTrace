@@ -126,6 +126,14 @@ class GrobidServerManager:
             print("GROBID server failed to start in time.")
             logger.error("GROBID did not report healthy within 300s.")
             sys.exit(1)
+
+        # 4. Warm up the CRF models by sending a trivial PDF.
+        # /api/isalive returns before the CRF models are fully loaded into
+        # memory — the first real processFulltextDocument request pays the
+        # ~120-300s model-load penalty. We absorb that cost here with a
+        # synthetic minimal PDF so the user's real PDF processes quickly.
+        self._warmup_models()
+
         print("GROBID server is ready.")
         return self
 
@@ -198,6 +206,62 @@ class GrobidServerManager:
         self.container_id = result.stdout.strip()
         self._started_by_us = True
         logger.debug("GROBID container id=%s", self.container_id)
+
+    def _warmup_models(self) -> None:
+        """Send a minimal PDF to GROBID to trigger CRF model loading.
+
+        The /api/isalive endpoint returns 200 before GROBID's CRF models
+        are fully loaded. The first processFulltextDocument request pays a
+        heavy penalty (~120-300s) for model deserialization and JIT warmup.
+        We absorb that cost here with a tiny synthetic PDF so the user's
+        actual documents process at normal speed (~10-60s).
+        """
+        import requests
+        import io
+
+        # Minimal valid PDF (1 page, no content — just enough for GROBID to
+        # accept and trigger its model pipeline).
+        minimal_pdf = (
+            b"%PDF-1.0\n"
+            b"1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
+            b"2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n"
+            b"3 0 obj<</Type/Page/MediaBox[0 0 612 792]/Parent 2 0 R>>endobj\n"
+            b"xref\n0 4\n"
+            b"0000000000 65535 f \n"
+            b"0000000009 00000 n \n"
+            b"0000000058 00000 n \n"
+            b"0000000115 00000 n \n"
+            b"trailer<</Size 4/Root 1 0 R>>\n"
+            b"startxref\n190\n%%EOF\n"
+        )
+
+        endpoint = self.url.rstrip("/") + "/api/processFulltextDocument"
+        print("Warming up GROBID models (first-time initialization)...")
+        logger.debug("Sending warmup PDF to %s", endpoint)
+        t_start = time.time()
+        try:
+            resp = requests.post(
+                endpoint,
+                files={"input": ("warmup.pdf", io.BytesIO(minimal_pdf), "application/pdf")},
+                data={"consolidateHeader": "0", "consolidateCitations": "0"},
+                timeout=600,
+            )
+            dt = time.time() - t_start
+            # Any response (even 4xx/5xx) means models are loaded.
+            logger.info(
+                "GROBID warmup completed in %.1fs (status=%d).",
+                dt, resp.status_code,
+            )
+            print(f"GROBID models loaded ({dt:.0f}s).")
+        except requests.exceptions.Timeout:
+            dt = time.time() - t_start
+            logger.warning(
+                "GROBID warmup timed out after %.1fs; proceeding anyway.", dt,
+            )
+            print(f"GROBID warmup timed out ({dt:.0f}s); proceeding.")
+        except requests.exceptions.RequestException as exc:
+            logger.warning("GROBID warmup request failed: %s; proceeding anyway.", exc)
+            print("GROBID warmup failed; proceeding.")
 
     @staticmethod
     def _container_state(name: str) -> str:
