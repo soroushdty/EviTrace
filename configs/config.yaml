@@ -73,7 +73,7 @@ log_file: "run.log"
 # Console level. File handler is always DEBUG (full detail on disk); the
 # console only shows INFO+ by default to keep the terminal readable on
 # long batch runs. Set to "DEBUG" when debugging a pipeline issue.
-log_level: "INFO"
+log_level: "DEBUG"
 
 # Extraction and OCR settings
 len_filter: 40
