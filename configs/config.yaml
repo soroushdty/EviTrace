@@ -57,10 +57,14 @@ ocr: false
 
 # Text processor configuration
 # class: fully-qualified class path resolved via importlib
-#   valid values: "utils.text_processor.TextProcessor" (default) or any SentenceSegment subclass path
+#   Must implement all six TextProcessor methods (normalize, tokenize_words,
+#   tokenize_sentences, clean_ocr, compare, extract_keywords). The composite
+#   DefaultTextProcessor fulfils this contract; single-purpose SentenceSegment
+#   backends (e.g. ScispaCySentenceSegment) do NOT and will crash the pipeline
+#   in scan_detector / reconciler stages.
 text_processor:
-  class: "text_processing.base.ScispaCySentenceSegment"
-  # sentence_tokenizer.backend: "scispacy" (default) | "wtpsplit" | "nltk_punkt" | "spacy_sentencizer" | "stanza"
+  class: "text_processing.composite.DefaultTextProcessor"
+  # sentence_tokenizer.backend: "scispacy" | "wtpsplit" | "nltk_punkt" (default) | "spacy_sentencizer" | "stanza"
   sentence_tokenizer:
     backend: "scispacy"
     model: "en_core_sci_sm"
