@@ -83,7 +83,7 @@ extraction:
   num_chunks: 3                  # total chunks; the last one is synthesis
   max_evidence_items_per_chunk: 250
   max_evidence_chars_per_chunk: 60000
-  evidence_cache_dir: "outputs/evidence_cache"
+  evidence_cache_dir: "/evidence_cache"
 ```
 
 The chunk-to-domain mapping for `num_chunks: 3` and `num_chunks: 5`
@@ -112,18 +112,22 @@ retry:
 
 ```yaml
 pdfs_path: "pdfs"
-output_folder_path: "outputs"
+main_output_dir: "outputs"       # repo-root output namespace
+output_folder_path: "outputs/"   # resolves to main_output_dir/run_TIMESTAMP/
 extraction_map_path: "configs/extraction_map.json"
 ```
 
 `pdfs_path` may be a folder, a single PDF file, or a URL (including a
-Google Drive folder URL). See
+Google Drive folder URL). The effective run directory is
+`<main_output_dir>/run_DD-MM-YY_HH-MM-SS/`, and `output_folder_path`,
+`log_file`, and `extraction.evidence_cache_dir` are resolved inside that
+run directory. See
 [`utils/path_utils.list_pdf_files_from_source`](../utils/README.md).
 
 ### Logging
 
 ```yaml
-log_file: "run.log"              # relative to project root or absolute
+log_file: "run.log"              # resolves to main_output_dir/run_TIMESTAMP/run.log
 log_level: "DEBUG"               # console level; the file handler is always DEBUG
 ```
 

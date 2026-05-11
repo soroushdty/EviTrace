@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 import tempfile
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 import yaml
@@ -44,6 +45,35 @@ def _load_local_settings() -> dict:
 
 _LOCAL_SETTINGS = _load_local_settings()
 
+
+def _resolve_main_output_dir(settings: dict | None = None, project_root: Path | None = None) -> Path:
+    """Return the configured main output directory."""
+    selected_settings = settings if settings is not None else _LOCAL_SETTINGS
+    base_dir = project_root if project_root is not None else PROJECT_ROOT
+    configured = str(selected_settings.get("main_output_dir", "outputs")).strip() or "outputs"
+    main_output = Path(configured).expanduser()
+    if not main_output.is_absolute():
+        main_output = base_dir / main_output
+    return main_output.resolve()
+
+
+RUN_FOLDER_NAME: str = f"run_{datetime.now().strftime('%d-%m-%y_%H-%M-%S')}"
+"""Per-process run folder name appended under the configured output root."""
+
+
+def resolve_run_output_path(path_fragment: str, *, project_root: Path | None = None, settings: dict | None = None) -> Path:
+    """Resolve a run-scoped path under <main_output_dir>/<run_timestamp>/."""
+    selected_settings = settings if settings is not None else _LOCAL_SETTINGS
+    base_dir = project_root if project_root is not None else PROJECT_ROOT
+    run_output_root = (_resolve_main_output_dir(selected_settings, base_dir) / RUN_FOLDER_NAME).resolve()
+
+    raw = str(path_fragment or "").strip()
+    normalized = raw.lstrip("/\\")
+    # Backward compatibility: legacy "outputs" now means the run root itself.
+    if normalized.rstrip("/\\") in {"", ".", "outputs"}:
+        return run_output_root
+    return (run_output_root / normalized).resolve()
+
 _extraction_candidate = BASE_DIR / _LOCAL_SETTINGS.get("extraction_map_path", "extraction_map.json")
 if not _extraction_candidate.exists():
     _extraction_candidate = BASE_DIR / "configs" / _LOCAL_SETTINGS.get("extraction_map_path", "extraction_map.json")
@@ -54,7 +84,7 @@ EXTRACTION_MAP: Path = _extraction_candidate
 PDF_DIR: Path = BASE_DIR / _LOCAL_SETTINGS.get("pdfs_path", "pdfs")
 """Directory where input PDFs are located."""
 
-OUTPUT_DIR: Path = BASE_DIR / _LOCAL_SETTINGS.get("output_folder_path", "outputs")
+OUTPUT_DIR: Path = resolve_run_output_path(_LOCAL_SETTINGS.get("output_folder_path", "outputs"))
 """Directory where extraction results are written."""
 
 MANIFEST_FILE: Path = BASE_DIR / "manifest.json"
@@ -81,11 +111,11 @@ def resolve_project_path(path_or_url: str) -> str:
 
 
 def resolve_log_path(log_file: str) -> Path:
-    """Return an absolute path for a log file relative to the project root."""
-    path_obj = Path(log_file)
+    """Return an absolute path for a log file relative to the run output folder."""
+    path_obj = Path(log_file).expanduser()
     if path_obj.is_absolute():
         return path_obj
-    return (PROJECT_ROOT / path_obj).resolve()
+    return resolve_run_output_path(log_file)
 
 
 
@@ -209,11 +239,14 @@ def list_pdf_files_from_dir(
     )
 
 
-def create_output_folder(output_folder_path: str = "output") -> str:
+def create_output_folder(output_folder_path: str = "outputs") -> str:
     """Create or resolve the output folder."""
-    output_folder = resolve_project_path(output_folder_path)
+    path_obj = Path(output_folder_path).expanduser()
+    if path_obj.is_absolute():
+        output_folder = str(path_obj.resolve())
+    else:
+        output_folder = str(resolve_run_output_path(output_folder_path))
     os.makedirs(output_folder, exist_ok=True)
     return output_folder
-
 
 
