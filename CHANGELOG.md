@@ -9,6 +9,7 @@ occurs.
 
 Updated all four steering documents to match the current codebase state after the QC migration and text-processing migration.
 
+- Removed `pdf_extractor/utils/` directory entirely (was empty after migration; only contained empty `__init__.py` and a migration notice README).
 - `product.md` — Fixed architecture tree: removed deleted `pdf_extractor/utils/` entries (text_utils, embedding_utils, layout_utils migrated); renamed `quality_control/defaults/` to `builtin_impls/`; added `quality_control/checks/` and `local_metrics.py`; added `VerificationResult` to data models table; updated module responsibilities table; added `text_processing` to dependency direction rule; removed deleted `utils/text_processor.py` entry; fixed `LocalQCReport` → `ExtractionCoverageReport`; fixed `semantic_qc` → `semantic_verification` in config quick-ref.
 - `config.md` — Fixed `text_processor.class` default from `utils.text_processor.TextProcessor` to `text_processing.base.ScispaCySentenceSegment`; clarified addons section (disabled by default, enable with URL).
 - `testing.md` — Expanded test layout tree to list all actual test files; added `text_processing → quality_control` to enforced dependency rules; updated TextProcessor mocking to reference `text_processing.base`; added `text_processing.*` to conftest resolution note; updated "What Is and Isn't Tested" table.
