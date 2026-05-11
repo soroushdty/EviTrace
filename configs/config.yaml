@@ -57,7 +57,11 @@ concurrency:
 # Retry configuration
 retry:
   max_retries: 3
-  base_delay_seconds: 5 # Actual delay = base * 2^(attempt - 1)
+  # Base delay in seconds for exponential backoff on non-429 errors.
+  # Actual delay = base * 2^(attempt - 1), capped at 30s. When the server
+  # sends a Retry-After header (standard for 429 and some 503), the client
+  # honors it verbatim instead of using the exponential schedule.
+  base_delay_seconds: 1
 
 # Paths
 pdfs_path: "input"

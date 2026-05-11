@@ -151,6 +151,64 @@ def _chunk_model_and_tokens(chunk_num: int) -> tuple[str, int]:
     return model, CHUNK_MAX_TOKENS[chunk_num]
 
 
+# Max sleep we will honor from a Retry-After header. Beyond this we cap and
+# let the next attempt fail fast rather than blocking the event loop for
+# minutes on a server that's asking us to back off.
+_MAX_RETRY_AFTER_SECONDS = 30.0
+
+
+def _retry_after_seconds(exc: Exception) -> Optional[float]:
+    """Return the ``Retry-After`` value (in seconds) from an OpenAI exception, or None.
+
+    Honors both integer-seconds and HTTP-date forms. Caps extreme values at
+    _MAX_RETRY_AFTER_SECONDS so a misconfigured proxy can't freeze us.
+    """
+    response = getattr(exc, "response", None)
+    headers = getattr(response, "headers", None)
+    if headers is None:
+        return None
+    # httpx.Headers and dict both support .get().
+    raw = headers.get("retry-after") or headers.get("Retry-After")
+    if raw is None:
+        return None
+    raw = str(raw).strip()
+    if not raw:
+        return None
+    try:
+        secs = float(raw)
+    except ValueError:
+        # HTTP-date form: "Wed, 21 Oct 2026 07:28:00 GMT"
+        try:
+            from email.utils import parsedate_to_datetime  # noqa: PLC0415
+            import datetime as _dt  # noqa: PLC0415
+            target = parsedate_to_datetime(raw)
+            if target is None:
+                return None
+            now = _dt.datetime.now(_dt.timezone.utc)
+            if target.tzinfo is None:
+                target = target.replace(tzinfo=_dt.timezone.utc)
+            secs = (target - now).total_seconds()
+        except Exception:
+            return None
+    if secs <= 0:
+        return 0.0
+    return min(secs, _MAX_RETRY_AFTER_SECONDS)
+
+
+def _backoff_delay(attempt: int, exc: Exception) -> float:
+    """Return the number of seconds to sleep before *attempt* is retried.
+
+    Prefers the server's Retry-After header when present (the authoritative
+    signal for 429 and some 503). Otherwise uses exponential backoff with
+    RETRY_BASE_DELAY as the base, capped at _MAX_RETRY_AFTER_SECONDS so a
+    pathological MAX_RETRIES value can't stall the event loop.
+    """
+    hinted = _retry_after_seconds(exc)
+    if hinted is not None:
+        return hinted
+    return min(RETRY_BASE_DELAY * (2 ** (attempt - 1)), _MAX_RETRY_AFTER_SECONDS)
+
+
 async def _call_api_with_retries(
     request_kwargs: dict[str, Any],
     semaphore: asyncio.Semaphore,
@@ -195,10 +253,10 @@ async def _call_api_with_retries(
             return response
 
         except (RateLimitError, APIStatusError, APIConnectionError, APITimeoutError) as exc:
-            delay = RETRY_BASE_DELAY * (2 ** (attempt - 1))
+            delay = _backoff_delay(attempt, exc)
             logger.warning(
                 f"{tag} API issue (attempt {attempt}/{MAX_RETRIES}), "
-                f"sleeping {delay}s -- {exc}"
+                f"sleeping {delay:.2f}s -- {exc}"
             )
             await asyncio.sleep(delay)
             last_exc = exc
@@ -316,20 +374,20 @@ async def extract_chunk(
             return raw
 
         except RateLimitError as exc:
-            delay = RETRY_BASE_DELAY * (2 ** (attempt - 1))
+            delay = _backoff_delay(attempt, exc)
             logger.warning(
                 f"{tag} rate-limited (attempt {attempt}/{MAX_RETRIES}), "
-                f"sleeping {delay}s -- {exc}"
+                f"sleeping {delay:.2f}s -- {exc}"
             )
             await asyncio.sleep(delay)
             last_exc = exc
 
         except (APIStatusError, APIConnectionError, APITimeoutError) as exc:
-            delay = RETRY_BASE_DELAY * (2 ** (attempt - 1))
+            delay = _backoff_delay(attempt, exc)
             status = getattr(exc, "status_code", "connection")
             logger.warning(
                 f"{tag} OpenAI API error {status} (attempt {attempt}/{MAX_RETRIES}), "
-                f"sleeping {delay}s -- {exc}"
+                f"sleeping {delay:.2f}s -- {exc}"
             )
             await asyncio.sleep(delay)
             last_exc = exc
