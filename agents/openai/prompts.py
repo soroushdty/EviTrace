@@ -31,12 +31,37 @@ def _shared_paper_prefix(source_package: str) -> str:
     ])
 
 
-def build_cache_warmup_message(source_package: str) -> str:
-    """Build the tiny suffix used only to prewarm the shared PDF prefix."""
-    return _shared_paper_prefix(source_package) + (
+def build_cache_warmup_message(
+    source_package: str,
+    chunk_fields: Optional[list[dict]] = None,
+) -> str:
+    """Build the warmup suffix used to seed a chunk's cacheable prefix.
+
+    When ``chunk_fields`` is ``None`` (default), the warmup covers only the
+    shared PDF prefix — useful for chunks 1..N-1 whose extraction maps all
+    get individually cached by the corresponding chunk call.
+
+    When ``chunk_fields`` is provided, the warmup ALSO emits the extraction-
+    map block that the real call would emit, extending the cached prefix
+    past the end of the extraction map. This is important for the synthesis
+    chunk, whose ``prior_context`` is a data-dependent trailing suffix that
+    cannot be cached across runs — warming the prefix up through the
+    extraction map is the most the server-side cache can keep.
+
+    The tail ("CACHE WARMUP ONLY ...") is intentionally different from the
+    tail of a real ``build_user_message`` call so the two serialisations
+    only match up to the end of the shared/mapped prefix.
+    """
+    parts: list[str] = [_shared_paper_prefix(source_package)]
+    if chunk_fields is not None:
+        parts.append(f"EXTRACTION MAP ({len(chunk_fields)} fields to extract):")
+        parts.append(json.dumps(chunk_fields, indent=2, ensure_ascii=False))
+        parts.append("")
+    parts.append(
         "CACHE WARMUP ONLY. Return the strict JSON object now with an empty "
         "extractions array."
     )
+    return "\n".join(parts)
 
 
 def build_user_message(

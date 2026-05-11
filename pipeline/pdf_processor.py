@@ -52,9 +52,12 @@ async def _run_parallel_chunks(
     manifest: dict,
     manifest_lock: asyncio.Lock,
 ) -> Optional[list]:
-    """Run extraction chunks 1–(num_chunks-1) in parallel.
+    """Run extraction chunks 1..(num_chunks-1) in parallel.
 
-    Also fires a synthesis-model warmup task concurrently if configured.
+    Also fires a synthesis-shaped warmup task concurrently if configured.
+    The synthesis warmup extends the cached prefix past the extraction map
+    for the synthesis chunk, which is the most the server-side prompt cache
+    can preserve (prior_context is data-dependent and cannot be cached).
     Returns the list of raw chunk results, or None if any chunk failed.
     """
     if not chunk_sources:
@@ -64,6 +67,8 @@ async def _run_parallel_chunks(
 
     warm_source = chunk_sources.get(1) or next(iter(chunk_sources.values()))
     if enable_prewarm:
+        # Seed the shared PDF prefix for chunk 1 (and, transitively, every
+        # other chunk that reuses the byte-identical package).
         await warm_pdf_cache(warm_source, api_semaphore, pdf_name=pdf_name, model=chunk_model)
 
     extraction_chunks = [i for i in range(1, num_chunks) if i in chunk_fields]
@@ -80,16 +85,45 @@ async def _run_parallel_chunks(
         if i in chunk_fields
     ]
 
+    # Launch a synthesis-shaped warmup in parallel with extraction chunks.
+    # Why this shape: synthesis_user_msg = shared_prefix + extraction_map(N)
+    # + prior_context. prior_context is data-dependent and cannot be cached;
+    # shared_prefix + extraction_map(N) is the longest prefix we can keep
+    # warm. We fire this *before* gather so it overlaps with chunks 1..N-1.
     synthesis_warmup_task: asyncio.Task[bool] | None = None
-    if enable_prewarm and prewarm_synthesis_diff and synthesis_model != chunk_model:
+    synthesis_chunk_num = num_chunks
+    synthesis_fields = chunk_fields.get(synthesis_chunk_num, [])
+    if enable_prewarm and synthesis_fields:
+        need_diff_model_warm = prewarm_synthesis_diff and synthesis_model != chunk_model
+        # Always warm the synthesis-shaped prefix when enabled — even when
+        # the synthesis model matches the chunk model — because the extended
+        # warmed prefix saves input tokens on the synthesis call regardless
+        # of whether a separate model-level warmup is required.
         synthesis_warmup_task = asyncio.create_task(
-            warm_pdf_cache(warm_source, api_semaphore, pdf_name=pdf_name, model=synthesis_model)
+            warm_pdf_cache(
+                warm_source,
+                api_semaphore,
+                pdf_name=pdf_name,
+                model=synthesis_model,
+                chunk_fields=synthesis_fields,
+                tag_suffix="warmup-synth",
+            ),
+            name=f"synth-warmup-{pdf_name}",
         )
+        if not need_diff_model_warm:
+            logger.debug(
+                "Synthesis warmup for %s fired on same model=%s to seed extraction-map prefix",
+                pdf_name, synthesis_model,
+            )
 
     raw_results = await asyncio.gather(*chunk_tasks, return_exceptions=True)
 
     if synthesis_warmup_task is not None:
-        await synthesis_warmup_task
+        # Await but do not fail on warmup errors (required=False upstream).
+        try:
+            await synthesis_warmup_task
+        except Exception:
+            logger.debug("Synthesis warmup task raised; ignored", exc_info=True)
 
     failed = {extraction_chunks[i]: err for i, err in enumerate(raw_results) if isinstance(err, Exception)}
     if failed:

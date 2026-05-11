@@ -226,16 +226,23 @@ async def warm_pdf_cache(
     pdf_name: str = "unknown",
     model: str = CHUNK_MODEL,
     required: bool = False,
+    chunk_fields: Optional[list[dict]] = None,
+    tag_suffix: str = "warmup",
 ) -> bool:
     """
     Prewarm the shared PDF prefix for a model.
 
-    Warmup failures are logged and, by default, do not fail the extraction run.
-    This preserves output quality and lets the real extraction proceed even when
-    cache warmup is unavailable for the selected model/account.
+    Pass ``chunk_fields`` to extend the warmed prefix past the end of the
+    extraction map, which is what the synthesis chunk actually needs (its
+    real prefix is ``shared_paper_prefix + extraction_map``; the trailing
+    ``prior_context`` is data-dependent and cannot be cached).
+
+    Warmup failures are logged and, by default, do not fail the extraction
+    run. This preserves output quality and lets the real extraction proceed
+    even when cache warmup is unavailable for the selected model/account.
     """
-    tag = f"[{pdf_name} | warmup | {model}]"
-    user_msg = build_cache_warmup_message(source_package)
+    tag = f"[{pdf_name} | {tag_suffix} | {model}]"
+    user_msg = build_cache_warmup_message(source_package, chunk_fields=chunk_fields)
     request_kwargs = _base_request_kwargs(
         model=model,
         source_package=source_package,

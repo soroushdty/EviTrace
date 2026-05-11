@@ -21,6 +21,12 @@ openai:
     retention: "24h" # e.g., "24h", "in_memory"
     enable_prewarm: true
     warmup_max_tokens: 32
+    # When true, fire an extra synthesis-shaped warmup (shared_prefix +
+    # extraction_map for the synthesis chunk) in parallel with the
+    # extraction chunks. This preserves the extraction-map prefix on the
+    # server cache for the synthesis call; prior_context is a data-
+    # dependent trailing suffix that cannot be cached. Saves input tokens
+    # on the synthesis chunk even when chunk_model == synthesis_model.
     prewarm_synthesis_if_model_diff: true
 
 # Extraction and chunking configuration
