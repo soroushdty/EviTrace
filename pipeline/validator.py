@@ -1,7 +1,9 @@
 """Validate model JSON output against the expected extraction schema."""
+from __future__ import annotations
+
 import json
 import re
-from typing import Any
+from typing import Any, Optional
 
 from utils.logging_utils import get_logger
 
@@ -72,7 +74,7 @@ def _validate_extraction_item(
     i: int,
     obj: Any,
     actual_indices: list[int],
-    valid_location_ids: set[str] | None = None,
+    valid_location_ids: Optional[set] = None,
 ) -> None:
     """Validate a single extraction object and append its index to actual_indices."""
     if not isinstance(obj, dict):
@@ -121,7 +123,7 @@ def validate_chunk_output(
     raw: str,
     expected_indices: list[int],
     *,
-    valid_location_ids: set[str] | None = None,
+    valid_location_ids: Optional[set] = None,
 ) -> list[dict]:
     """
     Parse and validate a subagent's raw text output.

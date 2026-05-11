@@ -64,7 +64,7 @@ _QC_DEFAULTS: dict = {
             "extraction_coverage_ratio_threshold": 0.6,
             "long_sentence_word_threshold": 120,
             "long_sentence_max_fraction": 0.12,
-            "expected_sections": ["abstract", "introduction", "methods", "results"],
+            "expected_sections": ["abstract", "introduction", "methods", "results", "discussion", "conclusion"],
             "caption_table_figure_check_enabled": True,
             "coordinate_coverage_threshold": 0.1,
             "references_in_body_threshold": 0.05,

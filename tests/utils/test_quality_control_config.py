@@ -407,7 +407,7 @@ class TestLocalMetricsDefaults:
     def test_local_metrics_expected_sections_default(self, tmp_path):
         cfg = self._load(tmp_path)
         assert cfg["quality_control"]["local_metrics"]["expected_sections"] == [
-            "abstract", "introduction", "methods", "results"
+            "abstract", "introduction", "methods", "results", "discussion", "conclusion"
         ]
 
     def test_local_metrics_caption_table_figure_check_enabled_default_true(self, tmp_path):
@@ -766,9 +766,9 @@ class TestTextProcessorEmptyConfig:
         assert tp is not None
 
     def test_text_processor_norm_backend_default(self):
-        """Default config class path points to text_processing.base.ScispaCySentenceSegment."""
+        """Default config class path points to text_processing.composite.DefaultTextProcessor."""
         from utils.config_utils import _QC_DEFAULTS
-        assert _QC_DEFAULTS["text_processor"]["class"] == "text_processing.base.ScispaCySentenceSegment"
+        assert _QC_DEFAULTS["text_processor"]["class"] == "text_processing.composite.DefaultTextProcessor"
 
     def test_text_processor_word_tokenizer_backend_default(self):
         """Default word tokenizer backend in config is 'simple'."""

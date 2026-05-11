@@ -143,7 +143,7 @@ quality_control:
     extraction_coverage_ratio_threshold: 0.6
     long_sentence_word_threshold: 120
     long_sentence_max_fraction: 0.12
-    expected_sections: ["abstract", "introduction", "methods", "results"]
+    expected_sections: ["abstract", "introduction", "methods", "results", "discussion", "conclusion"]
     caption_table_figure_check_enabled: true
     coordinate_coverage_threshold: 0.1
     references_in_body_threshold: 0.05
@@ -152,33 +152,16 @@ quality_control:
   artifact_generator:
     export_to_disk: true
     output_dir: "output/qc_artifacts"
-  rater:
-    attributes: []
-  iaa_calculator:
-    thresholds: {}
-    agreement_metrics: []
-  adjudicator:
-    strategy: "placeholder"
   reconciler:
     enable_tei_export: false
     enable_annotation_export: false
-  # Per-page scan detection thresholds (Requirement 9 / design §scan_detector)
-  # text_density_threshold: minimum word count for a page to be classified as native (integer, >= 0)
-  # alpha_ratio_threshold: minimum fraction of alphabetic characters in cleaned text (float, 0.0-1.0)
-  # image_dominance_threshold: max image-area fraction before page is flagged as scanned (float, 0.0-1.0)
   scan_detection:
-    text_density_threshold: 50
-    alpha_ratio_threshold: 0.60
-    image_dominance_threshold: 0.85
-  # OCR rasterization settings (Requirement 9)
-  # rasterization_dpi: DPI used when rasterizing a page for PaddleOCR (integer; e.g. 150 | 300)
+    text_density_threshold: 50       # min word count for a page to be classified as native (int, >= 0)
+    alpha_ratio_threshold: 0.60      # min fraction of alphabetic chars in cleaned text (float, 0.0–1.0)
+    image_dominance_threshold: 0.85  # max image-area fraction before page is flagged as scanned (float, 0.0–1.0)
   ocr:
-    rasterization_dpi: 150
-  # Text fidelity concern settings (Requirement 9)
-  # edit_distance_threshold: normalized Levenshtein distance above which texts are "divergent" (float, 0.0-1.0)
+    rasterization_dpi: 150           # DPI used when rasterizing a page for PaddleOCR (int; e.g. 150 | 300)
   text_fidelity:
-    edit_distance_threshold: 0.10
-  # Section verification concern settings (Requirement 9)
-  # font_size_tolerance: allowable font-size delta (in points) when verifying section headings (float)
+    edit_distance_threshold: 0.10    # normalized Levenshtein distance above which texts are "divergent" (float, 0.0–1.0)
   section_verification:
-    font_size_tolerance: 1.0
+    font_size_tolerance: 1.0         # allowable font-size delta (in points) when verifying section headings

@@ -5,6 +5,7 @@ optional dependencies.
 
 Validates: Requirements 12.10, 13.9, 13.10
 """
+from __future__ import annotations
 
 import ast
 from pathlib import Path
