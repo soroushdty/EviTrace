@@ -220,3 +220,6 @@ __marimo__/
 # IO
 output*/
 input*/
+manifest.json
+test_output.csv
+result*/
