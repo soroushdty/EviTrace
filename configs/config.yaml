@@ -43,7 +43,7 @@ extraction:
   # to save more input tokens.
   max_evidence_items_per_chunk: 150
   max_evidence_chars_per_chunk: 30000
-  evidence_cache_dir: "/evidence_cache"
+  evidence_cache_dir: "evidence_cache"
 
 # Concurrency settings
 concurrency:

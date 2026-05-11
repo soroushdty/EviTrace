@@ -83,7 +83,7 @@ extraction:
   num_chunks: 3                  # total chunks; the last one is synthesis
   max_evidence_items_per_chunk: 250
   max_evidence_chars_per_chunk: 60000
-  evidence_cache_dir: "/evidence_cache"
+  evidence_cache_dir: "evidence_cache"
 ```
 
 The chunk-to-domain mapping for `num_chunks: 3` and `num_chunks: 5`
