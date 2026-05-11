@@ -33,7 +33,7 @@ openai:
 extraction:
   # Number of extraction chunks
   # Chunk 1-N: extraction, Chunk N+1: synthesis/review
-  num_chunks: 3
+  num_chunks: 5
   # Evidence budgets per chunk. Defaults tuned so the ranker actually prunes
   # (old defaults of 250/60000 were larger than every real paper's evidence
   # set, so nothing was filtered and we were paying to tokenize the full
@@ -42,7 +42,7 @@ extraction:
   # Raise these if your downstream QC reports missing evidence; lower them
   # to save more input tokens.
   max_evidence_items_per_chunk: 150
-  max_evidence_chars_per_chunk: 30000
+  max_evidence_chars_per_chunk: 10000
   evidence_cache_dir: "evidence_cache"
 
 # Concurrency settings
