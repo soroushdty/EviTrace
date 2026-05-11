@@ -116,7 +116,7 @@ ocr: false                       # enable PaddleOCR for scanned pages
 
 ```yaml
 text_processor:
-  class: "utils.text_processor.TextProcessor"   # or fully-qualified SentenceSegment subclass
+  class: "text_processing.base.ScispaCySentenceSegment"   # or fully-qualified SentenceSegment subclass
   sentence_tokenizer:
     backend: "scispacy"          # scispacy | wtpsplit | nltk_punkt | spacy_sentencizer | stanza
     model: "en_core_sci_sm"
@@ -257,7 +257,7 @@ quality_control:
 
 ### `quality_control.addons`
 
-All disabled by default. Provide a running service URL to enable:
+Disabled by default. Provide a running service URL and set `enabled: true` to activate:
 
 ```yaml
 quality_control:
@@ -278,6 +278,8 @@ quality_control:
       endpoint: "/service/disambiguate"
       timeout: 20
 ```
+
+When `enabled: true` and a valid `url` is provided, the addon service is called during evidence index enrichment.
 
 ### `quality_control` pipeline stage settings
 

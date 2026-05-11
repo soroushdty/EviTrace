@@ -5,6 +5,14 @@ and should never be deleted. Add a brief entry whenever a spec is implemented,
 steering docs change, README files change, or any other significant code change
 occurs.
 
+## [2026-05] — Steering docs drift fix (`fix_steering_drift`)
+
+Updated all four steering documents to match the current codebase state after the QC migration and text-processing migration.
+
+- `product.md` — Fixed architecture tree: removed deleted `pdf_extractor/utils/` entries (text_utils, embedding_utils, layout_utils migrated); renamed `quality_control/defaults/` to `builtin_impls/`; added `quality_control/checks/` and `local_metrics.py`; added `VerificationResult` to data models table; updated module responsibilities table; added `text_processing` to dependency direction rule; removed deleted `utils/text_processor.py` entry; fixed `LocalQCReport` → `ExtractionCoverageReport`; fixed `semantic_qc` → `semantic_verification` in config quick-ref.
+- `config.md` — Fixed `text_processor.class` default from `utils.text_processor.TextProcessor` to `text_processing.base.ScispaCySentenceSegment`; clarified addons section (disabled by default, enable with URL).
+- `testing.md` — Expanded test layout tree to list all actual test files; added `text_processing → quality_control` to enforced dependency rules; updated TextProcessor mocking to reference `text_processing.base`; added `text_processing.*` to conftest resolution note; updated "What Is and Isn't Tested" table.
+
 ## [2026-05] — Text Processing Migration (`text-processing-migration`)
 
 Extracted all text processing utilities into a standalone `text_processing/` package at the repository root. This completes Phase 2 of the QC/TextProcessor split.

@@ -37,7 +37,7 @@ Always run from the **repo root**. `testpaths = ["tests"]` means pytest only col
 
 Two `conftest.py` files ensure `sys.path` is correct:
 
-- `conftest.py` (repo root) — required; ensures `pdf_extractor.*`, `utils.*`, `quality_control.*`, `pipeline.*`, and `agents.*` all resolve when pytest collects from the root.
+- `conftest.py` (repo root) — required; ensures `pdf_extractor.*`, `utils.*`, `quality_control.*`, `pipeline.*`, `agents.*`, and `text_processing.*` all resolve when pytest collects from the root.
 - `pdf_extractor/conftest.py` — inserts the project root at the front of `sys.path` as a fallback for collection starting inside `pdf_extractor/`.
 
 Both must exist. The root-level one takes precedence when running `python -m pytest` from the repo root.
@@ -49,14 +49,52 @@ Both must exist. The root-level one takes precedence when running `python -m pyt
 ```
 tests/
 ├── agents/
-│   └── openai/                  # api_client, prompts (async + PBT)
-├── pdf_extractor/               mirrors pdf_extractor/
-├── pipeline/                    mirrors pipeline/
-├── quality_control/             mirrors quality_control/
-├── steering/                    cross-cutting structural / separation tests
+│   └── openai/                  # api_client (async + cache key), prompts builders, prompts PBT
+├── pdf_extractor/               # mirrors pdf_extractor/
+│   ├── test_layout_utils.py
+│   ├── test_paddleocr_backend.py
+│   ├── test_parser_pipeline.py
+│   ├── test_pdfplumber_backend.py
+│   ├── test_pymupdf_backend.py
+│   ├── test_pymupdf_schema.py
+│   ├── test_quality_control_artifact_generator.py
+│   ├── test_scan_detector.py
+│   ├── test_scan_detector_routing.py
+│   ├── test_text_extractor_orchestrator.py
+│   ├── test_text_extractor_schemas.py
+│   └── test_w3c_annotation.py
+├── pipeline/                    # mirrors pipeline/
+│   ├── test_extraction_map_grouping.py
+│   ├── test_extraction_report_qc.py
+│   ├── test_manifest_io.py
+│   ├── test_orchestrator_concurrency.py
+│   ├── test_pdf_processor_helpers.py
+│   ├── test_pipeline_evidence_index.py
+│   └── test_pipeline_validator_loc.py
+├── quality_control/             # mirrors quality_control/
+│   ├── test_concern_strategies.py
+│   ├── test_domain_agnosticism.py
+│   ├── test_qc_checks_extractor_agreement.py
+│   ├── test_qc_checks_semantic_source.py
+│   ├── test_qc_checks_source_text.py
+│   ├── test_qc_checks_task_quality.py
+│   ├── test_qc_models.py
+│   ├── test_qc_pipeline_integration.py
+│   ├── test_qc_verification_result.py
+│   ├── test_quality_control_adjudicator.py
+│   ├── test_quality_control_iaa_calculator.py
+│   ├── test_quality_control_local_metrics.py
+│   ├── test_quality_control_pipeline.py
+│   ├── test_quality_control_rater.py
+│   ├── test_quality_control_reconciler.py
+│   ├── test_structure_validator.py
+│   ├── test_unified_record_layers.py
+│   ├── test_validator_base.py
+│   └── test_validator_properties.py
+├── steering/                    # cross-cutting structural / separation tests
 │   ├── test_qc_textprocessor_separation.py
 │   └── test_text_processing_separation.py
-├── text_processing/             mirrors text_processing/
+├── text_processing/             # mirrors text_processing/
 │   ├── test_base_abc.py         # ABC enforcement + lazy model loading
 │   ├── test_normalizers.py      # example-based normalizer tests
 │   ├── test_normalizers_properties.py  # PBT idempotence (Hypothesis)
@@ -66,8 +104,12 @@ tests/
 │   ├── test_embedding.py        # EmbeddingProcessor tests (mark slow)
 │   ├── test_embedding_properties.py   # PBT for embedding (mark slow)
 │   ├── test_import_isolation.py # verify import without heavy deps
-│   └── test_deleted_paths.py    # verify ModuleNotFoundError for legacy paths
-├── utils/                       mirrors utils/
+│   └── test_deleted_paths.py   # verify ModuleNotFoundError for legacy paths
+├── utils/                       # mirrors utils/
+│   ├── test_logging_utils.py
+│   ├── test_quality_control_config.py
+│   ├── test_sentence_processor.py
+│   └── test_source_resolution.py
 ├── test_dependency_directions.py   # cross-package import enforcement (AST-based)
 ├── test_migration_artifact_scrub_bug_condition.py
 └── test_migration_artifact_scrub_preservation.py
@@ -87,6 +129,8 @@ Examples:
 - `test_validator_base.py` — generic Validator engine
 - `test_validator_properties.py` — PBT for Validator
 - `test_structure_validator.py` — StructureSchemaValidator
+- `test_qc_checks_source_text.py` — source text check class
+- `test_qc_pipeline_integration.py` — end-to-end QC integration
 - `test_dependency_directions.py` — cross-package dependency enforcement
 
 ---
@@ -159,6 +203,7 @@ Enforced rules:
 | `pdf_extractor` | `quality_control` |
 | `quality_control` | `agents`, `pipeline`, `pdf_extractor` |
 | `agents` | `quality_control`, `pipeline`, `pdf_extractor` |
+| `text_processing` | `quality_control` |
 
 These rules are tested individually (one test per pair) and exhaustively (one combined test). Always run this suite after adding new cross-package imports.
 
@@ -182,13 +227,15 @@ Rules:
 | Area | Coverage |
 |---|---|
 | `pdf_extractor/extraction/` | Backends (GROBID, PyMuPDF, pdfplumber, PaddleOCR), scan detector, schemas |
-| `pdf_extractor/utils/` | `text_utils`, `embedding_utils`, `layout_utils` |
+| `pdf_extractor/layout_utils.py` | Section heading detection, location cross-check |
 | `pdf_extractor/annotation/` | W3C annotation projection and artifact generation |
 | `pdf_extractor/processing/` | Sentence processor (via `tests/utils/test_sentence_processor.py`) |
-| `quality_control/` | Pipeline, models, local metrics, rater, IAA calculator, adjudicator, reconciler, concern strategies, `Validator`, `StructureSchemaValidator`, `validate_context`, checks package (separation + integration) |
+| `quality_control/` | Pipeline, models, local metrics, rater, IAA calculator, adjudicator, reconciler, concern strategies, `Validator`, `StructureSchemaValidator`, `validate_context`, checks package (separation + integration), verification result, unified record layers |
+| `quality_control/checks/` | Source text, semantic source, extractor agreement, task quality scaffold |
 | `pipeline/` | Evidence index, manifest I/O, validator loc checks, extraction map grouping, extraction report QC, orchestrator concurrency, pdf_processor helpers |
-| `agents/openai/` | `api_client` (async), cache key, prompts builders, prompts PBT |
-| `utils/` | `config_utils`, `logging_utils`, source resolution, `text_processor`, sentence processor |
+| `agents/openai/` | `api_client` (async + cache key), prompts builders, prompts PBT |
+| `utils/` | `config_utils`, `logging_utils`, source resolution, sentence processor |
+| `text_processing/` | ABC enforcement, normalizers (example + PBT), tokenizers, matchers (example + PBT), embedding (mark slow), import isolation, deleted legacy paths |
 | `tests/steering/` | QC/TextProcessor separation enforcement (AST-based) |
 | `tests/` root | Dependency direction enforcement, migration regression tests |
 | `pipeline/orchestrator.py` (full integration) | No dedicated integration test — exercised via end-to-end runs |
@@ -318,14 +365,15 @@ mock_doc.sents = [mock_sent]
 mock_spacy.load.return_value = MagicMock(return_value=mock_doc)
 
 with patch.dict(sys.modules, {"scispacy": MagicMock(), "spacy": mock_spacy}):
-    from utils.text_processor import TextProcessor
-    tp = TextProcessor(config={})
+    from text_processing.base import ScispaCySentenceSegment
+    seg = ScispaCySentenceSegment()
 ```
 
 For backends that raise `ImportError` when the package is absent, patch the module to `None`:
 
 ```python
 with patch.dict(sys.modules, {"wtpsplit": None}):
+    from text_processing.base import WtpSplitSentenceSegment
     seg = WtpSplitSentenceSegment()
     with pytest.raises(ImportError, match="pip install wtpsplit"):
         seg.tokenize_sentences("Hello.")

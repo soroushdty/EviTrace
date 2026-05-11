@@ -28,7 +28,7 @@ main.py  (CLI entry — asyncio.run)
         │     │     ├── scan_detector.py # stateless per-page classifier
         │     │     └── schemas.py       # shared extraction schemas
         │     ├── processing/            # sentence_processor.py — sentence segmentation + full-text assembly
-        │     ├── utils/                 # (legacy files deleted; see text_processing/)
+        │     ├── layout_utils.py        # section heading detection + location cross-check
         │     ├── annotation/            # w3c_annotation.py + artifact_generator.py
         │     ├── pdf_extractor.py       # standalone CLI (no OpenAI key required)
         │     └── pdf_validator.py       # PDF-level structural validation
@@ -41,7 +41,9 @@ main.py  (CLI entry — asyncio.run)
         ├── quality_control/             # generic 4-stage QC: rater → IAA → adjudicator → reconciler
         │     ├── models.py              # ALL shared dataclasses — import from here only
         │     ├── concerns/              # injectable strategy objects
-        │     ├── defaults/              # QualityReport, InterRaterReport, AdjudicationDecision
+        │     ├── checks/                # QC check classes (SourceTextPresenceCheck, SemanticSourceVerificationCheck, ExtractorAgreementCheck, build_task_quality_scaffold)
+        │     ├── builtin_impls/         # QualityReport, InterRaterReport, AdjudicationDecision
+        │     ├── local_metrics.py       # ExtractionCoverageReport — 8 Tier 1 heuristic checks
         │     ├── validator.py           # generic Validator + ValidationResult (injectable, schema-driven)
         │     ├── structure_validator.py # StructureSchemaValidator — sole reader of configs/structure_schema.json
         │     └── validate_context.py    # validate_qc_context_input() — QC-to-LLM handoff guard
@@ -51,7 +53,7 @@ main.py  (CLI entry — asyncio.run)
         ├── pipeline/evidence_index.py   # GROBID TEI → ranked evidence bundle + local cache
         ├── pipeline/validator.py        # local JSON-Schema validation of LLM chunk outputs
         ├── pipeline/extraction_report.py # generate_qc_report(); writes qc_report.csv + stdout summary
-        └── utils/                       # config_utils, path_utils, logging_utils, text_processor, grobid_manager
+        └── utils/                       # config_utils, path_utils, logging_utils, grobid_manager
 ```
 
 Configuration lives in `configs/config.yaml` (note: `configs/`, not `config/`). Loaded once at startup via `utils/config_utils.py` and passed explicitly — never mutated as globals after startup.
@@ -83,7 +85,7 @@ Configuration lives in `configs/config.yaml` (note: `configs/`, not `config/`). 
 
 **Independently swappable stages** — Each stage (extraction, QC, LLM agent) can be used standalone. `pipeline/extraction_pipeline.py::build_qc_bundle()` is the single source of truth for the extraction flow; both `main.py` and the standalone `pdf_extractor.py` CLI delegate to it.
 
-**Dependency direction rule** — `quality_control` must not import from `agents`, `pipeline`, or `pdf_extractor`. `validate_qc_context_input` was placed in `quality_control/validate_context.py` specifically to respect this boundary.
+**Dependency direction rule** — `quality_control` must not import from `agents`, `pipeline`, or `pdf_extractor`. `text_processing` must not import from `quality_control`. `validate_qc_context_input` was placed in `quality_control/validate_context.py` specifically to respect this boundary.
 
 **OOP extensibility via ABCs** — Subclass to inject custom behavior:
 - `QualityMetrics` → per-branch quality checks (`passes_check()`)
@@ -117,6 +119,7 @@ Configuration lives in `configs/config.yaml` (note: `configs/`, not `config/`). 
 - Heavy optional dependencies (`sentence-transformers`, `faiss`, `torch`, `paddleocr`) are imported **lazily inside function bodies** — never at module level.
 - New top-level YAML keys must be registered in `_ALL_KNOWN_TOP_LEVEL_KEYS` in `utils/config_utils.py` or `load_local_config` raises `ValueError`.
 - All shared dataclasses live in `quality_control/models.py` — always import from there, never from individual QC submodules.
+- Concrete default implementations live in `quality_control/builtin_impls/` — import from `quality_control.builtin_impls` or the `quality_control` top-level re-export.
 
 ---
 
@@ -137,13 +140,13 @@ Configuration lives in `configs/config.yaml` (note: `configs/`, not `config/`). 
 | `pdf_extractor/extraction/` | One file per backend (GROBID, PyMuPDF, pdfplumber, PaddleOCR); `scan_detector`; `schemas` |
 | `pdf_extractor/annotation/` | W3C JSON-LD projection (`w3c_annotation.py`) and serialization (`artifact_generator.py`) |
 | `pdf_extractor/processing/sentence_processor.py` | Sentence segmentation and full-text assembly |
-| `pdf_extractor/utils/text_utils.py` | `exact_match_search`, `semantic_search`, text normalization helpers |
-| `pdf_extractor/utils/embedding_utils.py` | Embedding model loading, `embed_query`, `l2_normalise`, `build_faiss_index`, `build_sentence_store` |
+| `pdf_extractor/layout_utils.py` | `detect_section_heading`, `location_cross_check` — layout-aware utilities |
 | `quality_control/models.py` | ALL shared dataclasses — always import from here |
 | `quality_control/quality_control.py` | Generic `run_pipeline()` + PDF-specific `run_quality_control()` |
 | `quality_control/concerns/` | Injectable strategies: `TextFidelityConcern`, `SectionVerificationConcern`, `TableFigureMergeConcern` |
-| `quality_control/defaults/` | Default concrete impls: `QualityReport`, `InterRaterReport`, `AdjudicationDecision` |
-| `quality_control/local_metrics.py` | `LocalQCReport` — 8 heuristic checks, all threshold-driven |
+| `quality_control/checks/` | QC check classes: `SourceTextPresenceCheck`, `SemanticSourceVerificationCheck`, `ExtractorAgreementCheck`, `build_task_quality_scaffold` |
+| `quality_control/builtin_impls/` | Default concrete impls: `QualityReport`, `InterRaterReport`, `AdjudicationDecision` |
+| `quality_control/local_metrics.py` | `ExtractionCoverageReport` — 8 heuristic checks, all threshold-driven |
 | `quality_control/validator.py` | Generic `Validator` + `ValidationResult` — injectable, schema-driven, domain-agnostic |
 | `quality_control/structure_validator.py` | `StructureSchemaValidator` — sole reader of `configs/structure_schema.json` |
 | `quality_control/validate_context.py` | `validate_qc_context_input()` — QC-to-LLM handoff guard; `ValidationError` |
@@ -153,14 +156,13 @@ Configuration lives in `configs/config.yaml` (note: `configs/`, not `config/`). 
 | `utils/config_utils.py` | `load_openai_config`, `load_qc_config`, `load_local_config`; QC defaults deep-merge |
 | `utils/path_utils.py` | `PROJECT_ROOT`, `PDF_DIR`, `OUTPUT_DIR`, `EXTRACTION_MAP`, `MANIFEST_FILE`, `QC_REPORT_FILE`; PDF source resolution |
 | `utils/logging_utils.py` | Shared `evi_trace` root logger; `setup_logging`; `log_cache_usage` |
-| `utils/text_processor.py` | **DELETED** — migrated to `text_processing/` package |
+| `utils/grobid_manager.py` | `GrobidServerManager` context manager; Docker lifecycle; `/api/isalive` polling |
 | `text_processing/` | Standalone text processing package: ABCs, normalizers, tokenizers, matchers (lexical + semantic), embedding processor, sentence-segmentation backends |
 | `text_processing/base.py` | `TextProcessor` ABC + `SentenceSegment` ABC + 5 concrete backends (ScispaCy, WtpSplit, NLTKPunkt, SpacySentencizer, Stanza) |
 | `text_processing/normalizers.py` | `WhitespaceNormalizer`, `FullNormalizer`, `LineHealingNormalizer`, `UnicodeNormalizer`, `OcrCleaner` |
 | `text_processing/tokenizers.py` | `SimpleWordTokenizer` |
 | `text_processing/matchers.py` | `LexicalMatcher` (two-pass exact match), `SemanticMatcher` (FAISS-based) |
 | `text_processing/embedding.py` | `EmbeddingProcessor` (lazy-loaded sentence-transformers + FAISS) |
-| `utils/grobid_manager.py` | `GrobidServerManager` context manager; Docker lifecycle; `/api/isalive` polling |
 
 ---
 
@@ -180,9 +182,10 @@ All pipeline stages communicate through a single `QCBundle` instance mutated in 
 | `DocumentAlignment` | `paragraph_to_blocks`, `sentence_to_char_range`, `section_header_to_block`, `reconciliation_flags` |
 | `UnifiedRecord` | Final output: `document_id`, `content`, `semantic`, `structural`, `alignment` |
 | `ExtractionCoverageMetricRecord` | `metric_name`, `computed_value`, `threshold`, `triggered` |
+| `VerificationResult` | `check_name`, `status` (verified/candidate_match/no_match/skipped/unavailable), `score` [0.0–1.0], `evidence`, `details` |
 | `QCBundle` | Full run state: `branches`, `reports`, `iaa_metrics`, `decision`, `unified`, `metrics_hierarchy` |
 
-Default concrete implementations live in `quality_control/defaults/` and are exported from `quality_control.defaults`: `QualityReport`, `InterRaterReport`, `AdjudicationDecision`.
+Default concrete implementations live in `quality_control/builtin_impls/` and are exported from `quality_control.builtin_impls`: `QualityReport`, `InterRaterReport`, `AdjudicationDecision`.
 
 ---
 
@@ -203,7 +206,7 @@ Three distinct validators serve different concerns:
 
 | Tier | What runs | When |
 |---|---|---|
-| **Tier 1** | `LocalQCReport` — 8 heuristic checks (chars/page, GROBID/native ratio, long-sentence fraction, section coverage, caption coverage, coordinate availability, references-in-body, weird-char ratio) | Always |
+| **Tier 1** | `ExtractionCoverageReport` — 8 heuristic checks (chars/page, GROBID/native ratio, long-sentence fraction, section coverage, caption coverage, coordinate availability, references-in-body, weird-char ratio) | Always |
 | **Tier 2** | `exact_match_search` — two-pass normalised substring search across candidate branches | 1–2 Tier 1 metrics triggered |
 | **Tier 3** | FAISS semantic search | Scaffolded only; disabled by default; not wired into adjudication |
 
@@ -234,7 +237,7 @@ Config quick reference:
 | `quality_control.grobid_integration` | `failure_behavior` (`"manifest_fail"` \| `"fallback"`), `crop_figures`, `crop_tables` |
 | `quality_control.scan_detection` | `text_density_threshold`, `alpha_ratio_threshold`, `image_dominance_threshold` |
 | `quality_control.local_metrics` | 8 Tier 1 thresholds |
-| `quality_control.semantic_qc` | `enabled` (false by default), `model_name`, `similarity_threshold` |
+| `quality_control.semantic_verification` | `enabled` (false by default), `model_name`, `similarity_threshold`, `on_index_unavailable`, `extractor_agreement.*` |
 | `quality_control.addons` | `grobid_quantities`, `datastet`, `entity_fishing` (all disabled by default) |
 | `text_processor` | `class`, `sentence_tokenizer.backend`, `word_tokenizer.backend`, `normalizer.backend`, `comparison.threshold` |
 | `pdfs_path` | Folder, single PDF, or Google Drive URL |
