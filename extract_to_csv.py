@@ -17,7 +17,30 @@ import argparse
 import sys
 from pathlib import Path
 from collections import defaultdict
+import re
 
+
+def clean_cell_value(value):
+    """
+    Clean cell value by removing weird characters and stripping whitespace.
+    Uses regex to keep only alphanumeric, spaces, and common punctuation.
+
+    Args:
+        value: Raw cell value (string or other type)
+
+    Returns:
+        Cleaned string value
+    """
+    if not isinstance(value, str):
+        value = str(value) if value is not None else ''
+
+    # Remove non-printable and weird characters, keep alphanumeric, basic punctuation, and spaces
+    value = re.sub(r'[^\w\s\.\,\:\;\-\(\)\%\&\'\"\n]', '', value)
+
+    # Strip leading and trailing whitespace
+    value = value.strip()
+
+    return value
 
 def flatten_nested_data(data, parent_key=""):
     """
@@ -82,6 +105,7 @@ def extract_from_json(json_file_path):
 
             field_name = item.get('field_name', 'unknown')
             extracted_value = item.get('extracted_value', '')
+            extracted_value = clean_cell_value(extracted_value)
             field_index = item.get('field_index', float('inf'))
 
             # Store the data
