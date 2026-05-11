@@ -37,7 +37,7 @@ _QC_DEFAULTS: dict = {
         "discard_failed_branches": False,
         "status_field_location": "both",
         "artifact_generator": {"export_to_disk": False, "output_dir": "output/qc_artifacts"},
-        "rater": {"attributes": []},
+        "rater": {"attributes": [], "max_triggered_fraction": 0.5},
         "iaa_calculator": {"thresholds": {}, "agreement_metrics": []},
         "adjudicator": {"strategy": "majority_vote"},
         "reconciler": {"enable_tei_export": False, "enable_annotation_export": False},
