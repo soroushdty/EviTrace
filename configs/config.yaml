@@ -1,7 +1,7 @@
 # OpenAI API Configuration
 openai:
   # API key: will read from OPENAI_API_KEY environment variable if not set here
-  api_key: ""  # Set OPENAI_API_KEY environment variable
+  api_key: "" # Set OPENAI_API_KEY environment variable
 
   # Base URL: will read from OPENAI_BASE_URL environment variable if not set here
   # Default OpenAI API base URL. Leave empty to rely on environment override.
@@ -66,7 +66,6 @@ retry:
 # Paths
 pdfs_path: "input"
 main_output_dir: "outputs"
-output_folder_path: "outputs/"
 extraction_map_path: "configs/extraction_map.json"
 
 # Logging configuration
@@ -200,7 +199,15 @@ quality_control:
     extraction_coverage_ratio_threshold: 0.6
     long_sentence_word_threshold: 120
     long_sentence_max_fraction: 0.12
-    expected_sections: ["abstract", "introduction", "methods", "results", "discussion", "conclusion"]
+    expected_sections:
+      [
+        "abstract",
+        "introduction",
+        "methods",
+        "results",
+        "discussion",
+        "conclusion",
+      ]
     caption_table_figure_check_enabled: true
     coordinate_coverage_threshold: 0.1
     references_in_body_threshold: 0.05
@@ -213,12 +220,12 @@ quality_control:
     enable_tei_export: false
     enable_annotation_export: false
   scan_detection:
-    text_density_threshold: 50       # min word count for a page to be classified as native (int, >= 0)
-    alpha_ratio_threshold: 0.60      # min fraction of alphabetic chars in cleaned text (float, 0.0–1.0)
-    image_dominance_threshold: 0.85  # max image-area fraction before page is flagged as scanned (float, 0.0–1.0)
+    text_density_threshold: 50 # min word count for a page to be classified as native (int, >= 0)
+    alpha_ratio_threshold: 0.60 # min fraction of alphabetic chars in cleaned text (float, 0.0–1.0)
+    image_dominance_threshold: 0.85 # max image-area fraction before page is flagged as scanned (float, 0.0–1.0)
   ocr:
-    rasterization_dpi: 150           # DPI used when rasterizing a page for PaddleOCR (int; e.g. 150 | 300)
+    rasterization_dpi: 150 # DPI used when rasterizing a page for PaddleOCR (int; e.g. 150 | 300)
   text_fidelity:
-    edit_distance_threshold: 0.10    # normalized Levenshtein distance above which texts are "divergent" (float, 0.0–1.0)
+    edit_distance_threshold: 0.10 # normalized Levenshtein distance above which texts are "divergent" (float, 0.0–1.0)
   section_verification:
-    font_size_tolerance: 1.0         # allowable font-size delta (in points) when verifying section headings
+    font_size_tolerance: 1.0 # allowable font-size delta (in points) when verifying section headings
