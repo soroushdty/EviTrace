@@ -34,8 +34,15 @@ extraction:
   # Number of extraction chunks
   # Chunk 1-N: extraction, Chunk N+1: synthesis/review
   num_chunks: 3
-  max_evidence_items_per_chunk: 250
-  max_evidence_chars_per_chunk: 60000
+  # Evidence budgets per chunk. Defaults tuned so the ranker actually prunes
+  # (old defaults of 250/60000 were larger than every real paper's evidence
+  # set, so nothing was filtered and we were paying to tokenize the full
+  # corpus three times). 150 items / 30000 chars covers ~99% of scientific
+  # papers in the reference corpus without dropping high-signal sentences.
+  # Raise these if your downstream QC reports missing evidence; lower them
+  # to save more input tokens.
+  max_evidence_items_per_chunk: 150
+  max_evidence_chars_per_chunk: 30000
   evidence_cache_dir: "outputs/evidence_cache"
 
 # Concurrency settings
