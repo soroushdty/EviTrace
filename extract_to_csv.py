@@ -19,6 +19,12 @@ from pathlib import Path
 from collections import defaultdict
 import re
 
+from utils.config_utils import load_local_config
+from utils.logging_utils import get_logger, setup_logging
+
+
+logger = get_logger(__name__)
+
 
 def clean_cell_value(value):
     """
@@ -157,12 +163,22 @@ def extract_to_csv(json_file_path, output_csv_path):
             row.update(grouped_data[source_pdf])
             writer.writerow(row)
 
-    print(f"Successfully extracted data to: {output_csv_path}")
-    print(f"Total PDFs: {len(grouped_data)}")
-    print(f"Total unique field names: {len(all_field_names)}")
+    message = (
+        f"Successfully extracted data to: {output_csv_path} | "
+        f"Total PDFs: {len(grouped_data)} | "
+        f"Total unique field names: {len(all_field_names)}"
+    )
+    print(message)
+    logger.info(message)
 
 
 if __name__ == "__main__":
+    local_cfg = load_local_config(None)
+    setup_logging(
+        log_file=local_cfg.get("log_file", "run.log"),
+        console_level=local_cfg.get("log_level", "INFO"),
+    )
+
     parser = argparse.ArgumentParser(
         description="Extract field_name and extracted_value from JSON and convert to CSV.",
         formatter_class=argparse.RawDescriptionHelpFormatter,

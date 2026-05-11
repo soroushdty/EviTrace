@@ -109,6 +109,45 @@ def _tei_xpath(elem: ET.Element) -> str:
     return f".//{elem.tag.split('}')[-1]}"
 
 
+def _extract_year_from_text(text: str) -> str:
+    match = re.search(r"(19|20)\d{2}", text or "")
+    return match.group(0) if match else ""
+
+
+def _extract_publication_year_from_tei(root: ET.Element) -> str:
+    """Extract the best publication year candidate from TEI metadata."""
+    header = root.find(f".//{_NS}teiHeader")
+    if header is None:
+        return ""
+
+    priority_paths = [
+        f".//{_NS}fileDesc//{_NS}sourceDesc//{_NS}biblStruct//{_NS}monogr//{_NS}imprint//{_NS}date",
+        f".//{_NS}fileDesc//{_NS}sourceDesc//{_NS}biblStruct//{_NS}monogr//{_NS}date",
+        f".//{_NS}profileDesc//{_NS}creation//{_NS}date",
+        f".//{_NS}fileDesc//{_NS}sourceDesc//{_NS}biblStruct//{_NS}analytic//{_NS}date",
+    ]
+
+    candidates: list[ET.Element] = []
+    for path in priority_paths:
+        candidates.extend(header.findall(path))
+
+    # Fall back to any header date if the publication-style locations are missing.
+    candidates.extend(header.findall(f".//{_NS}date"))
+
+    for elem in candidates:
+        if not isinstance(elem, ET.Element):
+            continue
+        when = elem.attrib.get("when", "")
+        year = _extract_year_from_text(when)
+        if year:
+            return year
+        year = _extract_year_from_text("".join(elem.itertext()))
+        if year:
+            return year
+
+    return ""
+
+
 def _section_score(path: str) -> int:
     lower = path.lower()
     boosts = {
@@ -154,13 +193,7 @@ def _build_items_from_tei(tei_xml: str, paper_id: str, source_pdf: str) -> tuple
 
     title = root.find(f".//{_NS}titleStmt/{_NS}title")
     first_author = root.find(f".//{_NS}sourceDesc//{_NS}surname")
-    pub_date = root.find(f".//{_NS}teiHeader//{_NS}date")
-    year = ""
-    if pub_date is not None:
-        candidate = pub_date.attrib.get("when", "") or "".join(pub_date.itertext())
-        m = re.search(r"(19|20)\d{2}", candidate)
-        if m:
-            year = m.group(0)
+    year = _extract_publication_year_from_tei(root)
     author = _safe_text("".join(first_author.itertext())) if first_author is not None else ""
 
     prefilled = {1: author or paper_id, 2: year or "nr"}
