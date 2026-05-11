@@ -8,13 +8,16 @@ extraction map.
 
 The pipeline combines:
 
-1. A multi-backend **PDF text extractor** (GROBID, PyMuPDF, pdfplumber, PaddleOCR).
+1. A multi-backend **PDF text extractor** (GROBID, pdfplumber, PyMuPDF, PaddleOCR)
+   with per-page scan detection and complementary, non-competing backend routing.
 2. A **quality-control / adjudication** stage that compares extractor
-   branches and produces a single reconciled record.
-3. An ** extraction agent** with prompt-cache prewarm and
-   strict JSON-Schema structured outputs.
-4. A **synthesis layer** using the prior extracted fields as
-   read-only context to produce synthesized field (e.g. reviewer/critique fields).
+   branches through a four-stage pipeline (rater → IAA → adjudicator → reconciler)
+   and produces a single reconciled `UnifiedRecord`.
+3. A **W3C JSON-LD annotation layer** projected from the `UnifiedRecord` by
+   `pdf_extractor/annotation/`.
+4. A **chunked LLM extraction agent** (OpenAI Responses API) with prompt-cache
+   prewarm, section-aware evidence indexing, and strict JSON-Schema structured outputs.
+5. A **synthesis chunk** that consumes prior extracted fields as read-only context.
 
 ---
 
@@ -38,34 +41,45 @@ The pipeline combines:
 
 ## General Information
 
-EviTrace is a research tool for performing reviews of scientific
-literature, with a focus on biomedical papers. the pipeline is general enough
-to be used for the structured extraction of data with any user-defined set of domains and fields.
+EviTrace is a research tool for performing structured reviews of scientific
+literature, with a focus on biomedical papers. The pipeline is general enough
+to be used for the structured extraction of data with any user-defined set of
+domains and fields.
 
 The repository is organised as a pipeline of **independent, swappable
-modules** so that the PDF extractor, the Quality Control layer, and the LLM agent
-can each be reused outside the end-to-end review workflow.
+modules** so that the PDF extractor, the Quality Control layer, and the LLM
+agent can each be reused outside the end-to-end review workflow.
 
 ---
 
 ## Features
 
-- Multi-backend PDF text extraction with quality-driven cascade
-  (PyMuPDF → pdfplumber → Tesseract → PaddleOCR), plus an optional
-  GROBID branch used by the QC adjudicator.
-- Generic branch-adjudication QC pipeline with pluggable rater, IAA,
-  adjudicator, and reconciler stages.
-- Chunked extraction against the OpenAI Responses API with prompt cache
-  prewarm and a synthesis chunk that consumes prior chunks as
-  read-only context.
-- Strict JSON-Schema structured outputs with local field-index
-  validation independent of the API schema.
-- Idempotent run manifest (`manifest.json`) so partial runs can be
-  resumed safely.
+- Per-page scan-detector routing to complementary, non-competing backends:
+  GROBID (semantic authority) and pdfplumber (structural authority) for native
+  pages; PaddleOCR (primary) and PyMuPDF built-in OCR (cross-validator) for
+  scanned pages. Standalone Tesseract is never used.
+- Generic four-stage QC pipeline (rater → IAA → adjudicator → reconciler)
+  with injectable concern strategies (`TextFidelityConcern`,
+  `SectionVerificationConcern`, `TableFigureMergeConcern`).
+- Three-tier metrics hierarchy: Tier 1 (8 local heuristics), Tier 2
+  (exact-match search), Tier 3 (FAISS semantic search — scaffolded only).
+- GROBID TEI XML → ranked evidence bundle with section-aware scoring,
+  keyword overlap, and char/item budget limits; cached to disk by
+  `{paper_id}_{pdf_hash}`.
+- Fields 1–2 (author, publication year) pre-filled locally from TEI metadata
+  and never sent to the LLM.
+- Chunked extraction against the OpenAI Responses API with prompt-cache
+  prewarm and a synthesis chunk that consumes prior chunks as read-only context.
+- Strict JSON-Schema structured outputs with local field-index validation
+  independent of the API schema.
+- W3C JSON-LD annotation artifacts produced by `pdf_extractor/annotation/`
+  (sole producer — never built elsewhere).
+- Idempotent run manifest (`manifest.json`) so partial runs can be resumed safely.
 - Per-run flagged-fields QC report (`outputs/qc_report.csv`) for manual
   review of low-confidence or not-reported fields.
 - Configurable number of extraction chunks; supports both 3-chunk and
   5-chunk layouts out of the box.
+- Optional GROBID addon enrichment (grobid-quantities, datastet, entity-fishing).
 
 ---
 
@@ -76,10 +90,9 @@ can each be reused outside the end-to-end review workflow.
 - Python 3.10+
 - An OpenAI API key (Responses API access)
 - Optional: a running [GROBID](https://github.com/kermitt2/grobid)
-  instance for the GROBID branch of the QC pipeline (default URL
-  `http://localhost:8070`)
-- Optional: PaddleOCR system dependencies if you want the
-  OCR fallback tiers in the PDF extractor
+  instance (default URL `http://localhost:8070`); `auto_start: true` in
+  config will launch it via Docker automatically
+- Optional: PaddleOCR system dependencies if you want OCR for scanned pages
 
 ### Install
 
@@ -93,7 +106,7 @@ export OPENAI_API_KEY="sk-..."
 ### Add input PDFs
 
 Drop PDFs into the `pdfs/` folder (or any folder pointed to by
-`pdfs_path` in `config/config.yaml`):
+`pdfs_path` in `configs/config.yaml`):
 
 ```bash
 mkdir -p pdfs
@@ -113,22 +126,22 @@ python main.py --concurrency 2        # dial down if hitting rate limits
 python main.py --no-cache-prewarm     # disable per-PDF cache warmup
 ```
 
-A `pipeline.log` (or the path configured in `log_file`) is written
-alongside the run. Look for token/cache lines such as:
+A `run.log` (or the path configured in `log_file`) is written alongside
+the run. Look for token/cache lines such as:
 
 ```text
-[paper | warmup | gpt-4.1] tokens: input=..., cached=..., cache_hit=..., output=...
-[paper | chunk 1 | gpt-4.1] tokens: input=..., cached=..., cache_hit=..., output=...
+[paper | warmup | gpt-4.1] tokens: input=..., cached=..., cache_hit=..%, output=...
+[paper | chunk 1 | gpt-4.1] tokens: input=..., cached=..., cache_hit=..%, output=...
 ```
 
 ### Run only the PDF extractor
 
 The PDF extractor is also runnable as a standalone module that emits a
-per-paper JSON artifact suitable for downstream evidence matching:
+per-paper JSON artifact (no OpenAI API key required):
 
 ```bash
-python -m pdf_extractor.pdf_extractor                 # uses config/config.yaml
-python -m pdf_extractor.pdf_extractor --config /path/to/config.yaml
+python -m pdf_extractor.pdf_extractor                          # uses configs/config.yaml
+python -m pdf_extractor.pdf_extractor --config /path/to/cfg   # explicit config
 ```
 
 See [`pdf_extractor/README.md`](pdf_extractor/README.md) for details.
@@ -136,11 +149,12 @@ See [`pdf_extractor/README.md`](pdf_extractor/README.md) for details.
 ### Run the test suite
 
 ```bash
-python -m pytest -q
+python -m pytest -q           # fast suite (slow tests excluded)
+python -m pytest -q -m slow   # slow tests only
+python -m pytest -q -m ""     # everything
 ```
 
-See [`tests/README.md`](tests/README.md) for the layout of the test
-tree.
+See [`tests/README.md`](tests/README.md) for the layout of the test tree.
 
 ---
 
@@ -149,38 +163,54 @@ tree.
 The end-to-end workflow per PDF, as orchestrated by
 [`pipeline/`](pipeline/README.md):
 
-1. **Branch extraction.** [`pdf_extractor.extraction.GROBID`](pdf_extractor/extraction/README.md)
-   produces a TEI XML branch and
-   [`pdf_extractor.extraction.PyMuPDF`](pdf_extractor/extraction/README.md)
-   produces a native-text branch for the same PDF.
-2. **Quality control.** [`quality_control.run_quality_control`](quality_control/README.md)
-   evaluates the two branches, computes Tier 1 local heuristics,
-   adjudicates a primary branch, and reconciles a `UnifiedRecord` that
-   carries the canonical `exact_text` for the paper.
-3. **Cache prewarm (optional).** A tiny call against the chunk model
-   warms the OpenAI prompt cache for the shared `(system + PDF text)`
-   prefix. If the synthesis model differs and `prewarm_synthesis_if_model_diff`
-   is enabled, a separate synthesis-model warmup runs concurrently.
-4. **Parallel extraction chunks.** Chunks `1..N-1` run in parallel
-   against the chunk model, each scoped to a subset of fields by
-   domain. See [`pipeline/extraction_map.py`](pipeline/README.md).
-5. **Local validation.** Each chunk's structured-output JSON is
-   validated locally against the expected `field_index` set
-   (see [`pipeline/validator.py`](pipeline/README.md)).
-6. **Synthesis chunk.** Chunk `N` runs against the synthesis model with
-   the prior chunks' results passed as a trailing read-only context
-   block.
-7. **Persist.** Fields from all chunks are merged, sorted by
-   `field_index`, written to `outputs/<paper>.extracted.json`, and the
-   PDF is marked `complete` in `manifest.json`.
-8. **Report.** After all PDFs are processed, a flagged-fields CSV is
-   written to `outputs/qc_report.csv` for manual review.
+1. **Per-page scan detection.** `scan_detector.classify_page()` runs five
+   sequential stages on every page (empty text, low word count, low
+   alpha-char ratio after `clean_ocr`, zero embedded fonts, image-area
+   dominance) and classifies each page as `native` or `scanned`.
+2. **Backend routing.** Native pages → GROBID (semantic authority, TEI XML)
+   + pdfplumber (structural authority, text blocks); PyMuPDF font metadata
+   stored in `ctx.unified.content`. Scanned pages with `ocr=true` →
+   PaddleOCR (primary) + PyMuPDF built-in OCR (cross-validator). Scanned
+   pages with `ocr=false` → skip extraction, log WARNING.
+3. **Quality control.** `run_quality_control(branches, document_id, config)`
+   runs the four-stage pipeline, computes the three-tier metrics hierarchy,
+   and reconciles a `UnifiedRecord` carrying `exact_text` and W3C JSON-LD
+   annotations.
+4. **QC-to-LLM handoff guard.** `validate_qc_context_input(ctx)` performs
+   five pre-flight checks on the `QCBundle` before field extraction begins.
+5. **Evidence index.** `build_or_load_evidence_bundle()` parses GROBID TEI
+   XML into a ranked, section-scored index (sentences, tables, figure
+   captions), cached to disk by `{paper_id}_{pdf_hash}`. Fields 1–2 are
+   pre-filled locally from TEI metadata.
+6. **Cache prewarm (optional).** A tiny call warms the shared
+   `(system + evidence package)` prefix. Synthesis-model warmup fires
+   concurrently when models differ.
+7. **Parallel extraction chunks.** Chunks `1..N-1` run concurrently with
+   per-chunk evidence packages (section-aware scoring, keyword overlap,
+   char/item budget limits).
+8. **Local validation.** Each chunk's JSON is validated against the expected
+   `field_index` set, key schema, confidence enum, and `loc` ID membership.
+9. **Synthesis chunk.** Final chunk runs with prior chunk results as
+   read-only context.
+10. **Persist.** Fields merged, sorted by `field_index`, written to
+    `outputs/<paper>.extracted.json`; manifest marked `complete`.
+11. **QC report.** `generate_qc_report()` writes `outputs/qc_report.csv`
+    flagging low-confidence and not-reported fields, and prints a summary.
 
 ```text
 pdfs/paper.pdf
       |
       v
-[GROBID + PyMuPDF branches]  ── quality_control ──► UnifiedRecord (exact_text)
+[scan_detector.classify_page()]  ── per-page classification ──► native | scanned
+      |
+      ├── native pages ──► GROBID (semantic) + pdfplumber (structural) + PyMuPDF (font metadata)
+      └── scanned pages ──► PaddleOCR (primary) + PyMuPDF OCR (cross-validator)
+      |
+      v
+[quality_control.run_quality_control]  ── QC pipeline ──► UnifiedRecord (exact_text + annotations)
+      |
+      v
+[pipeline/evidence_index] ── GROBID TEI → ranked evidence bundle (cached)
       |
       v
 [OpenAI chunk model] tiny cache warmup
@@ -199,9 +229,9 @@ pdfs/paper.pdf
 [Python] merge all fields, save JSON, update manifest, generate QC CSV
 ```
 
-PDFs themselves run concurrently up to `concurrency.pdf_processing`.
-A global semaphore (`concurrency.global_api_limit`) caps total
-concurrent OpenAI API calls across all active PDFs.
+PDFs run concurrently up to `concurrency.pdf_processing`. A global
+semaphore (`concurrency.global_api_limit`) caps total concurrent OpenAI
+API calls across all active PDFs.
 
 ---
 
@@ -209,32 +239,60 @@ concurrent OpenAI API calls across all active PDFs.
 
 ```text
 EviTrace/
-├── main.py                  Top-level entry point (CLI)
-├── extraction_map.json      Field definitions: 62 fields across 13 domain groups
-├── requirements.txt         Runtime + test dependencies
-├── config/                  YAML configuration (OpenAI, QC, paths, logging)
-├── agents/                  External-agent integrations (currently OpenAI only)
-│   └── openai/              Async OpenAI Responses API client + prompt builders
-├── pipeline/                End-to-end orchestrator: chunks, validation, manifest, QC report
-├── pdf_extractor/           Standalone PDF text extraction module
-│   ├── extraction/          Multi-backend extraction cascade (PyMuPDF, pdfplumber, OCR, GROBID)
-│   ├── processing/          Sentence segmentation and full-text assembly
-│   └── utils/               Text, embedding, and layout helpers
-├── quality_control/         Generic branch-adjudication QC pipeline
-├── utils/                   Repo-wide shared helpers (config, logging, paths)
-└── tests/                   Pytest suite (pdf_extractor + quality_control)
+├── main.py                       Top-level CLI entry point (asyncio.run)
+├── requirements.txt              Runtime + test dependencies
+├── pyproject.toml                pytest configuration (markers, importlib mode)
+├── configs/                      YAML configuration + JSON schemas
+│   ├── config.yaml               All runtime configuration
+│   ├── extraction_map.json       62 extraction fields across 13 domain groups
+│   ├── agent_schema.json         LLM system prompt, policies, extraction rules
+│   └── structure_schema.json     JSON Schema (Draft 7) for pipeline dataclasses
+├── agents/                       External-agent integrations (currently OpenAI only)
+│   ├── validator.py              AgentSchemaValidator — sole reader of agent_schema.json
+│   └── openai/                   Async OpenAI Responses API client + prompt builders
+├── pipeline/                     End-to-end orchestrator
+│   ├── extraction_pipeline.py    build_qc_bundle() — single source of truth for extraction flow
+│   ├── orchestrator.py           Async run_pipeline(); PDF-level concurrency
+│   ├── pdf_processor.py          Per-PDF LLM extraction orchestration
+│   ├── evidence_index.py         GROBID TEI → ranked evidence bundle + disk cache
+│   ├── extraction_map.py         Load extraction_map.json; group fields by chunk
+│   ├── extraction_report.py      generate_qc_report(); writes qc_report.csv
+│   ├── manifest.py               Idempotent checkpoint read/write
+│   └── validator.py              Local JSON-Schema validation of LLM chunk outputs
+├── pdf_extractor/                Standalone PDF text extraction module
+│   ├── pdf_extractor.py          Standalone CLI (no OpenAI key required)
+│   ├── pdf_validator.py          PDF-level structural validation
+│   ├── extraction/               Per-backend extractors + scan_detector + schemas
+│   ├── processing/               Sentence segmentation and full-text assembly
+│   ├── annotation/               W3C JSON-LD projection and serialization
+│   └── utils/                    text_utils, embedding_utils (no layout_utils here)
+├── quality_control/              Generic four-stage QC pipeline
+│   ├── models.py                 ALL shared dataclasses — import from here only
+│   ├── quality_control.py        run_pipeline() + run_quality_control()
+│   ├── local_metrics.py          LocalQCReport — 8 Tier 1 heuristic checks
+│   ├── validator.py              Generic Validator + ValidationResult
+│   ├── structure_validator.py    StructureSchemaValidator — sole reader of structure_schema.json
+│   ├── validate_context.py       validate_qc_context_input() — QC-to-LLM handoff guard
+│   ├── defaults/                 QualityReport, InterRaterReport, AdjudicationDecision
+│   └── concerns/                 TextFidelityConcern, SectionVerificationConcern, TableFigureMergeConcern
+└── utils/                        Repo-wide shared helpers
+    ├── config_utils.py           load_openai_config, load_qc_config, load_local_config
+    ├── path_utils.py             PROJECT_ROOT, PDF_DIR, OUTPUT_DIR, EXTRACTION_MAP, etc.
+    ├── logging_utils.py          get_logger, setup_logging, log_cache_usage
+    ├── text_processor.py         TextProcessor hub + SentenceSegment ABC + 5 backends
+    └── grobid_manager.py         GrobidServerManager context manager; Docker lifecycle
 ```
 
 | Directory | Purpose | Documentation |
 | --------- | ------- | ------------- |
 | `agents/` | External agent integrations | [agents/README.md](agents/README.md) |
 | `agents/openai/` | OpenAI Responses API client and prompt builders | [agents/openai/README.md](agents/openai/README.md) |
-| `config/` | YAML configuration files | [config/README.md](config/README.md) |
+| `configs/` | YAML configuration and JSON schema files | [configs/README.md](configs/README.md) |
 | `pipeline/` | End-to-end chunked extraction orchestrator | [pipeline/README.md](pipeline/README.md) |
 | `pdf_extractor/` | Standalone PDF text extraction module | [pdf_extractor/README.md](pdf_extractor/README.md) |
-| `pdf_extractor/extraction/` | Backend-specific PDF text extractors | [pdf_extractor/extraction/README.md](pdf_extractor/extraction/README.md) |
+| `pdf_extractor/extraction/` | Per-page scan-detector routing and backend extractors | [pdf_extractor/extraction/README.md](pdf_extractor/extraction/README.md) |
 | `pdf_extractor/processing/` | Sentence segmentation and full-text assembly | [pdf_extractor/processing/README.md](pdf_extractor/processing/README.md) |
-| `pdf_extractor/utils/` | Text, embedding, and layout utilities | [pdf_extractor/utils/README.md](pdf_extractor/utils/README.md) |
+| `pdf_extractor/utils/` | Text and embedding utilities | [pdf_extractor/utils/README.md](pdf_extractor/utils/README.md) |
 | `quality_control/` | Branch adjudication and reconciliation | [quality_control/README.md](quality_control/README.md) |
 | `utils/` | Repo-wide config, logging, and path helpers | [utils/README.md](utils/README.md) |
 | `tests/` | Test suite | [tests/README.md](tests/README.md) |
@@ -243,28 +301,27 @@ EviTrace/
 
 ## Configuration
 
-The pipeline reads a single YAML file at `config/config.yaml`
-(see [config/README.md](config/README.md) for the full schema).
-Environment variables override config values for a small set of
-OpenAI-related keys, including:
+The pipeline reads a single YAML file at `configs/config.yaml`
+(see [configs/README.md](configs/README.md) for the full schema).
+Environment variables override config values for OpenAI-related keys:
 
-| Variable                                     | Effect                                                |
-| -------------------------------------------- | ----------------------------------------------------- |
-| `OPENAI_API_KEY`                             | Required. Auth for the Responses API.                 |
-| `OPENAI_BASE_URL`                            | Override the API base URL.                            |
-| `OPENAI_CHUNK_MODEL`                         | Model used for chunks `1..N-1`.                       |
-| `OPENAI_SYNTHESIS_MODEL`                     | Model used for the final synthesis chunk.             |
-| `OPENAI_TEMPERATURE`                         | Force a specific temperature (omitted by default).    |
-| `OPENAI_PROMPT_CACHE_KEY_PREFIX`             | Cache-key prefix; combined with a SHA-256 of `exact_text`. |
-| `OPENAI_PROMPT_CACHE_RETENTION`              | E.g. `"24h"`, `"in_memory"`.                          |
-| `OPENAI_ENABLE_CACHE_PREWARM`                | `0`/`false` to disable per-PDF warmup.                |
-| `OPENAI_CACHE_WARMUP_MAX_TOKENS`             | Max output tokens for the warmup call.                |
-| `OPENAI_PREWARM_SYNTHESIS_IF_MODEL_DIFF`     | Fire a synthesis-model warmup when models differ.     |
-| `OPENAI_NUM_CHUNKS`                          | Override `extraction.num_chunks` from the YAML.       |
+| Variable | Effect |
+| -------- | ------ |
+| `OPENAI_API_KEY` | Required. Auth for the Responses API. |
+| `OPENAI_BASE_URL` | Override the API base URL. |
+| `OPENAI_CHUNK_MODEL` | Model used for chunks `1..N-1`. |
+| `OPENAI_SYNTHESIS_MODEL` | Model used for the final synthesis chunk. |
+| `OPENAI_TEMPERATURE` | Force a specific temperature (omitted by default). |
+| `OPENAI_PROMPT_CACHE_KEY_PREFIX` | Cache-key prefix; combined with SHA-256 of the evidence package. |
+| `OPENAI_PROMPT_CACHE_RETENTION` | E.g. `"24h"`, `"in_memory"`. |
+| `OPENAI_ENABLE_CACHE_PREWARM` | `0`/`false` to disable per-PDF warmup. |
+| `OPENAI_CACHE_WARMUP_MAX_TOKENS` | Max output tokens for the warmup call. |
+| `OPENAI_PREWARM_SYNTHESIS_IF_MODEL_DIFF` | Fire a synthesis-model warmup when models differ. |
+| `OPENAI_NUM_CHUNKS` | Override `extraction.num_chunks` from the YAML. |
+
+Override rule: **env > yaml > default**.
 
 ### Recommended model configuration
-
-Maximum cache reuse is simplest when chunk and synthesis models match:
 
 ```bash
 export OPENAI_CHUNK_MODEL="gpt-4.1"
@@ -272,41 +329,31 @@ export OPENAI_SYNTHESIS_MODEL="gpt-4.1"
 export OPENAI_PROMPT_CACHE_RETENTION="24h"
 ```
 
-For cheaper testing, the chunk model can be smaller than the synthesis
-model — the pipeline will run a separate synthesis-model warmup during
-the parallel chunks if the models differ:
-
-```bash
-export OPENAI_CHUNK_MODEL="gpt-4.1-mini"
-export OPENAI_SYNTHESIS_MODEL="gpt-4.1"
-```
-
 ### Cache notes
 
-- The cached prefix is `system_prompt + shared paper text`. Filename,
+- The cached prefix is `system_prompt + shared evidence package`. Filename,
   run ID, timestamp, chunk number, and attempt number are deliberately
   excluded so the prefix matches across calls for the same PDF.
-- Warmup failure is non-fatal: the run continues and the per-chunk
-  cache hit may simply be lower.
-- Cached token counts (`cache_hit=...` in the log) are the source of
-  truth.
+- Warmup failure is non-fatal: the run continues and the per-chunk cache
+  hit may simply be lower.
 
 ### GPT-5.x note
 
 Some GPT-5.x accounts/models reject the `temperature` parameter. The
-client omits `temperature` unless `OPENAI_TEMPERATURE` is explicitly
-set in the environment.
+client omits `temperature` unless `OPENAI_TEMPERATURE` is explicitly set.
 
 ---
 
 ## Outputs
 
-| File                              | Description                                                          |
-| --------------------------------- | -------------------------------------------------------------------- |
-| `outputs/<paper>.extracted.json`  | Per-paper extraction (one record per `field_index`).                 |
-| `outputs/qc_report.csv`           | Cross-paper flagged rows: confidence `low` or `not reported`.        |
-| `manifest.json`                   | Per-PDF status checkpoint; safe to re-run after a crash.             |
-| `pipeline.log` (configurable)     | Per-run logs including token counts and cache-hit percentages.       |
+| File | Description |
+| ---- | ----------- |
+| `outputs/<paper>.extracted.json` | Per-paper extraction (one record per `field_index`). |
+| `outputs/qc_report.csv` | Cross-paper flagged rows: confidence `l` or `nr`. |
+| `outputs/evidence_cache/<id>.evidence.json` | Cached evidence index (keyed by paper_id + pdf_hash). |
+| `outputs/evidence_cache/<id>.tei.xml` | Cached GROBID TEI XML. |
+| `manifest.json` | Per-PDF status checkpoint; safe to re-run after a crash. |
+| `run.log` (configurable) | Per-run logs including token counts and cache-hit percentages. |
 
 Each extracted record looks like:
 
@@ -317,6 +364,8 @@ Each extracted record looks like:
   "field_name": "title",
   "extracted_value": "...",
   "evidence": "...",
+  "location": ["S000001"],
+  "location_metadata": [...],
   "confidence": "h"
 }
 ```
@@ -330,15 +379,15 @@ Each extracted record looks like:
 
 - **Python 3.10+**
 - **OpenAI Responses API** (`openai>=1.0.0`) — chunked structured-output extraction with prompt caching
-- **PyMuPDF** (`PyMuPDF>=1.24.0`) — primary native-text extractor
-- **pdfplumber** (`pdfplumber>=0.10.0`) — table-aware fallback extractor
-- **GROBID** — TEI XML extractor used as a QC branch (optional service)
-- **Tesseract** (`pytesseract`, `pdf2image`) — OCR fallback (lazy import)
-- **PaddleOCR** (`paddleocr`, `paddlepaddle`) — second OCR fallback (lazy import)
+- **PyMuPDF** (`PyMuPDF>=1.24.0`) — font metadata + scanned-path cross-validation
+- **pdfplumber** (`pdfplumber>=0.10.0`) — structural text blocks (native path)
+- **GROBID** — TEI XML semantic authority (optional service; auto-start via Docker)
+- **PaddleOCR** (`paddleocr`, `paddlepaddle`) — OCR backend for scanned pages (lazy import)
 - **PyYAML** — configuration loading
-- **gdown** — URL / Google Drive folder ingestion for the parser
-- **NumPy** — numeric helpers in layout / embedding utilities
-- **pytest** — test runner
+- **jsonschema** — JSON Schema Draft 7 validation
+- **gdown** — URL / Google Drive folder ingestion
+- **NumPy** — numeric helpers in embedding utilities
+- **pytest** + **Hypothesis** — test runner + property-based testing
 - **Optional:** `sentence-transformers`, `faiss-cpu`/`faiss-gpu`, `torch`
   for the semantic-QC scaffold (Tier 3); never imported unless
   `quality_control.semantic_qc.enabled` is `true`.
@@ -351,10 +400,10 @@ Active research project. Core pipeline is functional end-to-end. The
 following components are explicitly scaffolded but **not driving final
 adjudication** today:
 
-- Tier 3 semantic QC (embeddings + FAISS).
-- Multi-agent adjudication beyond the GROBID/PyMuPDF branch pair.
-- Optional `extraction_manifest.json` summarising every QC step
-  (planned; see `pdf_extractor/next steps.txt`).
+- Semantic QC (embeddings + FAISS) — scaffolded only; not wired into adjudication.
+- Multi-agent adjudication beyond the GROBID/pdfplumber branch pair.
+- Optional GROBID addon enrichment (grobid-quantities, datastet, entity-fishing)
+  — disabled by default; requires running service URLs.
 
 Behaviour subject to change as the research evolves.
 

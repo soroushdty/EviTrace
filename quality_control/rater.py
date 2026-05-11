@@ -1,5 +1,5 @@
 """
-Generates one Observation_Object per extractor. Does not produce canonical
+Generates one QualityReport per candidate. Does not produce canonical
 artifacts and does not call any Artifact_Generator functions.
 """
 
@@ -7,49 +7,33 @@ from __future__ import annotations
 
 import logging
 
+from quality_control.models import Candidate
+from quality_control.builtin_impls import QualityReport
+
 logger = logging.getLogger("pdf_extractor")
 
 
-def observe(
-    extractor_name: str,
-    canonical_artifact: dict,
-    document_id: str,
-    config: dict,
-) -> dict:
-    """Return a single Observation_Object for the named extractor.
+def observe(candidate: Candidate, config: dict) -> QualityReport:
+    """Return a single QualityReport for the given candidate.
 
     Parameters
     ----------
-    extractor_name:
-        One of ``"grobid"`` or ``"pymupdf"`` — selects the sub-dict from
-        *canonical_artifact* that provides provenance information.
-    canonical_artifact:
-        The full canonical artifacts dict produced by
-        ``artifacts.build_canonical_artifacts``.  Must contain a key matching
-        *extractor_name* with ``"id"`` and ``"format"`` sub-keys.
-    document_id:
-        Stable document identifier forwarded into the observation object.
+    candidate:
+        The candidate to rate.  ``candidate.source`` and ``candidate.index``
+        are used directly to populate the report.
     config:
         Pipeline config dict.  Attribute names are read from
-        ``config["quality_control"]["observer"]["attributes"]``.
+        ``config["quality_control"]["rater"]["attributes"]``.
 
     Returns
     -------
-    dict
-        An Observation_Object with the following keys:
-        ``extractor_name``, ``document_id``, ``attributes``, ``status``,
-        ``provenance``.
+    QualityReport
+        A QualityReport with ``source`` and ``index`` populated from the
+        input candidate, and ``status`` set to ``None`` (not yet adjudicated).
     """
-    attribute_names: list[str] = config["quality_control"]["rater"]["attributes"]
-    artifact_sub = canonical_artifact[extractor_name]
-
-    return {
-        "extractor_name": extractor_name,
-        "document_id": document_id,
-        "attributes": {attr_name: None for attr_name in attribute_names},
-        "status": "placeholder",
-        "provenance": {
-            "artifact_id": artifact_sub["id"],
-            "artifact_format": artifact_sub["format"],
-        },
-    }
+    report = QualityReport(
+        source=candidate.source,
+        index=candidate.index,
+        status=None,
+    )
+    return report

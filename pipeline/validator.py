@@ -3,43 +3,14 @@ import json
 import re
 from typing import Any
 
-from quality_control import QCContext
-
 # Validation constants
 ALLOWED_CONFIDENCE = {"h", "m", "l", "nr"}
-REQUIRED_KEYS = {"i", "v", "e", "c"}
+REQUIRED_KEYS = {"i", "v", "loc", "c"}
 
 
 class ValidationError(Exception):
     """Raised when a subagent's output fails schema validation."""
     pass
-
-
-def validate_qc_context_input(ctx: object) -> None:
-    """Guard: verify ctx is a fully-reconciled QCContext before field extraction."""
-    if not isinstance(ctx, QCContext):
-        raise TypeError(
-            f"pdf_processor input must be a QCContext, got {type(ctx).__name__!r}"
-        )
-    if ctx.unified is None:
-        raise ValueError(
-            "QCContext.unified is None — reconciler has not run yet"
-        )
-    if not isinstance(ctx.unified.document_id, str) or not ctx.unified.document_id:
-        raise ValueError(
-            f"QCContext.unified.document_id must be a non-empty str, "
-            f"got {ctx.unified.document_id!r}"
-        )
-    if not isinstance(ctx.unified.content, dict):
-        raise TypeError(
-            f"QCContext.unified.content must be a dict, "
-            f"got {type(ctx.unified.content).__name__!r}"
-        )
-    exact_text = ctx.unified.content.get("exact_text")
-    if not isinstance(exact_text, str) or not exact_text.strip():
-        raise ValueError(
-            "QCContext.unified.content['exact_text'] must be a non-empty string"
-        )
 
 
 def clean_json_string(raw: str) -> str:
@@ -82,7 +53,12 @@ def _parse_response_json(raw: str) -> list[dict]:
     return _unwrap_top_level(parsed)
 
 
-def _validate_extraction_item(i: int, obj: Any, actual_indices: list[int]) -> None:
+def _validate_extraction_item(
+    i: int,
+    obj: Any,
+    actual_indices: list[int],
+    valid_location_ids: set[str] | None = None,
+) -> None:
     """Validate a single extraction object and append its index to actual_indices."""
     if not isinstance(obj, dict):
         raise ValidationError(f"Item {i} is not a dict: {obj!r}")
@@ -111,14 +87,27 @@ def _validate_extraction_item(i: int, obj: Any, actual_indices: list[int]) -> No
     if not isinstance(obj["v"], str):
         obj["v"] = str(obj["v"])
 
-    for key in ("v", "e", "c"):
+    for key in ("v", "c"):
         if not isinstance(obj[key], str):
             raise ValidationError(f"Item {i}: {key} must be a string, got {obj[key]!r}")
+
+    loc = obj["loc"]
+    if not isinstance(loc, list) or not all(isinstance(v, str) for v in loc):
+        raise ValidationError(f"Item {i}: loc must be a list of strings, got {loc!r}")
+    if valid_location_ids is not None:
+        unknown = [v for v in loc if v not in valid_location_ids]
+        if unknown:
+            raise ValidationError(f"Item {i}: loc contains unknown evidence IDs: {unknown}")
 
     actual_indices.append(obj["i"])
 
 
-def validate_chunk_output(raw: str, expected_indices: list[int]) -> list[dict]:
+def validate_chunk_output(
+    raw: str,
+    expected_indices: list[int],
+    *,
+    valid_location_ids: set[str] | None = None,
+) -> list[dict]:
     """
     Parse and validate a subagent's raw text output.
 
@@ -142,7 +131,7 @@ def validate_chunk_output(raw: str, expected_indices: list[int]) -> list[dict]:
 
     actual_indices: list[int] = []
     for i, obj in enumerate(data):
-        _validate_extraction_item(i, obj, actual_indices)
+        _validate_extraction_item(i, obj, actual_indices, valid_location_ids=valid_location_ids)
 
     if sorted(actual_indices) != sorted(expected_indices):
         raise ValidationError(
@@ -157,16 +146,36 @@ def validate_chunk_output(raw: str, expected_indices: list[int]) -> list[dict]:
 def reconstruct_fields(
     compact: list[dict],
     field_lookup: dict[int, dict],
+    evidence_map: dict[str, dict] | None = None,
 ) -> list[dict]:
     """Expand compact model output to full extraction dicts using extraction_map metadata."""
-    return [
-        {
-            "field_index":     item["i"],
-            "domain_group":    field_lookup[item["i"]]["domain_group"],
-            "field_name":      field_lookup[item["i"]]["field_name"],
-            "extracted_value": item["v"],
-            "evidence":        item["e"],
-            "confidence":      item["c"],
-        }
-        for item in compact
-    ]
+    evidence_map = evidence_map or {}
+    output: list[dict] = []
+    for item in compact:
+        loc_ids: list[str] = item.get("loc", [])
+        resolved = [evidence_map[eid] for eid in loc_ids if eid in evidence_map]
+        evidence_text = "\n".join(x.get("text", "") for x in resolved if x.get("text"))
+        output.append(
+            {
+                "field_index": item["i"],
+                "domain_group": field_lookup[item["i"]]["domain_group"],
+                "field_name": field_lookup[item["i"]]["field_name"],
+                "extracted_value": item["v"],
+                "evidence": evidence_text,
+                "location": loc_ids,
+                "location_metadata": [
+                    {
+                        "id": x.get("id"),
+                        "type": x.get("type"),
+                        "section_path": x.get("section_path"),
+                        "page": x.get("page"),
+                        "coords": x.get("coords"),
+                        "xpath": x.get("xpath"),
+                        "source_pdf": x.get("source_pdf"),
+                    }
+                    for x in resolved
+                ],
+                "confidence": item["c"],
+            }
+        )
+    return output

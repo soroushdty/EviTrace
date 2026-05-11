@@ -12,26 +12,26 @@ logger = logging.getLogger("pdf_extractor")
 
 
 def investigate(
-    grobid_observation: dict,
-    pymupdf_observation: dict,
-    grobid_artifact: dict,
-    pymupdf_artifact: dict,
+    primary_observation: dict,
+    secondary_observation: dict,
+    primary_artifact: dict,
+    secondary_artifact: dict,
     config: dict,
 ) -> dict:
     """Return a single Investigator_Object.
 
     Parameters
     ----------
-    grobid_observation:
-        Observation_Object produced by the Observer for the GROBID extractor.
-    pymupdf_observation:
-        Observation_Object produced by the Observer for the PyMuPDF extractor.
-    grobid_artifact:
-        Canonical artifacts dict; ``grobid_artifact["grobid"]["id"]`` is used
-        as the GROBID artifact reference.
-    pymupdf_artifact:
-        Canonical artifacts dict; ``pymupdf_artifact["pymupdf"]["id"]`` is used
-        as the PyMuPDF artifact reference.
+    primary_observation:
+        Observation_Object produced by the Observer for the primary extractor.
+    secondary_observation:
+        Observation_Object produced by the Observer for the secondary extractor.
+    primary_artifact:
+        Canonical artifact dict; ``primary_artifact.get("id", "")`` is used
+        as the primary artifact reference.
+    secondary_artifact:
+        Canonical artifact dict; ``secondary_artifact.get("id", "")`` is used
+        as the secondary artifact reference.
     config:
         Pipeline config dict.  Metric names are read from
         ``config["quality_control"]["investigator"]["agreement_metrics"]``.
@@ -40,22 +40,22 @@ def investigate(
     -------
     dict
         An Investigator_Object with the following keys:
-        ``grobid_threshold_checks``, ``pymupdf_threshold_checks``,
-        ``agreement_metrics``, ``grobid_observation_ref``,
-        ``pymupdf_observation_ref``, ``grobid_artifact_ref``,
-        ``pymupdf_artifact_ref``, ``decision``.
+        ``primary_threshold_checks``, ``secondary_threshold_checks``,
+        ``agreement_metrics``, ``primary_observation_ref``,
+        ``secondary_observation_ref``, ``primary_artifact_ref``,
+        ``secondary_artifact_ref``, ``decision``.
     """
     metric_names: list[str] = (
         config["quality_control"]["iaa_calculator"]["agreement_metrics"]
     )
 
     return {
-        "grobid_threshold_checks": {},
-        "pymupdf_threshold_checks": {},
+        "primary_threshold_checks": {},
+        "secondary_threshold_checks": {},
         "agreement_metrics": {metric: None for metric in metric_names},
-        "grobid_observation_ref": grobid_observation,
-        "pymupdf_observation_ref": pymupdf_observation,
-        "grobid_artifact_ref": grobid_artifact["grobid"]["id"],
-        "pymupdf_artifact_ref": pymupdf_artifact["pymupdf"]["id"],
+        "primary_observation_ref": primary_observation,
+        "secondary_observation_ref": secondary_observation,
+        "primary_artifact_ref": primary_artifact.get("id", ""),
+        "secondary_artifact_ref": secondary_artifact.get("id", ""),
         "decision": "deferred_to_adjudicator",
     }

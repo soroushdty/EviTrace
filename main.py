@@ -17,6 +17,7 @@ from pipeline.extraction_report import generate_qc_report
 from utils.config_utils import load_openai_config, load_local_config
 from utils.path_utils import PDF_DIR
 from utils.logging_utils import get_logger, setup_logging
+from utils.grobid_manager import GrobidServerManager
 
 # Initialize logging at startup using config values (idempotent)
 local_cfg = load_local_config(None)
@@ -92,11 +93,12 @@ async def main() -> None:
     OUTPUT_DIR.mkdir(exist_ok=True)
 
     # Run pipeline — pass CLI overrides as arguments instead of mutating globals.
-    results = await pipeline.run_pipeline(
-        pdf_paths,
-        pdf_concurrency=args.concurrency,
-        enable_cache_prewarm=False if args.no_cache_prewarm else None,
-    )
+    with GrobidServerManager(local_cfg):
+        results = await pipeline.run_pipeline(
+            pdf_paths,
+            pdf_concurrency=args.concurrency,
+            enable_cache_prewarm=False if args.no_cache_prewarm else None,
+        )
 
     if not results:
         logger.error("No PDFs were successfully processed.")

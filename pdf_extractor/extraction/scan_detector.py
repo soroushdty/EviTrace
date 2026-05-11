@@ -3,9 +3,6 @@ pdf_extractor/extraction/scan_detector.py
 ------------------------------------------
 Stateless five-stage per-page scan classification.
 
-Requirements: 2.1, 2.2, 2.3
-Design: .kiro/specs/architecture-migration/design.md §scan_detector
-
 No module-level state; no caching.  ``classify_page`` is a pure function.
 """
 

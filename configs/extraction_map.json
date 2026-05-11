@@ -1,0 +1,560 @@
+[
+  {
+    "field_index": 1,
+    "domain_group": "1. Study identification",
+    "field_name": "First author",
+    "definition": "Family name of the first author, used as part of the citation handle.",
+    "reviewer_question": "Who is the first author?",
+    "format": "Free text",
+    "categories_or_examples": "Examples: Shahn; Carvalho"
+  },
+  {
+    "field_index": 2,
+    "domain_group": "1. Study identification",
+    "field_name": "Publication year",
+    "definition": "Year of publication, recorded separately from citation to support time-trend analysis.",
+    "reviewer_question": "What year was this published?",
+    "format": "Numeric (year)",
+    "categories_or_examples": "Examples: 2015, 2024, 2026"
+  },
+  {
+    "field_index": 3,
+    "domain_group": "2. Clinical and study-design context",
+    "field_name": "Clinical setting",
+    "definition": "The healthcare context from which patient data was drawn, defined strictly by where care occurred (not by disease).",
+    "reviewer_question": "In what care setting were these patients observed?",
+    "format": "Categorical (single-select; multi-select if mixed)",
+    "categories_or_examples": "ICU/critical care; inpatient (non-ICU); outpatient/ambulatory; emergency department; long-term care/SNF; home/wearable monitoring; multi-setting; unclear/not stated"
+  },
+  {
+    "field_index": 4,
+    "domain_group": "2. Clinical and study-design context",
+    "field_name": "Disease area / clinical specialty",
+    "definition": "The clinical specialty or disease area the study targets, independent of care setting.",
+    "reviewer_question": "What disease area or clinical specialty does this study address?",
+    "format": "Categorical (multi-select)",
+    "categories_or_examples": "cardiology; neurology; nephrology; oncology; critical care medicine; infectious disease; psychiatry; endocrinology; multiple chronic conditions; not disease-specific; other"
+  },
+  {
+    "field_index": 5,
+    "domain_group": "2. Clinical and study-design context",
+    "field_name": "Study design",
+    "definition": "The epidemiological framing of the cohort.",
+    "reviewer_question": "Is this a retrospective cohort, case-control, prospective cohort, cross-sectional, or other design?",
+    "format": "Categorical (single-select)",
+    "categories_or_examples": "retrospective cohort; case-control; prospective cohort; cross-sectional; nested case-control; other; not stated"
+  },
+  {
+    "field_index": 6,
+    "domain_group": "2. Clinical and study-design context",
+    "field_name": "Observation duration per patient",
+    "definition": "The temporal length of each patient's record actually used in modeling.",
+    "reviewer_question": "Across how long a window was each patient observed in the data fed to the model?",
+    "format": "Structured (value + unit + min/max/mean if reported)",
+    "categories_or_examples": "Examples: '1 year pre + 1 year post index'; 'first 48 h of ICU stay'; 'median 4.2 yr (IQR 2.1–7.0)'"
+  },
+  {
+    "field_index": 7,
+    "domain_group": "2. Clinical and study-design context",
+    "field_name": "Calendar period covered",
+    "definition": "Wall-clock years spanned by the source data.",
+    "reviewer_question": "What calendar years does the source data cover?",
+    "format": "Free text",
+    "categories_or_examples": "Examples: '2008–2019'; '2001–2012 (MIMIC-III)'"
+  },
+  {
+    "field_index": 8,
+    "domain_group": "3. Cohort and data source",
+    "field_name": "Dataset / database name",
+    "definition": "Named primary EHR dataset, registry, or extracted database used for modeling.",
+    "reviewer_question": "What is the named primary dataset or datasets?",
+    "format": "Free text (multi-valued allowed; semicolon-delimited)",
+    "categories_or_examples": "Examples: MIMIC-III; MIMIC-IV; eICU; MarketScan Medicaid; UK Biobank; institutional EHR"
+  },
+  {
+    "field_index": 9,
+    "domain_group": "3. Cohort and data source",
+    "field_name": "Auxiliary / external knowledge resource",
+    "definition": "Non-EHR knowledge bases, ontologies as data, or external databases used to enrich the graph or model.",
+    "reviewer_question": "Did the study use any auxiliary knowledge sources beyond the primary EHR?",
+    "format": "Free text + categorical (multi-select)",
+    "categories_or_examples": "TWOSIDES (DDI); DrugBank; SNOMED-CT (as KG, not coding); ATC hierarchy; UMLS; ICD as KG; ChEMBL; MedDRA; none; other"
+  },
+  {
+    "field_index": 10,
+    "domain_group": "3. Cohort and data source",
+    "field_name": "Originating institution(s)",
+    "definition": "Hospitals, health systems, or administrative sources from which data physically originated.",
+    "reviewer_question": "Where did the patients physically receive care? Single center, multi-center, or administrative pool?",
+    "format": "Categorical + free text",
+    "categories_or_examples": "single-center (specify); multi-center within one system; multi-system; national administrative claims; mixed; unclear"
+  },
+  {
+    "field_index": 11,
+    "domain_group": "3. Cohort and data source",
+    "field_name": "Unit of analysis",
+    "definition": "The unit on which sample size is reported and on which the model operates.",
+    "reviewer_question": "What is the analytic unit: patients, admissions, ICU stays, visits, or events?",
+    "format": "Categorical (single-select)",
+    "categories_or_examples": "patients; hospital admissions; ICU stays; encounters/visits; events; mixed (specify); not clearly stated"
+  },
+  {
+    "field_index": 12,
+    "domain_group": "3. Cohort and data source",
+    "field_name": "Total sample size",
+    "definition": "Total number of analytic units in the final cohort, in the unit specified by 'Unit of analysis'.",
+    "reviewer_question": "How many units (patients/admissions/etc.) are in the final analytic dataset?",
+    "format": "Numeric",
+    "categories_or_examples": "Examples: 12,581; 200,859; 32,536"
+  },
+  {
+    "field_index": 13,
+    "domain_group": "3. Cohort and data source",
+    "field_name": "Sample size by partition",
+    "definition": "Sample sizes for any reported subdivisions: train/validation/test, case/control, exposed/unexposed, derivation/external, or per-dataset.",
+    "reviewer_question": "What sub-cohort sizes does the paper report?",
+    "format": "Structured notes",
+    "categories_or_examples": "Examples: 'train 9,000 / val 1,500 / test 2,081'; '1,850 cases / 10,731 controls'; 'MIMIC-III 7,493; MIMIC-IV 10,000'"
+  },
+  {
+    "field_index": 14,
+    "domain_group": "3. Cohort and data source",
+    "field_name": "Population demographics (as reported)",
+    "definition": "Demographics as the authors report them: sex/gender, age, race/ethnicity, comorbidity profile, geography, socioeconomic indicators.",
+    "reviewer_question": "How do the authors describe the population?",
+    "format": "Free text (verbatim or near-verbatim)",
+    "categories_or_examples": "Example: 'Mean age 64 ± 12, 53% female, 67% White, 22% Black, 11% Hispanic'"
+  },
+  {
+    "field_index": 15,
+    "domain_group": "3. Cohort and data source",
+    "field_name": "Inclusion / exclusion criteria",
+    "definition": "The author-stated rules defining who entered the cohort.",
+    "reviewer_question": "What inclusion and exclusion rules did the authors apply?",
+    "format": "Free text",
+    "categories_or_examples": "Example: 'Adult afib patients with ≥1 yr observation pre and post index; excluded if left Medicaid <1 yr after index'"
+  },
+  {
+    "field_index": 16,
+    "domain_group": "4. Prediction task",
+    "field_name": "Stated study objective (verbatim)",
+    "definition": "The paper's own statement of its aim, captured verbatim or near-verbatim.",
+    "reviewer_question": "How do the authors state the objective of this study?",
+    "format": "Free text",
+    "categories_or_examples": "Example: 'To predict strokes in patients with prior diagnoses of atrial fibrillation by incorporating temporal relations among health events'"
+  },
+  {
+    "field_index": 17,
+    "domain_group": "4. Prediction task",
+    "field_name": "Task type (computational)",
+    "definition": "The ML formulation of the modeling problem, expressed in computer-science terms.",
+    "reviewer_question": "Computationally, what kind of task is this?",
+    "format": "Categorical (multi-select if hybrid)",
+    "categories_or_examples": "binary classification; multiclass classification; multilabel classification; regression; time-to-event/survival; sequence-to-sequence/generation; representation learning/embedding; clustering; anomaly detection; other"
+  },
+  {
+    "field_index": 18,
+    "domain_group": "4. Prediction task",
+    "field_name": "Clinical outcome / target",
+    "definition": "The specific clinical phenomenon being predicted, classified, or characterized. Decompose into outcome label, horizon, and threshold if applicable.",
+    "reviewer_question": "What clinical event, state, or label is the model targeting?",
+    "format": "Free text + categorical tag",
+    "categories_or_examples": "Examples: 'Stroke within 1 yr of afib index'; 'ICU mortality within 24 h'; '30-day readmission'; 'next-visit diagnosis codes'; 'sepsis onset within 6 h'"
+  },
+  {
+    "field_index": 19,
+    "domain_group": "4. Prediction task",
+    "field_name": "Downstream application category",
+    "definition": "High-level grouping of the clinical use case.",
+    "reviewer_question": "Which broad category of clinical task does this fall into?",
+    "format": "Categorical (single-select; controlled vocabulary)",
+    "categories_or_examples": "diagnosis/disease prediction; deterioration/mortality prediction; medication recommendation; readmission prediction; length-of-stay prediction; disease progression/trajectory forecasting; phenotyping/clustering; patient similarity/retrieval; treatment effect/causal inference; risk stratification (general); other"
+  },
+  {
+    "field_index": 20,
+    "domain_group": "4. Prediction task",
+    "field_name": "Prediction horizon",
+    "definition": "The temporal distance between prediction time and target event.",
+    "reviewer_question": "How far ahead is the model predicting?",
+    "format": "Structured (value + unit + type)",
+    "categories_or_examples": "Examples: '1 year'; 'next 6 hours'; 'at next visit'; 'concurrent / no horizon'; 'variable per patient'"
+  },
+  {
+    "field_index": 21,
+    "domain_group": "5. Data inputs and modalities",
+    "field_name": "Data modalities used",
+    "definition": "High-level categories of clinical data used as model input.",
+    "reviewer_question": "Which broad data types feed the model?",
+    "format": "Categorical (multi-select; controlled vocabulary)",
+    "categories_or_examples": "diagnoses/conditions; medications; laboratory values; vitals/physiological signals; waveform signals; therapeutic interventions; procedures; demographics; clinical notes (text); discharge summaries; imaging; genomics/omics; provider/workflow; insurance/billing; social determinants; other"
+  },
+  {
+    "field_index": 22,
+    "domain_group": "5. Data inputs and modalities",
+    "field_name": "Specific feature inventory (as reported)",
+    "definition": "Verbatim or near-verbatim list of specific features/variables used, with their representation.",
+    "reviewer_question": "What specific variables did the authors actually use?",
+    "format": "Free text",
+    "categories_or_examples": "Example: 'ICD-9 codes mapped to OMOP concept hierarchy + drug eras; SpO2; warfarin exposure flag; 100,000+ binary predictors plus age and gender'"
+  },
+  {
+    "field_index": 23,
+    "domain_group": "5. Data inputs and modalities",
+    "field_name": "Vocabulary / ontology used (for coding)",
+    "definition": "Coding system or ontology applied to structured features as part of data preparation.",
+    "reviewer_question": "Did the authors use a named coding standard or ontology to encode features?",
+    "format": "Categorical (multi-select)",
+    "categories_or_examples": "ICD-9; ICD-10; PheCodes; SNOMED-CT; RxNorm; LOINC; OMOP CDM; UMLS; ATC; CCS; CPT; none/raw text; other"
+  },
+  {
+    "field_index": 24,
+    "domain_group": "5. Data inputs and modalities",
+    "field_name": "Feature encoding format",
+    "definition": "Numerical representation format of features as input to the model.",
+    "reviewer_question": "How are features numerically represented as model inputs?",
+    "format": "Categorical (single-select)",
+    "categories_or_examples": "one-hot; multi-hot; dense embedding; continuous values; mixed; not stated"
+  },
+  {
+    "field_index": 25,
+    "domain_group": "5. Data inputs and modalities",
+    "field_name": "Embedding initialization / pretrained backbone",
+    "definition": "Whether embeddings/representations are learned from scratch, transferred from pretrained models, or LLM-generated.",
+    "reviewer_question": "How are embeddings initialized?",
+    "format": "Categorical (multi-select)",
+    "categories_or_examples": "random/from scratch; Word2Vec or skip-gram; SPPMI-SVD; Bio-Clinical BERT/ClinicalBERT; general BERT; LLM-generated (e.g., GPT-4); pretrained vision model (e.g., DenseNet); domain-pretrained on EHR; not applicable; other"
+  },
+  {
+    "field_index": 26,
+    "domain_group": "6. Graph structure and topology",
+    "field_name": "Graph formalism",
+    "definition": "The mathematical class of the graph data structure.",
+    "reviewer_question": "What type of graph is this mathematically?",
+    "format": "Categorical (multi-select; controlled vocabulary)",
+    "categories_or_examples": "simple graph; multigraph; hypergraph; heterogeneous graph; knowledge graph; bipartite graph; tree/hierarchy; other"
+  },
+  {
+    "field_index": 27,
+    "domain_group": "6. Graph structure and topology",
+    "field_name": "Dynamic-graph paradigm",
+    "definition": "The formal temporal-graph paradigm to which the study's graph(s) correspond.",
+    "reviewer_question": "Which dynamic-graph type(s) does this study instantiate?",
+    "format": "Categorical (multi-select; controlled vocabulary)",
+    "categories_or_examples": "DTDG (discrete-time dynamic graph); CTDG (continuous-time dynamic graph); Unrolled temporal graph; Static-with-time-outside-graph (should be excluded by inclusion criteria); Hybrid; Unclear/not stated"
+  },
+  {
+    "field_index": 28,
+    "domain_group": "6. Graph structure and topology",
+    "field_name": "What evolves over time",
+    "definition": "Which aspect(s) of the graph actually change over time.",
+    "reviewer_question": "Across time, what changes — node set, edge set, node attributes, edge attributes, or some combination?",
+    "format": "Categorical (multi-select)",
+    "categories_or_examples": "nodes added/removed; edges added/removed; node attributes update; edge attributes/weights update; topology static, only attributes change; nothing changes (static); other"
+  },
+  {
+    "field_index": 29,
+    "domain_group": "6. Graph structure and topology",
+    "field_name": "Number of graphs per patient",
+    "definition": "Per-patient temporal structure of graph instances.",
+    "reviewer_question": "How many graph instances does each patient contribute?",
+    "format": "Categorical (single-select)",
+    "categories_or_examples": "one graph per patient (unrolled); sequence of snapshots per patient; continuous stream of events per patient; one shared graph across all patients with patient-specific attributes; multiple per-patient graphs (e.g., per visit); other"
+  },
+  {
+    "field_index": 30,
+    "domain_group": "6. Graph structure and topology",
+    "field_name": "Graph construction strategy (overall)",
+    "definition": "High-level summary of the philosophy used to build the graph(s), distinct from node and edge mechanics individually.",
+    "reviewer_question": "At a high level, how was the graph built?",
+    "format": "Categorical (single-select; controlled vocabulary)",
+    "categories_or_examples": "co-occurrence-based; ontology-/knowledge-derived; similarity-based (kNN/correlation); learned end-to-end; rule-based clinical mechanism; hybrid; other"
+  },
+  {
+    "field_index": 31,
+    "domain_group": "7. Node specification",
+    "field_name": "Node entity type",
+    "definition": "What real-world thing each node represents.",
+    "reviewer_question": "What is a node?",
+    "format": "Categorical (multi-select; controlled vocabulary)",
+    "categories_or_examples": "clinical concept (diagnosis/medication/procedure/lab); patient; visit/encounter/admission; ICU stay; time point/window; provider/clinician; ward/location; medical event instance; ontology class/hierarchy concept; drug atom/molecular substructure; physiological variable; other"
+  },
+  {
+    "field_index": 32,
+    "domain_group": "7. Node specification",
+    "field_name": "Node features / attributes",
+    "definition": "Data attached to each node beyond its identity.",
+    "reviewer_question": "What information is stored on each node?",
+    "format": "Free text + categorical (multi-select)",
+    "categories_or_examples": "Examples: 'ICD code embedding'; 'demographic vector'; 'time-stamped lab values'; 'one-hot identity only'; 'fuzzy membership'"
+  },
+  {
+    "field_index": 33,
+    "domain_group": "7. Node specification",
+    "field_name": "Node construction method",
+    "definition": "How nodes were instantiated as objects in the graph.",
+    "reviewer_question": "How were nodes created?",
+    "format": "Categorical (single-select; controlled vocabulary)",
+    "categories_or_examples": "direct one-to-one with raw data items; ontology/hierarchy-derived; clustered/grouped from raw events; pre-trained embedding; learned end-to-end; manually defined; other"
+  },
+  {
+    "field_index": 34,
+    "domain_group": "7. Node specification",
+    "field_name": "Domain-knowledge use in node design",
+    "definition": "Whether/how clinical or ontological knowledge guided node definition.",
+    "reviewer_question": "Did the authors use medical ontology, clinician input, or hierarchy to define nodes?",
+    "format": "Categorical (single-select)",
+    "categories_or_examples": "yes — explicit ontology (named); yes — clinician guidance; yes — published taxonomy; no — purely data-driven; not stated"
+  },
+  {
+    "field_index": 35,
+    "domain_group": "8. Edge specification",
+    "field_name": "Edge semantic pattern",
+    "definition": "The clinical/computational meaning of edges, aligned with manuscript §4.2's five-category taxonomy.",
+    "reviewer_question": "What kind of relationship does an edge represent?",
+    "format": "Categorical (multi-select; controlled vocabulary)",
+    "categories_or_examples": "temporal/chronological; similarity/co-occurrence; encounter-membership (patient–visit, visit–code); knowledge/hierarchy — direct (ontology 'is-a'); knowledge/hierarchy — indirect (shared parent); learned dependency/influence/attention-derived; causal/mechanistic; other"
+  },
+  {
+    "field_index": 36,
+    "domain_group": "8. Edge specification",
+    "field_name": "Edge features / attributes / weights",
+    "definition": "Data attached to edges, including weights, types, and time stamps.",
+    "reviewer_question": "What information sits on each edge?",
+    "format": "Free text + categorical (multi-select)",
+    "categories_or_examples": "Examples: 'time interval in days'; 'co-occurrence frequency'; 'attention weight'; 'edge type label'; 'binary present/absent'; 'NPMI weight'"
+  },
+  {
+    "field_index": 37,
+    "domain_group": "8. Edge specification",
+    "field_name": "Edge construction method",
+    "definition": "How edges were generated as objects in the graph.",
+    "reviewer_question": "How were edges actually created?",
+    "format": "Categorical (single-select; controlled vocabulary)",
+    "categories_or_examples": "manually rule-defined; deterministic computation on data (kNN, correlation, co-occurrence, NPMI, threshold); learned during training (attention, soft-adjacency, structure learning); ontology-derived; pre-existing knowledge graph; other"
+  },
+  {
+    "field_index": 38,
+    "domain_group": "9. Temporal representation",
+    "field_name": "Temporal attribute represented",
+    "definition": "Which clinical-temporal CONCEPT the model captures, per manuscript §4.1's taxonomy.",
+    "reviewer_question": "What kind of clinical time does the model represent?",
+    "format": "Categorical (multi-select; controlled vocabulary)",
+    "categories_or_examples": "sequence (event ordering); interval (elapsed time); persistence (duration of state); trajectory (state evolution); temporal context (setting-specific time meaning)"
+  },
+  {
+    "field_index": 39,
+    "domain_group": "9. Temporal representation",
+    "field_name": "Temporal modeling strategy",
+    "definition": "Operational way time was used in the model, per §4.1's second taxonomy.",
+    "reviewer_question": "Operationally, how is time used in the model?",
+    "format": "Categorical (multi-select; controlled vocabulary)",
+    "categories_or_examples": "time interval / duration / horizon; order of events; changing influence over time; trajectory / state transition; multi-scale temporal aggregation"
+  },
+  {
+    "field_index": 40,
+    "domain_group": "9. Temporal representation",
+    "field_name": "Temporal granularity (raw)",
+    "definition": "The actual time resolution(s) at which observations or events were represented in the model.",
+    "reviewer_question": "At what resolution(s) is time encoded?",
+    "format": "Categorical (multi-select; controlled vocabulary)",
+    "categories_or_examples": "sub-hourly; hourly; daily; weekly; monthly; yearly; visit-based; admission-based; irregular continuous; mixed multi-scale"
+  },
+  {
+    "field_index": 41,
+    "domain_group": "9. Temporal representation",
+    "field_name": "Time-handling strategy",
+    "definition": "How real-world time was discretized or preserved.",
+    "reviewer_question": "Was real time preserved, binned, or replaced by visit order?",
+    "format": "Categorical (single-select; controlled vocabulary)",
+    "categories_or_examples": "continuous time preserved; explicit periodic binning/segmentation; visit/admission order as time surrogate; exact irregular timestamps preserved without binning; interval weighting only; fixed window from index date (e.g., first 24h/48h); mixed"
+  },
+  {
+    "field_index": 42,
+    "domain_group": "9. Temporal representation",
+    "field_name": "Temporal information location",
+    "definition": "Where in the graph time-information actually lives.",
+    "reviewer_question": "Where does time appear — as a node, node attribute, edge, edge attribute/weight, topology change, or outside the graph?",
+    "format": "Categorical (multi-select; controlled vocabulary)",
+    "categories_or_examples": "node entity (time-as-node); node attribute; edge entity (temporal edge); edge attribute / weight; graph topology change across snapshots; in model dynamics outside the graph; not encoded in graph"
+  },
+  {
+    "field_index": 43,
+    "domain_group": "9. Temporal representation",
+    "field_name": "Time-aware model mechanism",
+    "definition": "Model-internal mechanism that processes time, separate from where time sits in the graph.",
+    "reviewer_question": "What architectural component handles temporal dynamics?",
+    "format": "Categorical (multi-select; controlled vocabulary)",
+    "categories_or_examples": "RNN/LSTM/GRU over snapshots; Transformer/temporal attention; Time2Vec or similar time encoding; Neural ODE/continuous-time dynamics; temporal convolution; positional encoding; recurrence on edges; point process / intensity function; none (graph-only); other"
+  },
+  {
+    "field_index": 44,
+    "domain_group": "9. Temporal representation",
+    "field_name": "Irregular sampling handling",
+    "definition": "How the model handles unevenly spaced observations.",
+    "reviewer_question": "How does the model deal with irregular time intervals?",
+    "format": "Categorical (single-select)",
+    "categories_or_examples": "imputation to regular grid; LOCF/carry-forward; explicit interval encoding; irregular-time-aware module (e.g., GRU-D); discretization to bins; not addressed; not applicable"
+  },
+  {
+    "field_index": 45,
+    "domain_group": "10. Model architecture",
+    "field_name": "Proposed model name",
+    "definition": "The author-given name of the proposed method.",
+    "reviewer_question": "What does the paper call its model?",
+    "format": "Free text",
+    "categories_or_examples": "Examples: 'RRF'; 'Med-GAT'; 'Dipole'; 'T-GCN'; 'KGDNet'; 'StructCare'"
+  },
+  {
+    "field_index": 46,
+    "domain_group": "10. Model architecture",
+    "field_name": "Graph-learning architecture family",
+    "definition": "Class of graph model used.",
+    "reviewer_question": "Which graph-learning family does this belong to?",
+    "format": "Categorical (multi-select; controlled vocabulary)",
+    "categories_or_examples": "GCN; GAT; GraphSAGE; Graph Transformer; MPNN (generic); Temporal GNN (TGN, EvolveGCN, DyRep, etc.); GNN+RNN hybrid; Hypergraph NN; Graph autoencoder; R-GCN/relational GCN; Random forest with relational features; Probabilistic graphical model; Knowledge-graph embedding (TransE, etc.); other"
+  },
+  {
+    "field_index": 47,
+    "domain_group": "10. Model architecture",
+    "field_name": "Non-graph model components",
+    "definition": "Other architectural pieces around or downstream of the graph component.",
+    "reviewer_question": "What non-graph components are integrated?",
+    "format": "Categorical (multi-select; controlled vocabulary)",
+    "categories_or_examples": "RNN/LSTM/GRU; Transformer; CNN; MLP head; survival head (Cox-PH); attention pooling; contrastive learning module; gating mechanism; LLM module; none; other"
+  },
+  {
+    "field_index": 48,
+    "domain_group": "10. Model architecture",
+    "field_name": "Full architecture pipeline (verbatim)",
+    "definition": "Free-text description of the complete pipeline as the paper presents it.",
+    "reviewer_question": "How does the paper describe the full pipeline?",
+    "format": "Free text",
+    "categories_or_examples": "Example: 'DA-KNN graph constructor + ST-CNN + LT-GRU + GraphTransformer + SHAP-based interpretability module'"
+  },
+  {
+    "field_index": 49,
+    "domain_group": "11. Evaluation and generalizability",
+    "field_name": "Internal validation strategy",
+    "definition": "How the model was evaluated within the source data.",
+    "reviewer_question": "How was the model validated internally?",
+    "format": "Categorical (single-select)",
+    "categories_or_examples": "k-fold cross-validation (specify k); single train/val/test split; bootstrap; leave-one-out; temporal split (train early, test later); not stated"
+  },
+  {
+    "field_index": 50,
+    "domain_group": "11. Evaluation and generalizability",
+    "field_name": "Patient-level vs. visit-level split",
+    "definition": "Whether train/test splits were performed at the patient level (no patient appears in both train and test) or at the visit/episode level (label leakage risk).",
+    "reviewer_question": "Was the train/test split done at the patient level or at the visit/episode level?",
+    "format": "Categorical (single-select)",
+    "categories_or_examples": "patient-level (no leakage); visit/episode-level (potential leakage); not stated; not applicable"
+  },
+  {
+    "field_index": 51,
+    "domain_group": "11. Evaluation and generalizability",
+    "field_name": "External validation",
+    "definition": "Whether the model was evaluated on data from a different institution, time period, or population.",
+    "reviewer_question": "Was external validation performed?",
+    "format": "Categorical (single-select)",
+    "categories_or_examples": "none (internal only); temporal external (later years, same site); geographic external (different site); out-of-distribution / domain-shift (different disease/task); both temporal and geographic; not applicable"
+  },
+  {
+    "field_index": 52,
+    "domain_group": "11. Evaluation and generalizability",
+    "field_name": "Generalizability evaluation approach",
+    "definition": "Broader narrative of how authors argue (or don't argue) for generalizability.",
+    "reviewer_question": "How do the authors address generalizability beyond the source data?",
+    "format": "Free text",
+    "categories_or_examples": "Examples: 'Multi-site CV across 3 hospitals'; 'single-site, no external test'; 'evaluated on held-out time window only'"
+  },
+  {
+    "field_index": 53,
+    "domain_group": "12. Interpretability and representation",
+    "field_name": "Interpretability paradigm",
+    "definition": "High-level approach to model explanation.",
+    "reviewer_question": "What kind of interpretability (if any) does the paper report?",
+    "format": "Categorical (single-select; controlled vocabulary)",
+    "categories_or_examples": "none — black box (could have but didn't); not applicable (study not focused on prediction/explanation); not reported (silent on interpretability); intrinsic only (model inherently interpretable); post hoc only (explanations applied to black box); both intrinsic and post hoc"
+  },
+  {
+    "field_index": 54,
+    "domain_group": "12. Interpretability and representation",
+    "field_name": "Specific interpretability method(s)",
+    "definition": "Named techniques used for explanation.",
+    "reviewer_question": "What specific interpretability methods are used?",
+    "format": "Categorical (multi-select; controlled vocabulary)",
+    "categories_or_examples": "attention weights/heatmaps; SHAP; GradientSHAP; LIME; gradient/saliency; integrated gradients; GNNExplainer; t-SNE/UMAP visualization; network/graph visualization (qualitative); case visualization; pseudo-attention with gradient-based importance; feature importance from tree ensemble; temporal phenotypes; factor function tables; fuzzy/symbolic rules; reconstruction coefficients; LLM-generated explanation; consistency analysis; other; none"
+  },
+  {
+    "field_index": 55,
+    "domain_group": "12. Interpretability and representation",
+    "field_name": "Output representation form",
+    "definition": "Form in which the model's learned representation appears to a downstream user.",
+    "reviewer_question": "What does the model ultimately produce as its representation of a patient?",
+    "format": "Categorical (single-select; controlled vocabulary)",
+    "categories_or_examples": "latent embedding/vector; calibrated risk score; temporal phenotype/discrete cluster; factor table/decomposition; fuzzy or symbolic rule; explicit decision tree/graph path; calculator-based score; other"
+  },
+  {
+    "field_index": 56,
+    "domain_group": "12. Interpretability and representation",
+    "field_name": "Clinical-narrative explanation flag",
+    "definition": "Whether interpretability outputs are clinically narrative (trajectory description, phenotype label) versus purely numeric attribution.",
+    "reviewer_question": "Does interpretability produce a clinically narrative explanation?",
+    "format": "Categorical (single-select; reviewer-judged)",
+    "categories_or_examples": "yes; partial; no; not applicable"
+  },
+  {
+    "field_index": 57,
+    "domain_group": "13. Reviewer assessment and critique",
+    "field_name": "Author-reported strengths (verbatim)",
+    "definition": "Strengths/contributions as stated by authors themselves.",
+    "reviewer_question": "What do the authors claim as their key advantages?",
+    "format": "Free text (bullet list)",
+    "categories_or_examples": "Examples: 'Outperforms CHADS2 on AUC'; 'Identifies low-risk subgroup that other methods cannot'; 'First model to leverage X for Y'"
+  },
+  {
+    "field_index": 58,
+    "domain_group": "13. Reviewer assessment and critique",
+    "field_name": "Author-reported strengths (coded)",
+    "definition": "Categorical tags applied to author-reported strengths using a controlled vocabulary.",
+    "reviewer_question": "Which standard strength categories do the authors mention?",
+    "format": "Categorical (multi-select; controlled vocabulary)",
+    "categories_or_examples": "performance superiority; novel architecture; interpretability; generalizability; robustness to sparsity/noise; clinical applicability; computational efficiency; first-of-kind contribution; multi-task capability; other"
+  },
+  {
+    "field_index": 59,
+    "domain_group": "13. Reviewer assessment and critique",
+    "field_name": "Author-reported limitations (verbatim)",
+    "definition": "Limitations explicitly acknowledged in the paper.",
+    "reviewer_question": "What limitations do the authors themselves acknowledge?",
+    "format": "Free text (bullet list)",
+    "categories_or_examples": "Examples: 'Selection bias from Medicaid exit'; 'Left-censoring of history variables'; 'Single-center data'"
+  },
+  {
+    "field_index": 60,
+    "domain_group": "13. Reviewer assessment and critique",
+    "field_name": "Author-reported limitations (coded)",
+    "definition": "Categorical tags applied to author-reported limitations using a controlled vocabulary.",
+    "reviewer_question": "Which standard limitation categories do the authors mention?",
+    "format": "Categorical (multi-select; controlled vocabulary)",
+    "categories_or_examples": "single-center/limited generalizability; no external validation; selection bias; left-censoring of history; right-censoring of follow-up; coarse temporal binning; restricted modalities; computational burden; class imbalance; ontology dependence; retrospective documentation bias; small sample; missing data; lack of clinician validation; weak baseline comparison; no calibration assessment; label leakage risk; cross-setting discontinuity; static graph after construction; first-visit/cold-start problem; not-deployment-ready; scalability concerns; irregular sampling not handled; causal interpretation not justified; other; none reported"
+  },
+  {
+    "field_index": 61,
+    "domain_group": "13. Reviewer assessment and critique",
+    "field_name": "Time-essentialness assessment",
+    "definition": "Reviewer judgment of how necessary temporal modeling is to the clinical task, per manuscript §4.4.",
+    "reviewer_question": "Is temporal modeling intrinsically required for this task, helpful but not essential, or merely supportive?",
+    "format": "Categorical (single-select; reviewer-judged)",
+    "categories_or_examples": "time-essential (task is intrinsically temporal); helpful but not indispensable; supportive only (time is an indexing device); unclear"
+  },
+  {
+    "field_index": 62,
+    "domain_group": "13. Reviewer assessment and critique",
+    "field_name": "Synthesis notes (free text)",
+    "definition": "Free-text reviewer notes capturing anything unusual that doesn't fit elsewhere.",
+    "reviewer_question": "Anything else worth noting for the review?",
+    "format": "Free text",
+    "categories_or_examples": "Examples: 'Hybrid of DTDG with continuous-time edges'; 'Unusual node typing'; 'Possibly should be excluded — graph-as-feature, not graph-as-data-structure'"
+  }
+]

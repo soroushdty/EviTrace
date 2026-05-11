@@ -26,8 +26,8 @@ _QC_DEFAULTS: dict = {
     # word_tokenizer.backend: valid values — "simple" | "spacy" | "nltk"
     # normalizer.backend: valid values — "nfc" | "nfkc"
     "text_processor": {
-        "class": "utils.text_processor.TextProcessor",
-        "sentence_tokenizer": {"backend": "scispacy", "model": "en_core_sci_lg"},
+        "class": "text_processing.composite.DefaultTextProcessor",
+        "sentence_tokenizer": {"backend": "scispacy", "model": "en_core_sci_sm"},
         "word_tokenizer": {"backend": "simple"},
         "normalizer": {"backend": "nfkc"},
         "comparison": {"metric": "levenshtein", "threshold": 0.85},
@@ -39,18 +39,29 @@ _QC_DEFAULTS: dict = {
         "artifact_generator": {"export_to_disk": False, "output_dir": "output/qc_artifacts"},
         "rater": {"attributes": []},
         "iaa_calculator": {"thresholds": {}, "agreement_metrics": []},
-        "adjudicator": {"strategy": "placeholder"},
+        "adjudicator": {"strategy": "majority_vote"},
         "reconciler": {"enable_tei_export": False, "enable_annotation_export": False},
-        "semantic_qc": {
+        "source_text_verification": {
+            "enabled": True,
+        },
+        "semantic_verification": {
             "enabled": False,
-            "model_name": "BAAI/bge-base-en-v1.5",
-            "query_prefix": "Represent this sentence for searching relevant passages: ",
             "similarity_threshold": 0.85,
             "max_sentences": 10000,
+            "model_name": "BAAI/bge-base-en-v1.5",
+            "on_index_unavailable": "skip",
+            "extractor_agreement": {
+                "enabled": False,
+                "len_filter": 40,
+                "max_examples": 10,
+            },
+        },
+        "task_quality_scaffold": {
+            "enabled": False,
         },
         "local_metrics": {
             "min_chars_per_page": 100,
-            "grobid_vs_native_ratio_threshold": 0.6,
+            "extraction_coverage_ratio_threshold": 0.6,
             "long_sentence_word_threshold": 120,
             "long_sentence_max_fraction": 0.12,
             "expected_sections": ["abstract", "introduction", "methods", "results"],
@@ -70,6 +81,17 @@ _QC_DEFAULTS: dict = {
             "include_raw_affiliations": False,
             "tei_coordinates": True,
             "max_retries": 2,
+        },
+        "grobid_integration": {
+            "enabled": True,
+            "failure_behavior": "manifest_fail",
+            "crop_figures": True,
+            "crop_tables": True,
+        },
+        "addons": {
+            "grobid_quantities": {"enabled": False, "url": "", "endpoint": "/service/process", "timeout": 20},
+            "datastet": {"enabled": False, "url": "", "endpoint": "/service/processDataseerSentence", "timeout": 20},
+            "entity_fishing": {"enabled": False, "url": "", "endpoint": "/service/disambiguate", "timeout": 20},
         },
         # Scan detection thresholds (Requirement 9 / design §scan_detector)
         # text_density_threshold: minimum word count for a native page (integer, ≥ 0)
@@ -120,8 +142,7 @@ def load_qc_config(config_path: str | None = None) -> dict:
 
     Returns a dict with 'quality_control' and 'text_processor' top-level keys.
     Missing keys are filled in from _QC_DEFAULTS so that callers always receive
-    the full documented default set regardless of what is present in config.yaml
-    (Requirement 9 backward-compatibility guarantee).
+    the full documented default set regardless of what is present in config.yaml.
     """
     raw = _load_config_yaml(config_path)
     user_cfg = {
@@ -140,7 +161,6 @@ _LOCAL_DEFAULTS: dict = {
     "log_level": "INFO",
     "len_filter": 40,
     "ocr": True,
-    "ocr_text_quality_threshold": 0.7,
     "output_folder_path": "output",
 }
 
@@ -169,8 +189,8 @@ def _load_config_yaml(config_path: str | None = None) -> dict:
         Parsed YAML config dict.
     """
     if config_path is None:
-        # Prefer config/config.yaml when present, fall back to repo-root config.yaml
-        default1 = Path(__file__).parent.parent / "config" / "config.yaml"
+        # Prefer configs/config.yaml when present, fall back to repo-root config.yaml
+        default1 = Path(__file__).parent.parent / "configs" / "config.yaml"
         default2 = Path(__file__).parent.parent / "config.yaml"
         if default1.exists():
             config_path = default1
@@ -203,6 +223,7 @@ def load_openai_config(config_path: str | None = None) -> dict:
     extraction_cfg = cfg_yaml.get("extraction", {})
     concurrency_cfg = cfg_yaml.get("concurrency", {})
     retry_cfg = cfg_yaml.get("retry", {})
+    grobid_integration_cfg = cfg_yaml.get("quality_control", {}).get("grobid_integration", {})
 
     # API credentials
     api_key = os.environ.get("OPENAI_API_KEY", "") or openai_cfg.get("api_key", "")
@@ -268,6 +289,10 @@ def load_openai_config(config_path: str | None = None) -> dict:
         "global_api_limit": global_api_limit,
         "max_retries": max_retries,
         "retry_base_delay": retry_base_delay,
+        "max_evidence_items_per_chunk": int(extraction_cfg.get("max_evidence_items_per_chunk", 250)),
+        "max_evidence_chars_per_chunk": int(extraction_cfg.get("max_evidence_chars_per_chunk", 60000)),
+        "evidence_cache_dir": extraction_cfg.get("evidence_cache_dir", "outputs/evidence_cache"),
+        "grobid_failure_behavior": grobid_integration_cfg.get("failure_behavior", "manifest_fail"),
     }
 
 
@@ -408,10 +433,6 @@ def load_local_config(config_path: str | None = None) -> dict:
         raise TypeError(
             f"Config 'ocr' must be a boolean, got {type(cfg['ocr']).__name__}"
         )
-    if not isinstance(cfg["ocr_text_quality_threshold"], (int, float)) or isinstance(
-        cfg["ocr_text_quality_threshold"], bool
-    ):
-        raise TypeError("Config 'ocr_text_quality_threshold' must be a number")
 
     return cfg
 
@@ -419,6 +440,3 @@ def load_local_config(config_path: str | None = None) -> dict:
 # ============================================================================
 # Public API: Centralized configuration access
 # ============================================================================
-
-# Maintain backward compatibility
-load_config = load_local_config

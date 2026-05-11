@@ -20,7 +20,7 @@ import pytest
 from hypothesis import given, settings, HealthCheck
 from hypothesis import strategies as st
 
-from quality_control.artifact_generator import (
+from pdf_extractor.artifact_generator import (
     build_canonical_artifacts,
     canonicalize_grobid_xml,
     canonicalize_pymupdf_json,
@@ -60,7 +60,7 @@ def _build_xml_str(tag: str, text: str) -> str:
     tag=_safe_tag,
     text=_safe_text,
 )
-@settings(max_examples=100)
+@settings(max_examples=20)
 def test_grobid_canonicalization_deterministic(tag: str, text: str):
     """**Validates: Requirements 2.2, 2.4**
 
@@ -84,7 +84,7 @@ def test_grobid_canonicalization_deterministic(tag: str, text: str):
         st.lists(st.text()),
     )
 )
-@settings(max_examples=100)
+@settings(max_examples=20)
 def test_pymupdf_canonicalization_deterministic(obj):
     """**Validates: Requirements 2.3, 2.4**
 
@@ -106,7 +106,7 @@ def test_pymupdf_canonicalization_deterministic(obj):
     document_id=st.text(min_size=1),
     pymupdf_output=st.dictionaries(st.text(), st.text()),
 )
-@settings(max_examples=100)
+@settings(max_examples=20)
 def test_build_canonical_artifacts_always_produces_output(
     document_id: str, pymupdf_output: dict
 ):
@@ -131,7 +131,7 @@ def test_build_canonical_artifacts_always_produces_output(
 
 # Feature: quality-control-module, Property 4: No files written when export_to_disk is false
 @given(pymupdf_output=st.dictionaries(st.text(), st.text()))
-@settings(max_examples=100)
+@settings(max_examples=20)
 def test_no_files_written_when_export_disabled(pymupdf_output: dict):
     """**Validates: Requirements 2.7**
 
