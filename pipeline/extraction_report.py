@@ -56,6 +56,7 @@ def _print_summary(
     total_fields: int,
     flagged_rows: list[dict],
     not_reported: dict[int, int],
+    elapsed_seconds: float | None = None,
 ) -> None:
     """Print pipeline summary and top-10 not-reported fields to stdout."""
     sep = "═" * 60
@@ -65,6 +66,12 @@ def _print_summary(
     print(f"  PDFs processed        : {total_pdfs}")
     print(f"  Total fields extracted: {total_fields}")
     print(f"  Flagged for review    : {len(flagged_rows)}")
+    if elapsed_seconds is not None:
+        minutes, secs = divmod(int(elapsed_seconds), 60)
+        if minutes > 0:
+            print(f"  Time elapsed          : {minutes}m {secs}s")
+        else:
+            print(f"  Time elapsed          : {secs}s")
     print(f"  QC report             : {QC_REPORT_FILE}")
     print(sep)
 
@@ -77,7 +84,7 @@ def _print_summary(
     print()
 
 
-def generate_qc_report(results: list[dict]) -> None:
+def generate_qc_report(results: list[dict], elapsed_seconds: float | None = None) -> None:
     """
     Write two files:
 
@@ -92,4 +99,4 @@ def generate_qc_report(results: list[dict]) -> None:
 
     flagged_rows, not_reported = _collect_qc_data(results)
     _write_qc_csv(flagged_rows)
-    _print_summary(total_pdfs, total_fields, flagged_rows, not_reported)
+    _print_summary(total_pdfs, total_fields, flagged_rows, not_reported, elapsed_seconds)

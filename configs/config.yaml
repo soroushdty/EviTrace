@@ -21,34 +21,58 @@ openai:
     retention: "24h" # e.g., "24h", "in_memory"
     enable_prewarm: true
     warmup_max_tokens: 32
+    # When true, fire an extra synthesis-shaped warmup (shared_prefix +
+    # extraction_map for the synthesis chunk) in parallel with the
+    # extraction chunks. This preserves the extraction-map prefix on the
+    # server cache for the synthesis call; prior_context is a data-
+    # dependent trailing suffix that cannot be cached. Saves input tokens
+    # on the synthesis chunk even when chunk_model == synthesis_model.
     prewarm_synthesis_if_model_diff: true
 
 # Extraction and chunking configuration
 extraction:
   # Number of extraction chunks
   # Chunk 1-N: extraction, Chunk N+1: synthesis/review
-  num_chunks: 3
-  max_evidence_items_per_chunk: 250
-  max_evidence_chars_per_chunk: 60000
-  evidence_cache_dir: "outputs/evidence_cache"
+  num_chunks: 5
+  # Evidence budgets per chunk. Defaults tuned so the ranker actually prunes
+  # (old defaults of 250/60000 were larger than every real paper's evidence
+  # set, so nothing was filtered and we were paying to tokenize the full
+  # corpus three times). 150 items / 30000 chars covers ~99% of scientific
+  # papers in the reference corpus without dropping high-signal sentences.
+  # Raise these if your downstream QC reports missing evidence; lower them
+  # to save more input tokens.
+  max_evidence_items_per_chunk: 150
+  max_evidence_chars_per_chunk: 10000
+  evidence_cache_dir: "evidence_cache"
 
 # Concurrency settings
 concurrency:
-  pdf_processing: 3 # PDFs processed in parallel
+  # PDFs processed in parallel. 3 is a safe default: GROBID extraction is
+  # almost entirely network-wait on the client side, so overlapping PDF N's
+  # GROBID call with PDF N-1's LLM calls is close to free. global_api_limit
+  # below caps concurrent OpenAI calls so this never overwhelms the API.
+  pdf_processing: 3
   global_api_limit: 15 # Max concurrent OpenAI API calls across all PDFs
 
 # Retry configuration
 retry:
   max_retries: 3
-  base_delay_seconds: 5 # Actual delay = base * 2^(attempt - 1)
+  # Base delay in seconds for exponential backoff on non-429 errors.
+  # Actual delay = base * 2^(attempt - 1), capped at 30s. When the server
+  # sends a Retry-After header (standard for 429 and some 503), the client
+  # honors it verbatim instead of using the exponential schedule.
+  base_delay_seconds: 1
 
 # Paths
 pdfs_path: "input"
-output_folder_path: "outputs"
+main_output_dir: "outputs"
 extraction_map_path: "configs/extraction_map.json"
 
 # Logging configuration
 log_file: "run.log"
+# Console level. File handler is always DEBUG (full detail on disk); the
+# console only shows INFO+ by default to keep the terminal readable on
+# long batch runs. Set to "DEBUG" when debugging a pipeline issue.
 log_level: "DEBUG"
 
 # Extraction and OCR settings
@@ -87,9 +111,29 @@ quality_control:
   # GROBID extractor settings
   grobid:
     auto_start: true
-    docker_image: "lfoppiano/grobid:0.9.0-crf"
-    url: "http://localhost:8070"
-    timeout: 180
+    # Use the CRF-only image by default: 5-10x faster startup and per-request
+    # latency than the full DL image, with equivalent accuracy on Western-
+    # language scientific PDFs for the TEI fields EviTrace consumes (title,
+    # authors, sections, sentences, citations, coordinates).
+    docker_image: "lfoppiano/grobid:0.8.2-crf"
+    # Tuning knobs applied at container launch by GrobidServerManager.
+    # - java_opts: JVM heap + GC tuning; 4G is a reasonable default for a
+    #   single-worker local container on an 8-core/16GB machine.
+    # - concurrency: max number of parallel GROBID requests handled by the
+    #   container; matches the worker pool size reserved by GROBID.
+    # - cpus: optional docker --cpus limit. Leave empty to let the container
+    #   use all available CPUs (recommended).
+    java_opts: "-Xmx4g -XX:+UseG1GC"
+    concurrency: 10
+    cpus: ""
+    url: "http://127.0.0.1:8070"
+    # When false (default), the container is left running between EviTrace
+    # invocations so the next run reuses its warm JVM + CRF models (~70s
+    # saved per run). Pass --tear-down-grobid on the CLI, set
+    # EVI_GROBID_STOP_ON_EXIT=1, or flip this to true for CI teardown.
+    container_name: "evi-grobid"
+    stop_on_exit: false
+    timeout: 600
     consolidate_header: 0
     consolidate_citations: 0
     generate_ids: true
@@ -104,21 +148,33 @@ quality_control:
     crop_figures: true
     crop_tables: true
   addons:
+    # All three services produce accuracy-positive enrichment (quantities,
+    # datasets, entities). Kept enabled, but each request is now gated by a
+    # fast /service/isalive preflight probe so a down service adds ~2s (not
+    # ~60s) to the cache-miss path, and each returned annotation is mapped
+    # back to the specific evidence item whose text contains its offset --
+    # not blasted onto every item.
     grobid_quantities:
       enabled: true
       url: "http://localhost:8060"
-      endpoint: "/service/process"
-      timeout: 60
+      endpoint: "/service/processQuantityText"
+      isalive: "/service/isalive"
+      timeout: 5
+      preflight_timeout: 2
     datastet:
       enabled: true
       url: "http://localhost:8080"
-      endpoint: "/service/processDataseerSentence"
-      timeout: 60
+      endpoint: "/service/processDataseerText"
+      isalive: "/service/isalive"
+      timeout: 5
+      preflight_timeout: 2
     entity_fishing:
       enabled: true
       url: "http://localhost:8090"
       endpoint: "/service/disambiguate"
-      timeout: 60
+      isalive: "/service/isalive"
+      timeout: 5
+      preflight_timeout: 2
   # Source text presence verification
   source_text_verification:
     enabled: true

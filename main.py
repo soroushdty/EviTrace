@@ -47,10 +47,21 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Disable one-call-per-PDF cache warmup; extraction still works",
     )
+    parser.add_argument(
+        "--tear-down-grobid",
+        action="store_true",
+        help=(
+            "Stop the persistent GROBID container on exit. Default: leave it "
+            "running between invocations to preserve JVM + CRF model warmup."
+        ),
+    )
     return parser.parse_args()
 
 
 async def main() -> None:
+    import time as _time
+    _t_start = _time.time()
+
     args = parse_args()
     logger.debug("Parsed CLI args: %r", vars(args))
     cfg = load_openai_config()
@@ -112,6 +123,9 @@ async def main() -> None:
     OUTPUT_DIR.mkdir(exist_ok=True)
 
     # Run pipeline — pass CLI overrides as arguments instead of mutating globals.
+    if args.tear_down_grobid:
+        # Surface CLI intent to GrobidServerManager via config override.
+        local_cfg.setdefault("quality_control", {}).setdefault("grobid", {})["stop_on_exit"] = True
     with GrobidServerManager(local_cfg):
         results = await pipeline.run_pipeline(
             pdf_paths,
@@ -123,7 +137,7 @@ async def main() -> None:
         logger.error("No PDFs were successfully processed.")
         sys.exit(1)
 
-    generate_qc_report(results)
+    generate_qc_report(results, elapsed_seconds=_time.time() - _t_start)
 
 
 if __name__ == "__main__":

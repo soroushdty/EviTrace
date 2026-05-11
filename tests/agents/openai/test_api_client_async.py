@@ -471,3 +471,91 @@ class TestResponseText:
 
         with pytest.raises(RuntimeError, match="policy"):
             self.api_client_mod._response_text(resp)
+
+
+
+# ---------------------------------------------------------------------------
+# Retry-After header parsing + backoff cap
+# ---------------------------------------------------------------------------
+
+
+class _FakeHeaders(dict):
+    """Minimal mapping that implements the tiny surface both dicts and
+    httpx.Headers expose -- .get() with the header name."""
+
+
+def _fake_exc_with_retry_after(value):
+    """Build an APIStatusError-like mock carrying a Retry-After header."""
+    exc = MagicMock(spec=APIStatusError)
+    response = MagicMock()
+    headers = _FakeHeaders()
+    if value is not None:
+        headers["retry-after"] = str(value)
+    response.headers = headers
+    exc.response = response
+    return exc
+
+
+class TestRetryAfterBackoff:
+    """Regression tests for commit 11: Retry-After honored, backoff capped."""
+
+    def test_retry_after_integer_seconds_is_honored(self):
+        m = _import_api_client()
+        exc = _fake_exc_with_retry_after(7)
+        secs = m._retry_after_seconds(exc)
+        assert secs == 7.0
+
+    def test_retry_after_float_seconds_is_honored(self):
+        m = _import_api_client()
+        exc = _fake_exc_with_retry_after("0.25")
+        secs = m._retry_after_seconds(exc)
+        assert secs == 0.25
+
+    def test_retry_after_missing_header_returns_none(self):
+        m = _import_api_client()
+        exc = _fake_exc_with_retry_after(None)
+        assert m._retry_after_seconds(exc) is None
+
+    def test_retry_after_no_response_on_exception_returns_none(self):
+        m = _import_api_client()
+        exc = MagicMock(spec=APIStatusError)
+        # no .response attribute at all
+        if hasattr(exc, "response"):
+            del exc.response
+        assert m._retry_after_seconds(exc) is None
+
+    def test_retry_after_negative_clamped_to_zero(self):
+        m = _import_api_client()
+        exc = _fake_exc_with_retry_after(-5)
+        assert m._retry_after_seconds(exc) == 0.0
+
+    def test_retry_after_huge_value_is_capped(self):
+        m = _import_api_client()
+        exc = _fake_exc_with_retry_after(9999)
+        # Must not return thousands of seconds -- we'd stall the event loop.
+        assert m._retry_after_seconds(exc) == m._MAX_RETRY_AFTER_SECONDS
+
+    def test_backoff_prefers_retry_after(self):
+        m = _import_api_client()
+        # With retry_base_delay=0 from _FAKE_CONFIG, exponential would be 0.
+        # Retry-After of 3 must win.
+        exc = _fake_exc_with_retry_after(3)
+        assert m._backoff_delay(attempt=1, exc=exc) == 3.0
+
+    def test_backoff_falls_back_to_exponential_without_header(self):
+        m = _import_api_client()
+        # _FAKE_CONFIG sets retry_base_delay=0, so any attempt should give 0.
+        exc = _fake_exc_with_retry_after(None)
+        assert m._backoff_delay(attempt=4, exc=exc) == 0.0
+
+    def test_backoff_exponential_is_capped(self):
+        m = _import_api_client()
+        # Manually set RETRY_BASE_DELAY high so the cap kicks in.
+        original = m.RETRY_BASE_DELAY
+        m.RETRY_BASE_DELAY = 10
+        try:
+            exc = _fake_exc_with_retry_after(None)
+            # 10 * 2^10 == 10240, must be capped.
+            assert m._backoff_delay(attempt=11, exc=exc) == m._MAX_RETRY_AFTER_SECONDS
+        finally:
+            m.RETRY_BASE_DELAY = original

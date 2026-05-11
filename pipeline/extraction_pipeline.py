@@ -18,8 +18,11 @@ build_qc_bundle(pdf_path, pdf_name, qc_config) -> QCBundle
 
 from __future__ import annotations
 
+import functools
 import logging
+import threading
 from pathlib import Path
+from typing import Any
 
 from pdf_extractor.extraction.GROBID import extract_with_grobid
 from pdf_extractor.extraction.PyMuPDF import extract_with_pymupdf
@@ -33,6 +36,93 @@ from quality_control.models import Candidate
 from text_processing.base import TextProcessor
 
 logger = logging.getLogger("pdf_extractor")
+
+
+# ---------------------------------------------------------------------------
+# Expensive singletons
+# ---------------------------------------------------------------------------
+# Previously, LexicalMatcher, SemanticMatcher, and the TextProcessor class
+# were instantiated per PDF inside build_qc_bundle. Each instantiation paid
+# hidden cost:
+#
+#   - SemanticMatcher construction is cheap, but its FAISS-backed search path
+#     lazy-imports sentence_transformers + torch the first time it runs,
+#     loading a 400 MB BGE model. Per-PDF instantiation can trigger repeated
+#     model reloads depending on Python's import caching.
+#   - TextProcessor (DefaultTextProcessor with sentence_tokenizer.backend =
+#     "scispacy") eagerly loads en_core_sci_sm on first use, which spaCy
+#     caches per-process but the wrapper object rebuilds its own private
+#     lazy-load state per instance, so each PDF re-runs the _load_sentence_
+#     backend dispatch.
+#   - LexicalMatcher itself is effectively stateless but still allocates.
+#
+# We cache these at module level. lru_cache() is thread-safe in CPython
+# (GIL-protected), and the cached objects are read-only w.r.t. their
+# ``search`` / ``tokenize_sentences`` methods, so sharing them across
+# concurrent PDF workers is safe.
+
+_tp_lock = threading.Lock()
+_tp_cache: dict[tuple[str, int], Any] = {}
+
+
+def _freeze_config(cfg: dict | None) -> int:
+    """Return a stable hash of a nested config dict for lru_cache keying."""
+    if not cfg:
+        return 0
+    # Repr is stable for the small, simple dicts we use here and avoids
+    # needing to recursively freeze nested dicts into frozensets.
+    return hash(repr(sorted(_flatten_config(cfg))))
+
+
+def _flatten_config(cfg: dict, prefix: str = "") -> list[tuple[str, Any]]:
+    items: list[tuple[str, Any]] = []
+    for k, v in cfg.items():
+        key = f"{prefix}.{k}" if prefix else k
+        if isinstance(v, dict):
+            items.extend(_flatten_config(v, key))
+        else:
+            items.append((key, repr(v)))
+    return items
+
+
+@functools.lru_cache(maxsize=1)
+def _get_lexical_matcher():
+    from text_processing.matchers import LexicalMatcher  # noqa: PLC0415
+    return LexicalMatcher()
+
+
+@functools.lru_cache(maxsize=1)
+def _get_semantic_matcher():
+    from text_processing.matchers import SemanticMatcher  # noqa: PLC0415
+    return SemanticMatcher()
+
+
+def _get_text_processor(class_path: str, tp_cfg: dict):
+    """Return a cached TextProcessor instance for (class_path, config-hash).
+
+    We cache by a hash of the flattened config instead of by object identity
+    so callers that rebuild the config dict per PDF still hit the cache.
+    """
+    cfg_hash = _freeze_config(tp_cfg)
+    key = (class_path, cfg_hash)
+    cached = _tp_cache.get(key)
+    if cached is not None:
+        return cached
+    with _tp_lock:
+        cached = _tp_cache.get(key)
+        if cached is not None:
+            return cached
+        import importlib as _importlib  # noqa: PLC0415
+        module_name, class_name = class_path.rsplit(".", 1)
+        module = _importlib.import_module(module_name)
+        cls = getattr(module, class_name)
+        instance = cls(config=tp_cfg)
+        _tp_cache[key] = instance
+        logger.debug(
+            "text_processor cached: class=%s config_hash=%d (cache size=%d)",
+            class_path, cfg_hash, len(_tp_cache),
+        )
+        return instance
 
 
 def build_qc_bundle(
@@ -87,14 +177,10 @@ def build_qc_bundle(
         "text_processor",
         {"sentence_tokenizer": {"backend": "nltk_punkt"}},
     )
-    import importlib as _importlib  # noqa: PLC0415
     _tp_class_path = tp_cfg.get("class", "text_processing.composite.DefaultTextProcessor")
     logger.debug("Loading text_processor class: %s", _tp_class_path)
-    _tp_module_name, _tp_class_name = _tp_class_path.rsplit(".", 1)
-    _tp_module = _importlib.import_module(_tp_module_name)
-    _tp_cls = getattr(_tp_module, _tp_class_name)
-    tp = _tp_cls(config=tp_cfg)
-    logger.debug("text_processor instance: %s", type(tp).__name__)
+    tp = _get_text_processor(_tp_class_path, tp_cfg)
+    logger.debug("text_processor instance: %s (cached)", type(tp).__name__)
 
     import fitz as _fitz  # noqa: PLC0415 — lazy; not installed in all envs
     doc = _fitz.open(str(pdf_path))
@@ -132,8 +218,21 @@ def build_qc_bundle(
     if all_native:
         # Native path: GROBID (semantic) + pdfplumber (structural)
         logger.debug("Routing %s: native path (GROBID + pdfplumber)", pdf_name)
+        grobid_cfg = qc_config.get("quality_control", {}).get("grobid", {})
         try:
-            tei_xml, _ = extract_with_grobid(str(pdf_path))
+            tei_xml, _ = extract_with_grobid(
+                str(pdf_path),
+                grobid_url=grobid_cfg.get("url", "http://localhost:8070"),
+                timeout=int(grobid_cfg.get("timeout", 180)),
+                consolidate_header=int(grobid_cfg.get("consolidate_header", 0)),
+                consolidate_citations=int(grobid_cfg.get("consolidate_citations", 0)),
+                generate_ids=bool(grobid_cfg.get("generate_ids", True)),
+                segment_sentences=bool(grobid_cfg.get("segment_sentences", True)),
+                include_raw_citations=bool(grobid_cfg.get("include_raw_citations", True)),
+                include_raw_affiliations=bool(grobid_cfg.get("include_raw_affiliations", False)),
+                tei_coordinates=bool(grobid_cfg.get("tei_coordinates", True)),
+                max_retries=int(grobid_cfg.get("max_retries", 2)),
+            )
             logger.debug("GROBID returned TEI XML: %d chars", len(tei_xml))
         except Exception:
             if grobid_failure_behavior == "manifest_fail":
@@ -179,9 +278,8 @@ def build_qc_bundle(
     # ------------------------------------------------------------------
     # Step 3 — QC pipeline
     # ------------------------------------------------------------------
-    from text_processing.matchers import LexicalMatcher, SemanticMatcher  # noqa: PLC0415
-    _lexical_matcher = LexicalMatcher()
-    _semantic_matcher = SemanticMatcher()
+    _lexical_matcher = _get_lexical_matcher()
+    _semantic_matcher = _get_semantic_matcher()
     logger.debug(
         "Running QC pipeline for %s with %d branches: %s",
         pdf_name, len(branches), [b.source for b in branches],

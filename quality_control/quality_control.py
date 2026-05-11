@@ -183,11 +183,143 @@ def _coerce_page_index(page_index: object) -> int:
         return 0
 
 
+def _extract_tei_payload(tei_xml: str) -> tuple[str, dict[int, str], list[dict]]:
+    """Parse a GROBID TEI XML string into (full_text, page_texts, blocks).
+
+    Uses the ``coords`` attribute on TEI elements (format ``"page;x0,y0,x1,y1"``;
+    1-indexed page) to route each sentence / paragraph to its real PDF page.
+    Elements without coords are routed to page 0, which is correct for
+    abstracts and front matter. This makes per-page QC metrics (min chars per
+    page, extraction coverage ratio) compare apples to apples against the
+    pdfplumber branch, instead of comparing pdfplumber's pages against the
+    whole TEI XML as one giant "page".
+
+    Falls back to treating the raw XML as plain text on parse failure so a
+    malformed TEI never crashes the rater.
+    """
+    import xml.etree.ElementTree as _ET  # noqa: PLC0415
+    import re as _re  # noqa: PLC0415
+
+    tei_ns = "http://www.tei-c.org/ns/1.0"
+    ns = f"{{{tei_ns}}}"
+
+    try:
+        root = _ET.fromstring(tei_xml)
+    except _ET.ParseError:
+        return tei_xml, {0: tei_xml} if tei_xml.strip() else {}, (
+            [{"text": tei_xml, "page_index": 0, "block_bbox": None, "spans": []}]
+            if tei_xml.strip() else []
+        )
+
+    def _page_from_coords(coords: str) -> int:
+        if not coords:
+            return 0
+        first = coords.strip().split()[0]
+        parts = first.split(";")
+        if len(parts) != 2:
+            return 0
+        try:
+            return max(0, int(parts[0]) - 1)  # 1-indexed -> 0-indexed
+        except ValueError:
+            return 0
+
+    def _text(elem: _ET.Element) -> str:
+        return _re.sub(r"\s+", " ", "".join(elem.itertext()).strip())
+
+    blocks: list[dict] = []
+    page_texts: dict[int, list[str]] = {}
+    text_parts: list[str] = []
+
+    # Abstract paragraphs.
+    for p in root.findall(f".//{ns}abstract//{ns}p"):
+        t = _text(p)
+        if not t:
+            continue
+        page = _page_from_coords(p.attrib.get("coords", ""))
+        blocks.append({"text": t, "page_index": page, "block_bbox": None, "spans": []})
+        page_texts.setdefault(page, []).append(t)
+        text_parts.append(t)
+
+    # Body: sentences if present, otherwise paragraphs.
+    body = root.find(f".//{ns}body")
+    if body is not None:
+        sentences = list(body.findall(f".//{ns}s"))
+        if sentences:
+            for s in sentences:
+                t = _text(s)
+                if not t:
+                    continue
+                page = _page_from_coords(s.attrib.get("coords", ""))
+                blocks.append({"text": t, "page_index": page, "block_bbox": None, "spans": []})
+                page_texts.setdefault(page, []).append(t)
+                text_parts.append(t)
+        else:
+            for p in body.findall(f".//{ns}p"):
+                t = _text(p)
+                if not t:
+                    continue
+                page = _page_from_coords(p.attrib.get("coords", ""))
+                blocks.append({"text": t, "page_index": page, "block_bbox": None, "spans": []})
+                page_texts.setdefault(page, []).append(t)
+                text_parts.append(t)
+
+        # Figure captions and headings contribute to coverage too.
+        for fig in body.findall(f".//{ns}figure"):
+            cap = fig.find(f".//{ns}figDesc")
+            if cap is None:
+                continue
+            t = _text(cap)
+            if not t:
+                continue
+            page = _page_from_coords(fig.attrib.get("coords", ""))
+            blocks.append({"text": t, "page_index": page, "block_bbox": None, "spans": []})
+            page_texts.setdefault(page, []).append(t)
+            text_parts.append(t)
+
+        for head in body.findall(f".//{ns}head"):
+            t = _text(head)
+            if not t:
+                continue
+            page = _page_from_coords(head.attrib.get("coords", ""))
+            blocks.append({"text": t, "page_index": page, "block_bbox": None, "spans": []})
+            page_texts.setdefault(page, []).append(t)
+            text_parts.append(t)
+
+    if not blocks:
+        # Tiny / malformed TEI: fall back to stripped document text.
+        txt = _text(root)
+        if txt:
+            blocks.append({"text": txt, "page_index": 0, "block_bbox": None, "spans": []})
+            page_texts.setdefault(0, []).append(txt)
+            text_parts.append(txt)
+
+    return (
+        "\n".join(text_parts),
+        {p: "\n".join(vals) for p, vals in page_texts.items()},
+        blocks,
+    )
+
+
 def _extract_branch_payload(payload: object) -> tuple[str, dict[int, str], list[dict]]:
-    """Extract full text, per-page texts, and block-like dicts from a branch payload."""
+    """Extract full text, per-page texts, and block-like dicts from a branch payload.
+
+    Recognises three payload shapes:
+
+    - ``list[BlockDict]`` — pdfplumber / PyMuPDF / PaddleOCR. Blocks already
+      carry ``page_index`` so per-page bucketing is trivial.
+    - ``dict`` with ``"blocks"`` or ``"text"`` — generic wrapper.
+    - ``str`` — either TEI XML (detected by the ``<TEI`` root prefix) or a
+      plain text dump. TEI is parsed into per-page blocks via
+      :func:`_extract_tei_payload` so the QC rater compares GROBID's real
+      text-per-page against pdfplumber's text-per-page. A non-TEI string is
+      treated as a single page-0 block (the previous behaviour).
+    """
     blocks: list[dict] = []
 
     if isinstance(payload, str):
+        stripped = payload.lstrip()
+        if stripped.startswith("<?xml") or stripped.startswith("<TEI") or "http://www.tei-c.org/ns/1.0" in stripped[:2048]:
+            return _extract_tei_payload(payload)
         full_text = payload
         page_texts = {0: payload} if payload.strip() else {}
         if payload.strip():
@@ -360,6 +492,17 @@ def run_quality_control(
     text_processor = _load_text_processor(config)
 
     # --- Stage 1: PDF rater (ExtractionCoverageReport) ---
+    # Rater policy: a branch passes when the FRACTION of triggered metrics
+    # is below a configurable threshold (default 0.5 = majority must pass).
+    # Previously the stub always returned status=None, which the generic
+    # pipeline coerced to "fail", so EVERY branch failed adjudication.
+    # The old strict "any triggered -> fail" was too fragile: on a clean
+    # scientific paper, a single noisy metric (Greek letters tripping
+    # weird_char_ratio, inline "[1]" citations tripping references_in_body)
+    # would sink an otherwise perfect branch.
+    rater_cfg = (config.get("quality_control") or {}).get("rater") or {}
+    max_triggered_fraction = float(rater_cfg.get("max_triggered_fraction", 0.5))
+
     def _pdf_rater_fn(
         branch: Candidate,
         all_branches: list[Candidate],
@@ -367,13 +510,20 @@ def run_quality_control(
         cfg: dict,
     ) -> QualityMetrics:
         report = _build_local_metrics_report(branch, all_branches, index, cfg, text_processor)
-        passed = not any(m.triggered for m in report.metric_records)
+        total = len(report.metric_records) or 1
+        triggered = sum(1 for m in report.metric_records if m.triggered)
+        triggered_fraction = triggered / total
+        passed = triggered_fraction <= max_triggered_fraction
         report.status = "pass" if passed else "fail"
+        logger.debug(
+            "rater: source=%s index=%d triggered=%d/%d fraction=%.2f threshold=%.2f status=%s",
+            getattr(branch, "source", "?"), index, triggered, total,
+            triggered_fraction, max_triggered_fraction, report.status,
+        )
         metrics_hierarchy["extraction_coverage"].append(
             {"source": branch.source, "index": branch.index, "report": report}
         )
-        triggered_count = sum(1 for m in report.metric_records if m.triggered)
-        if 0 < triggered_count <= 2:
+        if 0 < triggered <= 2:
             borderline_branches.append((index, branch, report))
         return report
 

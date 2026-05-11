@@ -17,7 +17,7 @@ except ImportError:
     sys.modules["gdown"] = fake_gdown
 
 from utils import path_utils
-from utils.path_utils import PROJECT_ROOT
+from utils.path_utils import PROJECT_ROOT, RUN_FOLDER_NAME
 
 
 def _write_stub_pdf(path: Path) -> None:
@@ -84,7 +84,7 @@ class TestOutputFolderResolution:
 
         output_folder = path_utils.create_output_folder()
 
-        assert Path(output_folder) == tmp_path / "output"
+        assert Path(output_folder) == tmp_path / "outputs" / RUN_FOLDER_NAME
         assert Path(output_folder).exists()
 
     def test_custom_output_folder_path_is_resolved_from_project_root(self, tmp_path, monkeypatch):
@@ -92,5 +92,5 @@ class TestOutputFolderResolution:
 
         output_folder = path_utils.create_output_folder("results/output")
 
-        assert Path(output_folder) == tmp_path / "results" / "output"
+        assert Path(output_folder) == tmp_path / "outputs" / RUN_FOLDER_NAME / "results" / "output"
         assert Path(output_folder).exists()

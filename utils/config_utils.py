@@ -13,7 +13,7 @@ import os
 from pathlib import Path
 import yaml
 
-from .path_utils import resolve_project_path
+from .path_utils import RUN_FOLDER_NAME, resolve_main_output_dir, resolve_project_path
 
 # ============================================================================
 # Quality control configuration defaults and helpers
@@ -37,7 +37,7 @@ _QC_DEFAULTS: dict = {
         "discard_failed_branches": False,
         "status_field_location": "both",
         "artifact_generator": {"export_to_disk": False, "output_dir": "output/qc_artifacts"},
-        "rater": {"attributes": []},
+        "rater": {"attributes": [], "max_triggered_fraction": 0.5},
         "iaa_calculator": {"thresholds": {}, "agreement_metrics": []},
         "adjudicator": {"strategy": "majority_vote"},
         "reconciler": {"enable_tei_export": False, "enable_annotation_export": False},
@@ -72,7 +72,14 @@ _QC_DEFAULTS: dict = {
         },
         "grobid": {
             "url": "http://localhost:8070",
-            "timeout": 120,
+            "timeout": 600,
+            "docker_image": "lfoppiano/grobid:0.8.2-crf",
+            "java_opts": "-Xmx4g -XX:+UseG1GC",
+            "concurrency": 10,
+            "cpus": "",
+            "auto_start": True,
+            "container_name": "evi-grobid",
+            "stop_on_exit": False,
             "consolidate_header": 0,
             "consolidate_citations": 0,
             "generate_ids": True,
@@ -89,9 +96,30 @@ _QC_DEFAULTS: dict = {
             "crop_tables": True,
         },
         "addons": {
-            "grobid_quantities": {"enabled": False, "url": "", "endpoint": "/service/process", "timeout": 20},
-            "datastet": {"enabled": False, "url": "", "endpoint": "/service/processDataseerSentence", "timeout": 20},
-            "entity_fishing": {"enabled": False, "url": "", "endpoint": "/service/disambiguate", "timeout": 20},
+            "grobid_quantities": {
+                "enabled": False,
+                "url": "",
+                "endpoint": "/service/processQuantityText",
+                "isalive": "/service/isalive",
+                "timeout": 5,
+                "preflight_timeout": 2,
+            },
+            "datastet": {
+                "enabled": False,
+                "url": "",
+                "endpoint": "/service/processDataseerText",
+                "isalive": "/service/isalive",
+                "timeout": 5,
+                "preflight_timeout": 2,
+            },
+            "entity_fishing": {
+                "enabled": False,
+                "url": "",
+                "endpoint": "/service/disambiguate",
+                "isalive": "/service/isalive",
+                "timeout": 5,
+                "preflight_timeout": 2,
+            },
         },
         # Scan detection thresholds (Requirement 9 / design §scan_detector)
         # text_density_threshold: minimum word count for a native page (integer, ≥ 0)
@@ -157,11 +185,12 @@ def load_qc_config(config_path: str | None = None) -> dict:
 # ============================================================================
 
 _LOCAL_DEFAULTS: dict = {
-    "log_file": "log.txt",
+    "main_output_dir": "outputs",
+    "log_file": "run.log",
     "log_level": "INFO",
     "len_filter": 40,
     "ocr": True,
-    "output_folder_path": "output",
+    "output_folder_path": "outputs/",
 }
 
 _LOCAL_REQUIRED: frozenset[str] = frozenset({"pdfs_path"})
@@ -206,6 +235,21 @@ def _load_config_yaml(config_path: str | None = None) -> dict:
         return yaml.safe_load(f) or {}
 
 
+def _resolve_run_scoped_path(run_output_dir: Path, path_value: str, *, allow_absolute: bool = False) -> str:
+    """Resolve a path under the current run directory."""
+    raw = str(path_value or "").strip()
+    if allow_absolute:
+        abs_candidate = Path(raw).expanduser()
+        if abs_candidate.is_absolute():
+            return str(abs_candidate.resolve())
+
+    normalized = raw.lstrip("/\\")
+    # Backward compatibility: legacy "outputs" now maps to run root.
+    if normalized.rstrip("/\\") in {"", ".", "outputs"}:
+        return str(run_output_dir)
+    return str((run_output_dir / normalized).resolve())
+
+
 def load_openai_config(config_path: str | None = None) -> dict:
     """Load OpenAI configuration from config.yaml and environment variables.
 
@@ -221,9 +265,16 @@ def load_openai_config(config_path: str | None = None) -> dict:
     cfg_yaml = _load_config_yaml(config_path)
     openai_cfg = cfg_yaml.get("openai", {})
     extraction_cfg = cfg_yaml.get("extraction", {})
+    local_cfg = cfg_yaml.get("local", {}) or {}
     concurrency_cfg = cfg_yaml.get("concurrency", {})
     retry_cfg = cfg_yaml.get("retry", {})
     grobid_integration_cfg = cfg_yaml.get("quality_control", {}).get("grobid_integration", {})
+    main_output_dir = resolve_main_output_dir({"main_output_dir": local_cfg.get("main_output_dir", cfg_yaml.get("main_output_dir", "outputs"))})
+    run_output_dir = (main_output_dir / RUN_FOLDER_NAME).resolve()
+    evidence_cache_dir = _resolve_run_scoped_path(
+        run_output_dir,
+        extraction_cfg.get("evidence_cache_dir", "evidence_cache"),
+    )
 
     # API credentials
     api_key = os.environ.get("OPENAI_API_KEY", "") or openai_cfg.get("api_key", "")
@@ -289,9 +340,9 @@ def load_openai_config(config_path: str | None = None) -> dict:
         "global_api_limit": global_api_limit,
         "max_retries": max_retries,
         "retry_base_delay": retry_base_delay,
-        "max_evidence_items_per_chunk": int(extraction_cfg.get("max_evidence_items_per_chunk", 250)),
-        "max_evidence_chars_per_chunk": int(extraction_cfg.get("max_evidence_chars_per_chunk", 60000)),
-        "evidence_cache_dir": extraction_cfg.get("evidence_cache_dir", "outputs/evidence_cache"),
+        "max_evidence_items_per_chunk": int(extraction_cfg.get("max_evidence_items_per_chunk", 150)),
+        "max_evidence_chars_per_chunk": int(extraction_cfg.get("max_evidence_chars_per_chunk", 30000)),
+        "evidence_cache_dir": evidence_cache_dir,
         "grobid_failure_behavior": grobid_integration_cfg.get("failure_behavior", "manifest_fail"),
     }
 
@@ -433,6 +484,15 @@ def load_local_config(config_path: str | None = None) -> dict:
         raise TypeError(
             f"Config 'ocr' must be a boolean, got {type(cfg['ocr']).__name__}"
         )
+
+    main_output_dir = cfg.get("main_output_dir", "outputs")
+    if not isinstance(main_output_dir, str) or not main_output_dir.strip():
+        raise ValueError("Config 'main_output_dir' must be a non-empty string")
+    resolved_main_output_dir = resolve_main_output_dir({"main_output_dir": main_output_dir})
+    run_output_dir = (resolved_main_output_dir / RUN_FOLDER_NAME).resolve()
+    cfg["main_output_dir"] = str(resolved_main_output_dir)
+    cfg["output_folder_path"] = _resolve_run_scoped_path(run_output_dir, cfg.get("output_folder_path", "outputs/"))
+    cfg["log_file"] = _resolve_run_scoped_path(run_output_dir, cfg.get("log_file", "run.log"), allow_absolute=True)
 
     return cfg
 
