@@ -46,3 +46,53 @@ def test_reconstruct_fields_resolves_evidence_text_and_location_metadata():
     assert out[0]["evidence"] == "We used MIMIC-IV for model training."
     assert out[0]["location"] == ["S000001"]
     assert out[0]["location_metadata"][0]["page"] == 3
+
+
+
+
+# ---------------------------------------------------------------------------
+# Commit 13 regression tests — clean_json_string robustness
+# ---------------------------------------------------------------------------
+
+
+from pipeline.validator import clean_json_string
+
+
+def test_clean_json_string_happy_path_unchanged():
+    """Plain JSON is returned verbatim (whitespace stripped only)."""
+    payload = '{"extractions":[{"i":1,"v":"x","loc":[],"c":"h"}]}'
+    assert clean_json_string(payload) == payload
+
+
+def test_clean_json_string_fenced_json_is_unwrapped():
+    """Fenced block with 'json' tag has fences stripped."""
+    payload = '{"extractions":[{"i":1,"v":"x","loc":[],"c":"h"}]}'
+    wrapped = f"```json\n{payload}\n```"
+    assert clean_json_string(wrapped) == payload
+
+
+def test_clean_json_string_fenced_no_tag_is_unwrapped():
+    """Fenced block without a language tag still has fences stripped."""
+    payload = '{"extractions":[]}'
+    wrapped = f"```\n{payload}\n```"
+    assert clean_json_string(wrapped) == payload
+
+
+def test_clean_json_string_prose_around_fence_extracts_block():
+    """Prose before and after a fenced block: only the fenced content is kept."""
+    payload = '{"extractions":[{"i":2,"v":"y","loc":[],"c":"m"}]}'
+    wrapped = f"Here is the result:\n```json\n{payload}\n```\nLet me know."
+    assert clean_json_string(wrapped) == payload
+
+
+def test_clean_json_string_prose_around_bare_json_extracts_span():
+    """Bare JSON with no fences but leading/trailing prose: outermost span kept."""
+    payload = '{"extractions":[{"i":3,"v":"z","loc":[],"c":"l"}]}'
+    wrapped = f"Sure! {payload} done."
+    assert clean_json_string(wrapped) == payload
+
+
+def test_clean_json_string_empty_input():
+    """Empty input returns empty string (preserves old behaviour)."""
+    assert clean_json_string("") == ""
+    assert clean_json_string("   ") == ""

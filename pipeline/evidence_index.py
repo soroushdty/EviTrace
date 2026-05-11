@@ -586,9 +586,16 @@ def build_or_load_evidence_bundle(qc_context, config: dict) -> EvidenceBundle:
             if isinstance(items, list):
                 evidence_map = {item["id"]: item for item in items if isinstance(item, dict) and item.get("id")}
                 logger.info("Evidence index cache hit: %s (%d items)", idx_path.name, len(evidence_map))
+                # Parens matter: the ternary binds tighter than ``or`` in
+                # Python, so the previous version was parsed as
+                # ``tei_xml or (read_text() if exists else "")`` which was
+                # correct but fragile. Make it explicit.
+                cached_tei_xml = tei_xml or (
+                    tei_path.read_text(encoding="utf-8") if tei_path.exists() else ""
+                )
                 return EvidenceBundle(
                     paper_id=paper_id,
-                    tei_xml=tei_xml or tei_path.read_text(encoding="utf-8") if tei_path.exists() else "",
+                    tei_xml=cached_tei_xml,
                     evidence_items=items,
                     evidence_map=evidence_map,
                     prefilled_fields={int(k): str(v) for k, v in prefilled.items()},
@@ -836,6 +843,39 @@ def attach_table_figure_crops(
         return
     source_pdf = bundle.evidence_items[0].get("source_pdf", "")
     if not source_pdf or not Path(source_pdf).exists():
+        return
+
+    # Fast path: walk the fields once and short-circuit if nothing is
+    # crop-eligible. Avoids the ~50ms fitz.open() + font-load cost on PDFs
+    # whose extraction map has no table/figure location_metadata.
+    eligible_types: set[str] = set()
+    if crop_figures:
+        eligible_types.add("figure_caption")
+    if crop_tables:
+        eligible_types.add("table")
+
+    def _has_eligible_crop() -> bool:
+        for field in fields:
+            meta = field.get("location_metadata", [])
+            if not isinstance(meta, list):
+                continue
+            for item in meta:
+                if not isinstance(item, dict):
+                    continue
+                if item.get("type") not in eligible_types:
+                    continue
+                coords = item.get("coords")
+                page = item.get("page")
+                if (
+                    isinstance(coords, list)
+                    and len(coords) == 4
+                    and isinstance(page, int)
+                    and page > 0
+                ):
+                    return True
+        return False
+
+    if not _has_eligible_crop():
         return
 
     import fitz
