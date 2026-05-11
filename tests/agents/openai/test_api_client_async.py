@@ -132,8 +132,15 @@ def _make_response(text: str):
 # ---------------------------------------------------------------------------
 
 def _make_semaphore() -> asyncio.Semaphore:
-    """Return a fresh Semaphore(5) for use in _call_api_with_retries calls."""
-    return asyncio.Semaphore(5)
+    """Return a fresh Semaphore(5) for use in _call_api_with_retries calls.
+
+    On Python 3.9, asyncio.Semaphore() requires a running event loop, so we
+    use a MagicMock that satisfies the acquire/release protocol instead.
+    """
+    mock_sem = MagicMock(spec=asyncio.Semaphore)
+    mock_sem.__aenter__ = AsyncMock(return_value=None)
+    mock_sem.__aexit__ = AsyncMock(return_value=None)
+    return mock_sem
 
 
 def test_rate_limit_retries_and_raises():
@@ -325,7 +332,7 @@ def test_extract_chunk_happy_path():
                 chunk_num=1,
                 source_package="test-package",
                 chunk_fields=chunk_fields,
-                semaphore=asyncio.Semaphore(1),
+                semaphore=_make_semaphore(),
             )
         )
 
@@ -363,7 +370,7 @@ def test_extract_chunk_validation_failure_retries():
                     chunk_num=1,
                     source_package="test-package",
                     chunk_fields=chunk_fields,
-                    semaphore=asyncio.Semaphore(1),
+                    semaphore=_make_semaphore(),
                 )
             )
 
@@ -384,7 +391,7 @@ def test_warm_pdf_cache_returns_true():
         result = asyncio.run(
             api_client_mod.warm_pdf_cache(
                 source_package="test-package",
-                semaphore=asyncio.Semaphore(1),
+                semaphore=_make_semaphore(),
             )
         )
 
@@ -410,7 +417,7 @@ def test_warm_pdf_cache_failure_returns_false():
         result = asyncio.run(
             api_client_mod.warm_pdf_cache(
                 source_package="test-package",
-                semaphore=asyncio.Semaphore(1),
+                semaphore=_make_semaphore(),
             )
         )
 

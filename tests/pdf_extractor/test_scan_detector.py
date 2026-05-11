@@ -72,12 +72,12 @@ def _make_tp():
     """Construct a minimal TextProcessor (no optional backends needed)."""
     import sys
     from unittest.mock import MagicMock, patch
-    from text_processing.base import TextProcessor
+    from text_processing.composite import DefaultTextProcessor
 
     mock_nltk = MagicMock()
     mock_nltk.sent_tokenize = MagicMock(return_value=[])
     with patch.dict(sys.modules, {"nltk": mock_nltk}):
-        return TextProcessor(config={
+        return DefaultTextProcessor(config={
             "sentence_tokenizer": {"backend": "nltk_punkt"},
         })
 

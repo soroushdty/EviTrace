@@ -1,4 +1,6 @@
 """Async OpenAI API client with cache prewarm, extraction, retry, and usage logs."""
+from __future__ import annotations
+
 import asyncio
 import hashlib
 import json
