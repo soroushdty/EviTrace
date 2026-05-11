@@ -96,9 +96,30 @@ _QC_DEFAULTS: dict = {
             "crop_tables": True,
         },
         "addons": {
-            "grobid_quantities": {"enabled": False, "url": "", "endpoint": "/service/process", "timeout": 20},
-            "datastet": {"enabled": False, "url": "", "endpoint": "/service/processDataseerSentence", "timeout": 20},
-            "entity_fishing": {"enabled": False, "url": "", "endpoint": "/service/disambiguate", "timeout": 20},
+            "grobid_quantities": {
+                "enabled": False,
+                "url": "",
+                "endpoint": "/service/processQuantityText",
+                "isalive": "/service/isalive",
+                "timeout": 5,
+                "preflight_timeout": 2,
+            },
+            "datastet": {
+                "enabled": False,
+                "url": "",
+                "endpoint": "/service/processDataseerText",
+                "isalive": "/service/isalive",
+                "timeout": 5,
+                "preflight_timeout": 2,
+            },
+            "entity_fishing": {
+                "enabled": False,
+                "url": "",
+                "endpoint": "/service/disambiguate",
+                "isalive": "/service/isalive",
+                "timeout": 5,
+                "preflight_timeout": 2,
+            },
         },
         # Scan detection thresholds (Requirement 9 / design §scan_detector)
         # text_density_threshold: minimum word count for a native page (integer, ≥ 0)

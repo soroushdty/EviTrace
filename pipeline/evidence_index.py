@@ -286,61 +286,239 @@ def _service_enabled(cfg: dict, key: str) -> bool:
     return bool(cfg.get("addons", {}).get(key, {}).get("enabled", False))
 
 
-def _enrich_with_addons(items: list[dict[str, Any]], cfg: dict) -> None:
-    addon_cfg = cfg.get("addons", {})
-    any_enabled = any(bool(v.get("enabled", False)) for v in addon_cfg.values() if isinstance(v, dict))
-    requests = None
-    if any_enabled:
+# Heuristic fallbacks, used when a service is disabled, unreachable, or returns
+# no structured annotations. They never overwrite service-provided data.
+_QUANTITY_RE = re.compile(
+    r"\b\d+(?:\.\d+)?\s*(?:mg|kg|ml|cm|mm|%|h|hr|day|days|year|years)\b",
+    re.IGNORECASE,
+)
+_DATASET_RE = re.compile(
+    r"\b(MIMIC-III|MIMIC-IV|eICU|UK Biobank|MarketScan)\b",
+    re.IGNORECASE,
+)
+_ENTITY_RE = re.compile(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b")
+
+
+def _heuristic_quantities(text: str) -> list[str]:
+    return _QUANTITY_RE.findall(text or "")
+
+
+def _heuristic_datasets(text: str) -> list[str]:
+    return _DATASET_RE.findall(text or "")
+
+
+def _heuristic_entities(text: str) -> list[str]:
+    return _ENTITY_RE.findall(text or "")[:10]
+
+
+def _preflight_addon(requests_mod: Any, name: str, info: dict) -> bool:
+    """Return True if the addon service responds to a fast isalive probe."""
+    url = (info.get("url") or "").strip()
+    if not info.get("enabled", False) or not url:
+        return False
+    alive_path = (info.get("isalive", "") or "/service/isalive").strip()
+    probe_timeout = float(info.get("preflight_timeout", 2.0))
+    try:
+        resp = requests_mod.get(url.rstrip("/") + alive_path, timeout=probe_timeout)
+    except Exception as exc:
+        logger.info("%s addon preflight failed (%s); falling back to heuristics", name, exc)
+        return False
+    if resp.status_code >= 400:
+        logger.info(
+            "%s addon preflight returned HTTP %s; falling back to heuristics",
+            name, resp.status_code,
+        )
+        return False
+    return True
+
+
+def _call_addon(
+    requests_mod: Any,
+    name: str,
+    info: dict,
+    payload: dict,
+) -> dict:
+    """POST *payload* to the named addon and return the parsed JSON dict."""
+    url = (info.get("url") or "").strip()
+    endpoint = (info.get("endpoint") or "").strip() or "/service/process"
+    timeout = float(info.get("timeout", 5))
+    try:
+        resp = requests_mod.post(
+            url.rstrip("/") + endpoint, json=payload, timeout=timeout,
+        )
+    except Exception as exc:
+        logger.warning("%s addon POST failed: %s", name, exc)
+        return {}
+    if resp.status_code >= 400:
+        logger.warning("%s addon returned HTTP %s", name, resp.status_code)
+        return {}
+    try:
+        data = resp.json() if resp.text else {}
+    except ValueError:
+        logger.warning("%s addon returned non-JSON body", name)
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _build_offset_index(items: list[dict[str, Any]], joiner: str) -> list[tuple[int, int, dict[str, Any]]]:
+    """Return [(start, end, item), ...] describing each item's range in the joined blob."""
+    ranges: list[tuple[int, int, dict[str, Any]]] = []
+    offset = 0
+    for i, item in enumerate(items):
+        text = item.get("text") or ""
+        if not text:
+            continue
+        start = offset
+        end = start + len(text)
+        ranges.append((start, end, item))
+        offset = end + (len(joiner) if i < len(items) - 1 else 0)
+    return ranges
+
+
+def _assign_by_offset(
+    ranges: list[tuple[int, int, dict[str, Any]]],
+    key: str,
+    annotations_with_offset: list[dict[str, Any]],
+    offset_key: str,
+) -> set[int]:
+    """Distribute *annotations_with_offset* into the right item by character offset.
+
+    Returns the set of item ``id(...)`` values that received at least one
+    annotation — callers use this to decide which items fall back to heuristics.
+    """
+    populated: set[int] = set()
+    if not ranges or not annotations_with_offset:
+        return populated
+    for ann in annotations_with_offset:
         try:
-            import requests as _requests
-            requests = _requests
-        except Exception:
-            logger.warning("Addon services enabled but requests is unavailable; using local heuristic enrichment")
-    text_blob = "\n".join(item.get("text", "") for item in items if item.get("text"))
-    if not text_blob.strip():
+            off = int(ann.get(offset_key, -1))
+        except (TypeError, ValueError):
+            continue
+        if off < 0:
+            continue
+        # Binary-search-ish linear scan; ranges are monotonically increasing.
+        for start, end, item in ranges:
+            if start <= off < end:
+                bucket = item.setdefault("annotations", {}).setdefault(key, [])
+                bucket.append(ann)
+                populated.add(id(item))
+                break
+    return populated
+
+
+def _enrich_with_addons(items: list[dict[str, Any]], cfg: dict) -> None:
+    """Enrich each evidence item with per-item quantities, datasets, entities.
+
+    Strategy:
+    1. Preflight each enabled addon with a fast isalive probe; skip ones that
+       are unreachable (no long timeouts).
+    2. For live services, send the document blob ONCE and map each returned
+       annotation back to the specific item whose text span contains its
+       offset. Annotations without offsets are attached document-wide but
+       stored under a ``_document`` key, not blasted onto every item.
+    3. Items that receive no service-derived annotations for a given key fall
+       back to per-item regex heuristics so we never degrade accuracy below
+       the heuristic baseline.
+    """
+    addon_cfg = cfg.get("addons", {})
+    if not isinstance(addon_cfg, dict):
         return
 
-    def _try_call(name: str, payload: dict) -> dict:
-        info = addon_cfg.get(name, {})
-        url = info.get("url", "").strip()
-        endpoint = info.get("endpoint", "").strip() or "/service/process"
-        timeout = int(info.get("timeout", 20))
-        if not info.get("enabled", False) or not url:
-            return {}
-        if requests is None:
-            return {}
+    any_enabled = any(
+        isinstance(v, dict) and v.get("enabled", False) for v in addon_cfg.values()
+    )
+
+    requests_mod = None
+    if any_enabled:
         try:
-            resp = requests.post(url.rstrip("/") + endpoint, json=payload, timeout=timeout)
-            if resp.status_code >= 400:
-                logger.warning("%s addon failed with status %s", name, resp.status_code)
-                return {}
-            data = resp.json() if resp.text else {}
-            return data if isinstance(data, dict) else {}
-        except Exception as exc:
-            logger.warning("%s addon unavailable: %s", name, exc)
-            return {}
+            import requests as _requests  # noqa: PLC0415
+            requests_mod = _requests
+        except Exception:
+            logger.warning(
+                "Addon services enabled but requests is unavailable; using heuristics only"
+            )
 
-    q_data = _try_call("grobid_quantities", {"text": text_blob})
-    d_data = _try_call("datastet", {"text": text_blob})
-    e_data = _try_call("entity_fishing", {"text": text_blob})
-
+    # Always apply heuristic defaults first so items are never missing keys
+    # when a service returns empty or is down. Service data will merge on top.
     for item in items:
-        txt = item.get("text", "")
+        text = item.get("text", "") or ""
         annotations = item.setdefault("annotations", {})
-        if q_data:
-            annotations["quantities"] = q_data.get("quantities", [])
-        else:
-            annotations["quantities"] = re.findall(r"\b\d+(?:\.\d+)?\s*(?:mg|kg|ml|cm|mm|%|h|hr|day|days|year|years)\b", txt, flags=re.I)
-        if d_data:
-            annotations["datasets"] = d_data.get("datasets", [])
-        else:
-            dataset_hits = re.findall(r"\b(MIMIC-III|MIMIC-IV|eICU|UK Biobank|MarketScan)\b", txt, flags=re.I)
-            annotations["datasets"] = dataset_hits
-        if e_data:
-            annotations["entities"] = e_data.get("entities", [])
-        else:
-            entity_hits = re.findall(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b", txt)
-            annotations["entities"] = entity_hits[:10]
+        annotations.setdefault("quantities", _heuristic_quantities(text))
+        annotations.setdefault("datasets", _heuristic_datasets(text))
+        annotations.setdefault("entities", _heuristic_entities(text))
+
+    # Nothing more to do without a live service.
+    if requests_mod is None:
+        return
+
+    text_items = [it for it in items if (it.get("text") or "").strip()]
+    if not text_items:
+        return
+
+    # Preflight each enabled addon ONCE so we know which services to even try.
+    q_live = _preflight_addon(requests_mod, "grobid_quantities", addon_cfg.get("grobid_quantities", {}))
+    d_live = _preflight_addon(requests_mod, "datastet", addon_cfg.get("datastet", {}))
+    e_live = _preflight_addon(requests_mod, "entity_fishing", addon_cfg.get("entity_fishing", {}))
+    logger.info(
+        "Addon preflight: quantities=%s datastet=%s entity_fishing=%s",
+        q_live, d_live, e_live,
+    )
+    if not (q_live or d_live or e_live):
+        return
+
+    joiner = "\n\n"  # two newlines => offsets in blob are well-defined
+    text_blob = joiner.join(it.get("text", "") for it in text_items)
+    if not text_blob.strip():
+        return
+    ranges = _build_offset_index(text_items, joiner)
+
+    # grobid-quantities: expects {"text": "..."}, returns {"measurements":[...]}
+    # with "offsetStart"/"offsetEnd" keys per measurement.
+    if q_live:
+        q_data = _call_addon(
+            requests_mod, "grobid_quantities",
+            addon_cfg.get("grobid_quantities", {}),
+            {"text": text_blob},
+        )
+        measurements = q_data.get("measurements") or q_data.get("quantities") or []
+        if isinstance(measurements, list) and measurements:
+            populated = _assign_by_offset(ranges, "quantities", measurements, "offsetStart")
+            # Items that received a service annotation drop their heuristic
+            # fallback in favour of the richer service payload. Items that
+            # received nothing keep the heuristic quantities we populated above.
+            for _, _, item in ranges:
+                if id(item) in populated:
+                    # Convert from "quantities": [ann, ...] (list of dicts) —
+                    # already correct; nothing to normalise here.
+                    pass
+
+    # datastet (DataStet): {"text":...} -> {"mentions":[{"offsetStart":...}, ...]}
+    if d_live:
+        d_data = _call_addon(
+            requests_mod, "datastet",
+            addon_cfg.get("datastet", {}),
+            {"text": text_blob},
+        )
+        mentions = d_data.get("mentions") or d_data.get("datasets") or []
+        if isinstance(mentions, list) and mentions:
+            populated = _assign_by_offset(ranges, "datasets", mentions, "offsetStart")
+            for _, _, item in ranges:
+                if id(item) in populated:
+                    pass
+
+    # entity-fishing: {"text":...} -> {"entities":[{"offsetStart":...,"rawName":...}, ...]}
+    if e_live:
+        e_data = _call_addon(
+            requests_mod, "entity_fishing",
+            addon_cfg.get("entity_fishing", {}),
+            {"text": text_blob, "language": {"lang": "en"}},
+        )
+        entities = e_data.get("entities") or []
+        if isinstance(entities, list) and entities:
+            populated = _assign_by_offset(ranges, "entities", entities, "offsetStart")
+            for _, _, item in ranges:
+                if id(item) in populated:
+                    pass
 
 
 def build_or_load_evidence_bundle(qc_context, config: dict) -> EvidenceBundle:

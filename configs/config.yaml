@@ -130,21 +130,33 @@ quality_control:
     crop_figures: true
     crop_tables: true
   addons:
+    # All three services produce accuracy-positive enrichment (quantities,
+    # datasets, entities). Kept enabled, but each request is now gated by a
+    # fast /service/isalive preflight probe so a down service adds ~2s (not
+    # ~60s) to the cache-miss path, and each returned annotation is mapped
+    # back to the specific evidence item whose text contains its offset --
+    # not blasted onto every item.
     grobid_quantities:
       enabled: true
       url: "http://localhost:8060"
-      endpoint: "/service/process"
-      timeout: 60
+      endpoint: "/service/processQuantityText"
+      isalive: "/service/isalive"
+      timeout: 5
+      preflight_timeout: 2
     datastet:
       enabled: true
       url: "http://localhost:8080"
-      endpoint: "/service/processDataseerSentence"
-      timeout: 60
+      endpoint: "/service/processDataseerText"
+      isalive: "/service/isalive"
+      timeout: 5
+      preflight_timeout: 2
     entity_fishing:
       enabled: true
       url: "http://localhost:8090"
       endpoint: "/service/disambiguate"
-      timeout: 60
+      isalive: "/service/isalive"
+      timeout: 5
+      preflight_timeout: 2
   # Source text presence verification
   source_text_verification:
     enabled: true
