@@ -20,11 +20,54 @@ class ValidationError(Exception):
 
 
 def clean_json_string(raw: str) -> str:
-    """Strip markdown code fences and surrounding whitespace."""
+    """Strip markdown code fences and surrounding whitespace.
+
+    Robust to three wrapper styles the models occasionally emit despite the
+    strict JSON-schema response format:
+
+    1. Plain JSON (the happy path): returned unchanged.
+    2. Fenced JSON ("```json\\n{...}\\n```"): fences stripped.
+    3. Fenced JSON with prose around the fences ("here is the result:
+       ```json\\n{...}\\n```\\nlet me know if..."): the fenced block is
+       extracted.
+    4. Bare JSON with leading/trailing prose but no fences: the outermost
+       ``{...}`` span is extracted.
+
+    We try each strategy in order and only fall back to the next one when the
+    previous would drop content. This preserves content-integrity under every
+    emitter quirk we have seen from GPT-class models.
+    """
     text = raw.strip()
-    text = re.sub(r"^```(?:json)?\s*", "", text)
-    text = re.sub(r"\s*```$", "", text)
-    return text.strip()
+    if not text:
+        return text
+
+    # 1. Happy path: if the string already looks like a JSON object/array at
+    #    the start and end, return it as-is.
+    if text.startswith(("{", "[")) and text.endswith(("}", "]")):
+        return text
+
+    # 2 + 3. Fenced block, possibly with prose around the fences. Pull the
+    #        first ``` ... ``` block (optionally tagged "json").
+    fence_match = re.search(
+        r"```(?:json|JSON)?\s*\n?(.*?)```",
+        text,
+        flags=re.DOTALL,
+    )
+    if fence_match:
+        inner = fence_match.group(1).strip()
+        if inner:
+            return inner
+
+    # 4. No fences but prose bracketing a JSON value -- extract the first
+    #    balanced {...} or [...] span. This is the weakest recovery so we
+    #    only try it after the simpler paths failed.
+    for opener, closer in (("{", "}"), ("[", "]")):
+        first = text.find(opener)
+        last = text.rfind(closer)
+        if first != -1 and last != -1 and first < last:
+            return text[first : last + 1].strip()
+
+    return text
 
 
 def _unwrap_top_level(data: Any) -> list[dict]:
