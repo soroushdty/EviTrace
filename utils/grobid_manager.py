@@ -39,7 +39,7 @@ class GrobidServerManager:
     def __init__(self, config: dict):
         self.config = config.get("quality_control", {}).get("grobid", {})
         self.auto_start = self.config.get("auto_start", False)
-        self.image = self.config.get("docker_image", "lfoppiano/grobid:0.8.0-crf")
+        self.image = self.config.get("docker_image", "lfoppiano/grobid:0.8.2-crf")
         self.url = self.config.get("url", "http://localhost:8070")
         self.java_opts = str(self.config.get("java_opts", "") or "").strip()
         self.cpus = str(self.config.get("cpus", "") or "").strip()

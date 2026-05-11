@@ -73,7 +73,7 @@ _QC_DEFAULTS: dict = {
         "grobid": {
             "url": "http://localhost:8070",
             "timeout": 300,
-            "docker_image": "lfoppiano/grobid:0.8.0-crf",
+            "docker_image": "lfoppiano/grobid:0.8.2-crf",
             "java_opts": "-Xmx4g -XX:+UseG1GC",
             "concurrency": 10,
             "cpus": "",

@@ -115,7 +115,7 @@ quality_control:
     # latency than the full DL image, with equivalent accuracy on Western-
     # language scientific PDFs for the TEI fields EviTrace consumes (title,
     # authors, sections, sentences, citations, coordinates).
-    docker_image: "lfoppiano/grobid:0.8.0-crf"
+    docker_image: "lfoppiano/grobid:0.8.2-crf"
     # Tuning knobs applied at container launch by GrobidServerManager.
     # - java_opts: JVM heap + GC tuning; 4G is a reasonable default for a
     #   single-worker local container on an 8-core/16GB machine.
