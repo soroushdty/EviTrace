@@ -78,6 +78,8 @@ _QC_DEFAULTS: dict = {
             "concurrency": 10,
             "cpus": "",
             "auto_start": True,
+            "container_name": "evi-grobid",
+            "stop_on_exit": False,
             "consolidate_header": 0,
             "consolidate_citations": 0,
             "generate_ids": True,

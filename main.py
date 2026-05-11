@@ -47,6 +47,14 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Disable one-call-per-PDF cache warmup; extraction still works",
     )
+    parser.add_argument(
+        "--tear-down-grobid",
+        action="store_true",
+        help=(
+            "Stop the persistent GROBID container on exit. Default: leave it "
+            "running between invocations to preserve JVM + CRF model warmup."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -112,6 +120,9 @@ async def main() -> None:
     OUTPUT_DIR.mkdir(exist_ok=True)
 
     # Run pipeline — pass CLI overrides as arguments instead of mutating globals.
+    if args.tear_down_grobid:
+        # Surface CLI intent to GrobidServerManager via config override.
+        local_cfg.setdefault("quality_control", {}).setdefault("grobid", {})["stop_on_exit"] = True
     with GrobidServerManager(local_cfg):
         results = await pipeline.run_pipeline(
             pdf_paths,
