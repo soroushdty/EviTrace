@@ -31,9 +31,9 @@ Each node is `SHA256(serialize(stage_output) + parent_hash)`, so the chain is un
 @dataclass
 class ProvenanceNode:
     stage: str          # "branches" | "reports" | "iaa" | "decision" | "unified"
-    content_hash: str   # SHA256 of the serialized stage output
+    content_hash: str   # BLAKE2b of the serialized stage output
     parent_hash: str    # hash of the previous node ("" for root)
-    node_hash: str      # SHA256(content_hash + parent_hash)
+    node_hash: str      # BLAKE2b (content_hash + parent_hash)
 
 @dataclass
 class Provenance:
@@ -49,10 +49,10 @@ class Provenance:
         ...
 ```
 
-Users subclass `Provenance` to override `_serialize(content)` (e.g. to exclude volatile fields like timestamps) or `_hash(data)` (e.g. to use BLAKE3 instead of SHA256).
+Users subclass `Provenance` to override `_serialize(content)` (e.g. to exclude volatile fields like timestamps) or `_hash(data)` (e.g. other hashing algos).
 
 `Provenance` lives inside `QCContext` as a field (populated incrementally by `run_pipeline` after each stage).
 
 remove the control for not saving any of the QC layers outputs in QCContext object. this is now hard-coded mandatory. the merckle tree feature is also mandatory
 
-built-in algs: sha256, BLAKE2b, MD5
+built-in algs: sha2-256, BLAKE2b (default), MD5, blake3, SHA3-256
