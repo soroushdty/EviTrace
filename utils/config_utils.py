@@ -13,7 +13,7 @@ import os
 from pathlib import Path
 import yaml
 
-from .path_utils import RUN_FOLDER_NAME, resolve_project_path
+from .path_utils import RUN_FOLDER_NAME, resolve_main_output_dir, resolve_project_path
 
 # ============================================================================
 # Quality control configuration defaults and helpers
@@ -235,14 +235,6 @@ def _load_config_yaml(config_path: str | None = None) -> dict:
         return yaml.safe_load(f) or {}
 
 
-def _resolve_main_output_dir(main_output_dir: str) -> Path:
-    """Resolve main output dir from project root unless absolute."""
-    candidate = Path((main_output_dir or "").strip() or "outputs").expanduser()
-    if not candidate.is_absolute():
-        candidate = Path(resolve_project_path(str(candidate)))
-    return candidate.resolve()
-
-
 def _resolve_run_scoped_path(run_output_dir: Path, path_value: str, *, allow_absolute: bool = False) -> str:
     """Resolve a path under the current run directory."""
     raw = str(path_value or "").strip()
@@ -277,7 +269,7 @@ def load_openai_config(config_path: str | None = None) -> dict:
     concurrency_cfg = cfg_yaml.get("concurrency", {})
     retry_cfg = cfg_yaml.get("retry", {})
     grobid_integration_cfg = cfg_yaml.get("quality_control", {}).get("grobid_integration", {})
-    main_output_dir = _resolve_main_output_dir(local_cfg.get("main_output_dir", cfg_yaml.get("main_output_dir", "outputs")))
+    main_output_dir = resolve_main_output_dir({"main_output_dir": local_cfg.get("main_output_dir", cfg_yaml.get("main_output_dir", "outputs"))})
     run_output_dir = (main_output_dir / RUN_FOLDER_NAME).resolve()
     evidence_cache_dir = _resolve_run_scoped_path(
         run_output_dir,
@@ -496,7 +488,7 @@ def load_local_config(config_path: str | None = None) -> dict:
     main_output_dir = cfg.get("main_output_dir", "outputs")
     if not isinstance(main_output_dir, str) or not main_output_dir.strip():
         raise ValueError("Config 'main_output_dir' must be a non-empty string")
-    resolved_main_output_dir = _resolve_main_output_dir(main_output_dir)
+    resolved_main_output_dir = resolve_main_output_dir({"main_output_dir": main_output_dir})
     run_output_dir = (resolved_main_output_dir / RUN_FOLDER_NAME).resolve()
     cfg["main_output_dir"] = str(resolved_main_output_dir)
     cfg["output_folder_path"] = _resolve_run_scoped_path(run_output_dir, cfg.get("output_folder_path", "outputs/"))

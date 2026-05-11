@@ -46,7 +46,7 @@ def _load_local_settings() -> dict:
 _LOCAL_SETTINGS = _load_local_settings()
 
 
-def _resolve_main_output_dir(settings: dict | None = None, project_root: Path | None = None) -> Path:
+def resolve_main_output_dir(settings: dict | None = None, project_root: Path | None = None) -> Path:
     """Return the configured main output directory."""
     selected_settings = settings if settings is not None else _LOCAL_SETTINGS
     base_dir = project_root if project_root is not None else PROJECT_ROOT
@@ -65,7 +65,7 @@ def resolve_run_output_path(path_fragment: str, *, project_root: Path | None = N
     """Resolve a run-scoped path under <main_output_dir>/<run_timestamp>/."""
     selected_settings = settings if settings is not None else _LOCAL_SETTINGS
     base_dir = project_root if project_root is not None else PROJECT_ROOT
-    run_output_root = (_resolve_main_output_dir(selected_settings, base_dir) / RUN_FOLDER_NAME).resolve()
+    run_output_root = (resolve_main_output_dir(selected_settings, base_dir) / RUN_FOLDER_NAME).resolve()
 
     raw = str(path_fragment or "").strip()
     normalized = raw.lstrip("/\\")
@@ -248,5 +248,4 @@ def create_output_folder(output_folder_path: str = "outputs") -> str:
         output_folder = str(resolve_run_output_path(output_folder_path))
     os.makedirs(output_folder, exist_ok=True)
     return output_folder
-
 
