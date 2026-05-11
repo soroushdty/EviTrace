@@ -40,7 +40,11 @@ extraction:
 
 # Concurrency settings
 concurrency:
-  pdf_processing: 1 # PDFs processed in parallel
+  # PDFs processed in parallel. 3 is a safe default: GROBID extraction is
+  # almost entirely network-wait on the client side, so overlapping PDF N's
+  # GROBID call with PDF N-1's LLM calls is close to free. global_api_limit
+  # below caps concurrent OpenAI calls so this never overwhelms the API.
+  pdf_processing: 3
   global_api_limit: 15 # Max concurrent OpenAI API calls across all PDFs
 
 # Retry configuration
