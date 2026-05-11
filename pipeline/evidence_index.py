@@ -353,12 +353,20 @@ def build_or_load_evidence_bundle(qc_context, config: dict) -> EvidenceBundle:
     tei_xml = content.get("grobid_tei_xml", "")
     if not isinstance(tei_xml, str):
         tei_xml = ""
+    logger.debug(
+        "build_or_load_evidence_bundle: paper_id=%s, source_pdf=%s, tei_xml=%d chars",
+        paper_id, source_pdf_path, len(tei_xml),
+    )
 
     cache_root = _cache_dir(config)
     pdf_hash = _pdf_hash(source_pdf_path) if source_pdf_path and Path(source_pdf_path).exists() else "nohash"
     cache_key = f"{paper_id}_{pdf_hash}"
     tei_path = cache_root / f"{cache_key}.tei.xml"
     idx_path = cache_root / f"{cache_key}.evidence.json"
+    logger.debug(
+        "Evidence cache: root=%s, key=%s, tei_exists=%s, idx_exists=%s",
+        cache_root, cache_key, tei_path.exists(), idx_path.exists(),
+    )
 
     if idx_path.exists():
         try:
@@ -384,6 +392,10 @@ def build_or_load_evidence_bundle(qc_context, config: dict) -> EvidenceBundle:
 
     if not tei_xml.strip():
         # Fallback: build sentence-only index from exact text.
+        logger.debug(
+            "No TEI available for %s; falling back to sentence split of exact_text",
+            paper_id,
+        )
         exact_text = str(content.get("exact_text", ""))
         sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", exact_text) if s.strip()]
         items = [
@@ -405,7 +417,12 @@ def build_or_load_evidence_bundle(qc_context, config: dict) -> EvidenceBundle:
     else:
         try:
             items, prefilled = _build_items_from_tei(tei_xml, paper_id, source_pdf_path)
-        except ET.ParseError:
+            logger.debug(
+                "TEI parsed for %s: %d items, prefilled=%s",
+                paper_id, len(items), prefilled,
+            )
+        except ET.ParseError as exc:
+            logger.debug("TEI parse error for %s: %s", paper_id, exc)
             items = []
             prefilled = {1: paper_id, 2: "nr"}
 
@@ -480,6 +497,10 @@ def build_chunk_evidence_package(
             }
         )
         char_budget += len(text)
+    logger.debug(
+        "build_chunk_evidence_package: paper=%s, fields=%d, ranked=%d, selected=%d, chars=%d",
+        bundle.paper_id, len(chunk_fields), len(ranked), len(selected), char_budget,
+    )
 
     package = {
         "paper_id": bundle.paper_id,

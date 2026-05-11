@@ -52,7 +52,19 @@ def parse_args() -> argparse.Namespace:
 
 async def main() -> None:
     args = parse_args()
+    logger.debug("Parsed CLI args: %r", vars(args))
     cfg = load_openai_config()
+    logger.debug(
+        "Loaded OpenAI config: chunk_model=%s, synthesis_model=%s, num_chunks=%s, "
+        "chunk_max_tokens=%s, global_api_limit=%s, pdf_concurrency=%s, base_url=%s",
+        cfg.get("chunk_model"),
+        cfg.get("synthesis_model"),
+        cfg.get("num_chunks"),
+        cfg.get("chunk_max_tokens"),
+        cfg.get("global_api_limit"),
+        cfg.get("pdf_concurrency"),
+        cfg.get("base_url"),
+    )
 
     if args.concurrency is not None:
         logger.info(f"PDF concurrency overridden to {args.concurrency}")
@@ -63,6 +75,7 @@ async def main() -> None:
     if not cfg["api_key"]:
         logger.error("OPENAI_API_KEY is not set. Export it before running.")
         sys.exit(1)
+    logger.debug("OpenAI API key present (length=%d)", len(cfg["api_key"]))
 
     # Discover PDFs.
     pdf_dir = args.pdf_dir
@@ -74,6 +87,12 @@ async def main() -> None:
     if not pdf_paths:
         logger.error(f"No PDF files found in {pdf_dir}")
         sys.exit(1)
+    logger.debug(
+        "Discovered %d PDFs in %s: %s",
+        len(pdf_paths),
+        pdf_dir,
+        [p.name for p in pdf_paths],
+    )
 
     # Resolve effective values for logging (mirrors orchestrator defaults).
     effective_concurrency = args.concurrency if args.concurrency is not None else pipeline.PDF_CONCURRENCY

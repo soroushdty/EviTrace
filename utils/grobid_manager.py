@@ -16,15 +16,21 @@ class GrobidServerManager:
         self.image = self.config.get("docker_image", "lfoppiano/grobid:0.8.0")
         self.url = self.config.get("url", "http://localhost:8070")
         self.container_id = None
+        logger.debug(
+            "GrobidServerManager init: auto_start=%s, image=%s, url=%s",
+            self.auto_start, self.image, self.url,
+        )
 
     def __enter__(self):
         if not self.auto_start:
+            logger.debug("auto_start disabled; assuming external GROBID server")
             return self
 
         if self._is_server_alive():
             logger.debug("GROBID server is already running.")
             return self
 
+        logger.debug("GROBID server not running; checking Docker daemon...")
         if not self._is_docker_running():
             print("\nPlease start Docker Desktop to use GROBID extraction.")
             ans = input("Would you like EviTrace to automatically launch Docker Desktop for you? [Y/n]: ").strip()
@@ -59,15 +65,19 @@ class GrobidServerManager:
         try:
             # GROBID defaults to port 8070.
             cmd = ["docker", "run", "--rm", "-d", "-p", "8070:8070", self.image]
+            logger.debug("docker run command: %s", " ".join(cmd))
             result = subprocess.run(cmd, capture_output=True, text=True, check=True)
             self.container_id = result.stdout.strip()
+            logger.debug("GROBID container id=%s", self.container_id)
             
             # Poll /api/isalive
             print("Waiting for GROBID server to become ready (this may take a few minutes on first run)...")
+            logger.debug("Polling %s/api/isalive (up to 300s)...", self.url)
             ready = False
             for i in range(300): # up to 300 seconds
                 if self._is_server_alive():
                     ready = True
+                    logger.debug("GROBID became ready after %d seconds", i)
                     print()  # newline after dots
                     break
                 print(".", end="", flush=True)

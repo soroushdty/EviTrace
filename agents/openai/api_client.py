@@ -32,6 +32,12 @@ _client_kwargs: dict[str, Any] = {"api_key": OPENAI_API_KEY}
 if OPENAI_BASE_URL:
     _client_kwargs["base_url"] = OPENAI_BASE_URL
 _client = AsyncOpenAI(**_client_kwargs)
+logger.debug(
+    "OpenAI client initialised: base_url=%s, chunk_model=%s, synthesis_model=%s, "
+    "temperature=%s, max_retries=%d, chunk_max_tokens=%s",
+    OPENAI_BASE_URL or "default", CHUNK_MODEL, SYNTHESIS_MODEL,
+    TEMPERATURE, MAX_RETRIES, CHUNK_MAX_TOKENS,
+)
 
 
 def _expected_indices(chunk_fields: list[dict]) -> list[int]:
@@ -169,9 +175,20 @@ async def _call_api_with_retries(
 
     for attempt in range(1, MAX_RETRIES + 1):
         try:
+            logger.debug(
+                "%s request: model=%s, max_output_tokens=%s, input_msgs=%d, "
+                "cache_key=%s, attempt=%d/%d",
+                tag,
+                request_kwargs.get("model"),
+                request_kwargs.get("max_output_tokens"),
+                len(request_kwargs.get("input", []) or []),
+                request_kwargs.get("prompt_cache_key"),
+                attempt, MAX_RETRIES,
+            )
             async with semaphore:
                 response = await _client.responses.create(**request_kwargs)
             log_cache_usage(response, tag)
+            logger.debug("%s response status=%s", tag, getattr(response, "status", "?"))
             logger.info(f"{tag} ok (attempt {attempt})")
             return response
 
@@ -253,6 +270,17 @@ async def extract_chunk(
     model, max_tokens = _chunk_model_and_tokens(chunk_num)
     user_msg = build_user_message(source_package, chunk_fields, prior_context)
     tag = f"[{pdf_name} | chunk {chunk_num} | {model}]"
+    logger.debug(
+        "%s extract_chunk: fields=%d (indices=%s), source_package_chars=%d, "
+        "prior_context_fields=%d, user_msg_chars=%d, max_output_tokens=%d",
+        tag,
+        len(chunk_fields),
+        _expected_indices(chunk_fields),
+        len(source_package),
+        len(prior_context) if prior_context else 0,
+        len(user_msg),
+        max_tokens,
+    )
 
     request_kwargs = _base_request_kwargs(
         model=model,
@@ -265,11 +293,16 @@ async def extract_chunk(
 
     for attempt in range(1, MAX_RETRIES + 1):
         try:
+            logger.debug("%s attempt %d/%d: calling responses.create", tag, attempt, MAX_RETRIES)
             async with semaphore:
                 response = await _client.responses.create(**request_kwargs)
 
             log_cache_usage(response, tag)
             raw = _response_text(response)
+            logger.debug(
+                "%s attempt %d raw response: %d chars, preview=%r",
+                tag, attempt, len(raw), raw[:200],
+            )
             logger.info(f"{tag} ok (attempt {attempt})")
             return raw
 

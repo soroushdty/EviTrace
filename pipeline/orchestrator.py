@@ -44,32 +44,62 @@ async def run_pipeline(
     """
     effective_concurrency = pdf_concurrency if pdf_concurrency is not None else PDF_CONCURRENCY
     effective_prewarm = enable_cache_prewarm if enable_cache_prewarm is not None else ENABLE_CACHE_PREWARM
+    logger.debug(
+        "run_pipeline: %d PDFs, effective_concurrency=%d, effective_prewarm=%s, "
+        "global_api_limit=%d, num_chunks=%d",
+        len(pdf_paths), effective_concurrency, effective_prewarm,
+        GLOBAL_API_LIMIT, NUM_CHUNKS,
+    )
 
     # Propagate runtime overrides into the config dict passed to each PDF worker.
     runtime_config = {**_openai_config, "enable_cache_prewarm": effective_prewarm}
     runtime_config.update(_qc_config.get("quality_control", {}).get("grobid_integration", {}))
     runtime_config["addons"] = _qc_config.get("quality_control", {}).get("addons", {})
+    logger.debug(
+        "Runtime config keys: %s; addons enabled: %s",
+        sorted(runtime_config.keys()),
+        {k: v.get("enabled", False) for k, v in runtime_config.get("addons", {}).items() if isinstance(v, dict)},
+    )
 
     chunk_fields = load_chunk_fields()
     field_lookup = _build_field_lookup()
+    logger.debug(
+        "Loaded extraction map: %d chunks, %d total fields",
+        len(chunk_fields), len(field_lookup),
+    )
+    for chunk_num in sorted(chunk_fields.keys()):
+        logger.debug(
+            "  chunk %d: %d fields (indices %s)",
+            chunk_num,
+            len(chunk_fields[chunk_num]),
+            sorted(f.get("field_index") for f in chunk_fields[chunk_num]),
+        )
+
     manifest = load_manifest()
     manifest_lock = asyncio.Lock()
     api_semaphore = asyncio.Semaphore(GLOBAL_API_LIMIT)
     pdf_semaphore = asyncio.Semaphore(effective_concurrency)
+    logger.debug(
+        "Manifest loaded with %d previously-seen entries; semaphores ready",
+        len(manifest),
+    )
 
     async def _bounded(pdf_path: Path):
         async with pdf_semaphore:
             pdf_name = pdf_path.stem
+            logger.debug("Acquired pdf_semaphore for %s (begin QC pipeline)", pdf_name)
             try:
                 qc_context = await asyncio.to_thread(
                     build_qc_bundle, pdf_path, pdf_name, _qc_config
                 )
             except Exception as exc:
                 logger.error(f"FAIL  {pdf_name} -- QC pipeline: {exc}")
+                logger.debug("QC pipeline exception for %s", pdf_name, exc_info=True)
                 async with manifest_lock:
                     manifest[pdf_name] = {"status": "failed_qc_pipeline", "error": str(exc)}
                     save_manifest(manifest)
                 return None
+            logger.debug("QC pipeline complete for %s; entering pdf_processor", pdf_name)
             return await pdf_processor.process_pdf(
                 qc_context, chunk_fields, field_lookup,
                 api_semaphore, manifest, manifest_lock, runtime_config,
@@ -84,7 +114,12 @@ async def run_pipeline(
     for pdf_path, result in zip(pdf_paths, results):
         if isinstance(result, Exception):
             logger.error(f"Unhandled error for {pdf_path.name}: {result}")
+            logger.debug("Unhandled exception for %s", pdf_path.name, exc_info=result)
         elif result is not None:
             output.append({"pdf": pdf_path.name, "fields": result})
+    logger.debug(
+        "run_pipeline done: %d/%d PDFs produced output",
+        len(output), len(pdf_paths),
+    )
 
     return output

@@ -120,6 +120,11 @@ async def process_pdf(
     validate_qc_context_input(qc_context)
     pdf_name = qc_context.unified.document_id
     pdf_text = qc_context.unified.content["exact_text"]
+    logger.debug(
+        "process_pdf %s: exact_text=%d chars, unified.content keys=%s",
+        pdf_name, len(pdf_text),
+        sorted(qc_context.unified.content.keys()) if isinstance(qc_context.unified.content, dict) else "?",
+    )
 
     # Step 1: skip already-complete PDFs.
     completed = _load_completed_result(pdf_name, manifest)
@@ -136,14 +141,32 @@ async def process_pdf(
     prewarm_synthesis_diff = openai_config.get("prewarm_synthesis_if_model_diff", True)
     max_evidence_items = int(openai_config.get("max_evidence_items_per_chunk", 250))
     max_evidence_chars = int(openai_config.get("max_evidence_chars_per_chunk", 60000))
+    logger.debug(
+        "%s config: chunk_model=%s, synthesis_model=%s, num_chunks=%d, "
+        "enable_prewarm=%s, prewarm_synthesis_diff=%s, "
+        "max_evidence_items=%d, max_evidence_chars=%d",
+        pdf_name, chunk_model, synthesis_model, num_chunks,
+        enable_prewarm, prewarm_synthesis_diff,
+        max_evidence_items, max_evidence_chars,
+    )
 
     bundle = build_or_load_evidence_bundle(qc_context, openai_config)
     valid_location_ids = set(bundle.evidence_map.keys())
     logger.info("Evidence index ready for %s: %d IDs", pdf_name, len(valid_location_ids))
+    logger.debug(
+        "%s evidence types: %s",
+        pdf_name,
+        {t: sum(1 for it in bundle.evidence_items if it.get("type") == t)
+         for t in {it.get("type") for it in bundle.evidence_items}},
+    )
 
     # Locally prefill field 1 and 2 from TEI metadata.
     prefilled_fields: list[dict] = []
     prefilled_indices = set(bundle.prefilled_fields.keys())
+    logger.debug(
+        "%s prefilled field indices from TEI: %s",
+        pdf_name, sorted(prefilled_indices),
+    )
     for field_idx, value in bundle.prefilled_fields.items():
         if field_idx in field_lookup:
             prefilled_fields.append(
@@ -206,10 +229,18 @@ async def process_pdf(
     extraction_chunks = sorted(
         i for i in range(1, num_chunks) if i in chunk_fields_for_llm
     )
+    logger.debug(
+        "%s extraction_chunks to validate: %s",
+        pdf_name, extraction_chunks,
+    )
     prior_context: list[dict] = list(prefilled_fields)
     for chunk_idx, raw_text in zip(extraction_chunks, raw_results):
         expected_idx = sorted(
             f["field_index"] for f in chunk_fields_for_llm[chunk_idx]
+        )
+        logger.debug(
+            "%s validating chunk %d: raw=%d chars, expected_indices=%s",
+            pdf_name, chunk_idx, len(raw_text), expected_idx,
         )
         try:
             validated = validate_chunk_output(
@@ -219,6 +250,10 @@ async def process_pdf(
             )
         except ValidationError as exc:
             logger.error(f"FAIL  {pdf_name} -- chunk {chunk_idx} validation: {exc}")
+            logger.debug(
+                "%s chunk %d raw output (full): %r",
+                pdf_name, chunk_idx, raw_text,
+            )
             async with manifest_lock:
                 manifest[pdf_name] = {
                     "status": "failed_chunks",
@@ -226,8 +261,16 @@ async def process_pdf(
                 }
                 save_manifest(manifest)
             return None
+        logger.debug(
+            "%s chunk %d validated: %d items",
+            pdf_name, chunk_idx, len(validated),
+        )
         prior_context.extend(reconstruct_fields(validated, field_lookup, bundle.evidence_map))
     prior_context.sort(key=lambda x: x["field_index"])
+    logger.debug(
+        "%s prior_context after extraction chunks: %d fields",
+        pdf_name, len(prior_context),
+    )
 
     # Step 4: run synthesis chunk.
     synthesis_chunk = num_chunks
@@ -235,6 +278,11 @@ async def process_pdf(
         final_fields: list[dict] = []
         synthesis_fields = chunk_fields_for_llm.get(synthesis_chunk, [])
         if synthesis_fields:
+            logger.debug(
+                "%s synthesis chunk %d: %d fields (indices=%s)",
+                pdf_name, synthesis_chunk, len(synthesis_fields),
+                sorted(f.get("field_index") for f in synthesis_fields),
+            )
             synthesis_raw = await extract_chunk(
                 synthesis_chunk,
                 chunk_sources.get(synthesis_chunk, json.dumps({"paper_id": pdf_name, "evidence": []})),
@@ -252,9 +300,17 @@ async def process_pdf(
                 synthesis_expected_idx,
                 valid_location_ids=valid_location_ids,
             )
+            logger.debug(
+                "%s synthesis validated: %d items",
+                pdf_name, len(final_compact),
+            )
             final_fields = reconstruct_fields(final_compact, field_lookup, bundle.evidence_map)
     except Exception as exc:
         logger.error(f"FAIL  {pdf_name} -- chunk {synthesis_chunk} (synthesis): {exc}")
+        logger.debug(
+            "%s synthesis exception details",
+            pdf_name, exc_info=True,
+        )
         async with manifest_lock:
             manifest[pdf_name] = {"status": f"failed_chunk_{synthesis_chunk}", "error": str(exc)}
             save_manifest(manifest)

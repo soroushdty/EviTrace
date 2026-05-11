@@ -125,15 +125,30 @@ def run_pipeline(
 
     config = config or {}
     ctx = QCBundle(branches=branches)
+    logger.debug(
+        "QC run_pipeline: %d branches (sources=%s)",
+        len(branches), [getattr(b, "source", "?") for b in branches],
+    )
 
     for i, branch in enumerate(branches):
         report = rater_fn(branch, branches, i, config)
         ctx.reports.append(report)
         branch.status = "pass" if report.status == "pass" else "fail"
+        logger.debug(
+            "QC stage 1 (rater) branch %d source=%s status=%s",
+            i, getattr(branch, "source", "?"), branch.status,
+        )
 
     ctx.iaa_metrics = iaa_fn(ctx.reports, config)
+    logger.debug("QC stage 2 (IAA) complete: %s", type(ctx.iaa_metrics).__name__)
     ctx.decision = adjudicator_fn(ctx.reports, ctx.iaa_metrics, config)
+    logger.debug(
+        "QC stage 3 (adjudicator) complete: primary=%s, confidence=%s",
+        getattr(ctx.decision, "primary_extractor", "?"),
+        getattr(ctx.decision, "confidence", "?"),
+    )
     ctx.unified = reconciler_fn(ctx.decision, branches, config)
+    logger.debug("QC stage 4 (reconciler) complete")
 
     return ctx
 
@@ -145,12 +160,13 @@ def run_pipeline(
 def _load_text_processor(config: dict) -> object:
     """Resolve and instantiate the configured TextProcessor class.
 
-    Expects config["quality_control"]["text_processor"]["class"] to be a
-    fully-qualified import path (eg. "text_processing.base.ScispaCySentenceSegment").
-    If absent, defaults to text_processing.base.ScispaCySentenceSegment.
+    Expects config["text_processor"]["class"] to be a fully-qualified import
+    path (eg. "text_processing.composite.DefaultTextProcessor").
+    If absent, defaults to text_processing.composite.DefaultTextProcessor.
     """
     tp_cfg = (config or {}).get("text_processor", {})
-    class_path = tp_cfg.get("class", "text_processing.base.ScispaCySentenceSegment")
+    class_path = tp_cfg.get("class", "text_processing.composite.DefaultTextProcessor")
+    logger.debug("_load_text_processor: class_path=%s", class_path)
     try:
         module_name, class_name = class_path.rsplit(".", 1)
         module = importlib.import_module(module_name)
