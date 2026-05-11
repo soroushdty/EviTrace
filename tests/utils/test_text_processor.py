@@ -499,8 +499,24 @@ class TestSentenceSegmentHierarchy:
         mock_doc = MagicMock(); mock_doc.sents = [mock_sent]
         mock_nlp = MagicMock(return_value=mock_doc)
         mock_spacy.load.return_value = mock_nlp
+        mock_spacy.blank.return_value = mock_nlp
 
-        with patch.dict(sys.modules, {"scispacy": mock_scispacy, "spacy": mock_spacy}):
+        mock_wtpsplit = MagicMock()
+        mock_wtpsplit.WtP.return_value = MagicMock()
+
+        mock_nltk = MagicMock()
+        mock_nltk.sent_tokenize = MagicMock(return_value=["Sentence one."])
+
+        mock_stanza = MagicMock()
+        mock_stanza.Pipeline.return_value = MagicMock()
+
+        with patch.dict(sys.modules, {
+            "scispacy": mock_scispacy,
+            "spacy": mock_spacy,
+            "wtpsplit": mock_wtpsplit,
+            "nltk": mock_nltk,
+            "stanza": mock_stanza,
+        }):
             for cls in (
                 ScispaCySentenceSegment,
                 WtpSplitSentenceSegment,
@@ -593,9 +609,8 @@ class TestWtpSplitSentenceSegment:
     def test_import_error_raised_with_pip_hint(self):
         from utils.text_processor import WtpSplitSentenceSegment
         with patch.dict(sys.modules, {"wtpsplit": None}):
-            seg = WtpSplitSentenceSegment()
             with pytest.raises(ImportError, match="pip install wtpsplit"):
-                seg.tokenize_sentences("Hello world.")
+                WtpSplitSentenceSegment()
 
     def test_model_loaded_at_most_once(self):
         from utils.text_processor import WtpSplitSentenceSegment
@@ -619,9 +634,8 @@ class TestNLTKPunktSentenceSegment:
     def test_import_error_raised_with_pip_hint(self):
         from utils.text_processor import NLTKPunktSentenceSegment
         with patch.dict(sys.modules, {"nltk": None}):
-            seg = NLTKPunktSentenceSegment()
             with pytest.raises(ImportError, match="pip install nltk"):
-                seg.tokenize_sentences("Hello world.")
+                NLTKPunktSentenceSegment()
 
     def test_model_loaded_at_most_once(self):
         from utils.text_processor import NLTKPunktSentenceSegment
@@ -641,12 +655,10 @@ class TestNLTKPunktSentenceSegment:
         assert seg._model is not None
 
     def test_model_set_exactly_once_across_multiple_calls(self):
-        """The internal _model attribute is assigned only on the first call.
+        """The internal _model attribute is assigned at construction and never replaced.
 
-        Verifies the load-once invariant: after two tokenize_sentences calls,
-        `_model` is the mock nltk module itself (not None), and the mock's
-        `sent_tokenize` was invoked both times — meaning the guard executed
-        correctly and did not re-import on the second call.
+        Verifies the load-once invariant: _model is set during __init__ (eager load),
+        and remains the exact same object after multiple tokenize_sentences calls.
         """
         from utils.text_processor import NLTKPunktSentenceSegment
 
@@ -656,18 +668,14 @@ class TestNLTKPunktSentenceSegment:
         with patch.dict(sys.modules, {"nltk": mock_nltk}):
             seg = NLTKPunktSentenceSegment()
 
-            # _model starts as None before any call
-            assert seg._model is None
-
-            seg.tokenize_sentences("Hello world.")
-
-            # After first call, _model must be the captured module — not None
+            # _model is set eagerly at construction — must not be None
             first_model = seg._model
             assert first_model is not None
 
+            seg.tokenize_sentences("Hello world.")
             seg.tokenize_sentences("Another sentence.")
 
-            # After second call, _model must still be the exact same object
+            # After multiple calls, _model must still be the exact same object
             assert seg._model is first_model
 
 
@@ -677,9 +685,8 @@ class TestSpacySentencizerSegment:
     def test_import_error_raised_with_pip_hint(self):
         from utils.text_processor import SpacySentencizerSegment
         with patch.dict(sys.modules, {"spacy": None}):
-            seg = SpacySentencizerSegment()
             with pytest.raises(ImportError, match="pip install spacy"):
-                seg.tokenize_sentences("Hello world.")
+                SpacySentencizerSegment()
 
     def test_model_loaded_at_most_once(self):
         from utils.text_processor import SpacySentencizerSegment
@@ -705,9 +712,8 @@ class TestStanzaSentenceSegment:
     def test_import_error_raised_with_pip_hint(self):
         from utils.text_processor import StanzaSentenceSegment
         with patch.dict(sys.modules, {"stanza": None}):
-            seg = StanzaSentenceSegment()
             with pytest.raises(ImportError, match="pip install stanza"):
-                seg.tokenize_sentences("Hello world.")
+                StanzaSentenceSegment()
 
     def test_model_loaded_at_most_once(self):
         from utils.text_processor import StanzaSentenceSegment
@@ -757,22 +763,35 @@ class TestTextProcessorSentenceTokenizerWiring:
 
     def test_wtpsplit_backend(self):
         from utils.text_processor import TextProcessor, WtpSplitSentenceSegment
-        tp = TextProcessor(config={"sentence_tokenizer": {"backend": "wtpsplit"}})
+        mock_wtpsplit = MagicMock()
+        mock_wtpsplit.WtP.return_value = MagicMock()
+        with patch.dict(sys.modules, {"wtpsplit": mock_wtpsplit}):
+            tp = TextProcessor(config={"sentence_tokenizer": {"backend": "wtpsplit"}})
         assert isinstance(tp._segmenter, WtpSplitSentenceSegment)
 
     def test_nltk_punkt_backend(self):
         from utils.text_processor import TextProcessor, NLTKPunktSentenceSegment
-        tp = TextProcessor(config={"sentence_tokenizer": {"backend": "nltk_punkt"}})
+        mock_nltk = MagicMock()
+        mock_nltk.sent_tokenize = MagicMock(return_value=[])
+        with patch.dict(sys.modules, {"nltk": mock_nltk}):
+            tp = TextProcessor(config={"sentence_tokenizer": {"backend": "nltk_punkt"}})
         assert isinstance(tp._segmenter, NLTKPunktSentenceSegment)
 
     def test_spacy_sentencizer_backend(self):
         from utils.text_processor import TextProcessor, SpacySentencizerSegment
-        tp = TextProcessor(config={"sentence_tokenizer": {"backend": "spacy_sentencizer"}})
+        mock_spacy = MagicMock()
+        mock_nlp = MagicMock()
+        mock_spacy.blank.return_value = mock_nlp
+        with patch.dict(sys.modules, {"spacy": mock_spacy}):
+            tp = TextProcessor(config={"sentence_tokenizer": {"backend": "spacy_sentencizer"}})
         assert isinstance(tp._segmenter, SpacySentencizerSegment)
 
     def test_stanza_backend(self):
         from utils.text_processor import TextProcessor, StanzaSentenceSegment
-        tp = TextProcessor(config={"sentence_tokenizer": {"backend": "stanza"}})
+        mock_stanza = MagicMock()
+        mock_stanza.Pipeline.return_value = MagicMock()
+        with patch.dict(sys.modules, {"stanza": mock_stanza}):
+            tp = TextProcessor(config={"sentence_tokenizer": {"backend": "stanza"}})
         assert isinstance(tp._segmenter, StanzaSentenceSegment)
 
     def test_unknown_backend_raises_value_error(self):

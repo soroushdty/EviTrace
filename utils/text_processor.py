@@ -367,17 +367,75 @@ class ScispaCySentenceSegment(SentenceSegment):
         if self._model_name == self.DEFAULT_MODEL:
             self._model = self._load_model()
 
+    # Maps model name → direct wheel URL for models not on the spaCy registry.
+    # Version is pinned to match scispacy==0.5.5 (the version in requirements.txt).
+    _SCISPACY_MODEL_URLS: dict[str, str] = {
+        "en_core_sci_sm": (
+            "https://s3-us-west-2.amazonaws.com/ai2-s2-scispacy"
+            "/releases/v0.5.4/en_core_sci_sm-0.5.4.tar.gz"
+        ),
+        "en_core_sci_md": (
+            "https://s3-us-west-2.amazonaws.com/ai2-s2-scispacy"
+            "/releases/v0.5.4/en_core_sci_md-0.5.4.tar.gz"
+        ),
+        "en_core_sci_lg": (
+            "https://s3-us-west-2.amazonaws.com/ai2-s2-scispacy"
+            "/releases/v0.5.4/en_core_sci_lg-0.5.4.tar.gz"
+        ),
+        "en_core_sci_scibert": (
+            "https://s3-us-west-2.amazonaws.com/ai2-s2-scispacy"
+            "/releases/v0.5.4/en_core_sci_scibert-0.5.4.tar.gz"
+        ),
+    }
+
     def _load_model(self):
         try:
             import scispacy  # noqa: F401
             import spacy
             return spacy.load(self._model_name)
-        except (ImportError, OSError) as exc:
+        except ImportError as exc:
             raise ImportError(
                 f"scispaCy model {self._model_name!r} is not installed. Install it with:\n"
                 "  pip install scispacy\n"
                 f"  python -m spacy download {self._model_name}"
             ) from exc
+        except OSError:
+            # Model package is missing — attempt automatic installation.
+            import subprocess
+            import sys
+            import spacy
+
+            url = self._SCISPACY_MODEL_URLS.get(self._model_name)
+            if url is None:
+                raise ImportError(
+                    f"scispaCy model {self._model_name!r} is not installed and no "
+                    "automatic install URL is known for it.\n"
+                    "Install it manually with:\n"
+                    "  pip install scispacy\n"
+                    f"  python -m spacy download {self._model_name}"
+                )
+
+            print(
+                f"[EviTrace] scispaCy model {self._model_name!r} not found — "
+                f"installing automatically from:\n  {url}",
+                flush=True,
+            )
+            result = subprocess.run(
+                [sys.executable, "-m", "pip", "install", url],
+                check=False,
+            )
+            if result.returncode != 0:
+                raise ImportError(
+                    f"Automatic installation of {self._model_name!r} failed "
+                    f"(pip exit code {result.returncode}).\n"
+                    "Install it manually with:\n"
+                    f"  pip install {url}"
+                )
+
+            # Reload spacy after installation so the new package is visible.
+            import importlib
+            importlib.reload(spacy)
+            return spacy.load(self._model_name)
 
     def tokenize_sentences(self, text: str) -> list[str]:
         if self._model is None:
@@ -388,70 +446,85 @@ class ScispaCySentenceSegment(SentenceSegment):
 class WtpSplitSentenceSegment(SentenceSegment):
     """Sentence segmentation via wtpsplit (``WtP`` model).
 
-    Lazy-loads on first call; raises :class:`ImportError` with install hint
-    when the ``wtpsplit`` package is absent.
+    Loads eagerly at construction; raises :class:`ImportError` with install
+    hint when the ``wtpsplit`` package is absent.
     """
 
+    def __init__(self, config: dict | None = None) -> None:
+        super().__init__(config=config)
+        self._model = self._load_model()
+
+    def _load_model(self):
+        try:
+            import wtpsplit
+            return wtpsplit.WtP("wtp-bert-mini")
+        except ImportError as exc:
+            raise ImportError(
+                "wtpsplit is not installed. Install it with:\n"
+                "  pip install wtpsplit"
+            ) from exc
+
     def tokenize_sentences(self, text: str) -> list[str]:
-        if self._model is None:
-            try:
-                import wtpsplit
-                self._model = wtpsplit.WtP("wtp-bert-mini")
-            except ImportError:
-                raise ImportError(
-                    "wtpsplit is not installed. Install it with:\n"
-                    "  pip install wtpsplit"
-                )
         return list(self._model.split(text))
 
 
 class NLTKPunktSentenceSegment(SentenceSegment):
     """Sentence segmentation via NLTK Punkt tokenizer.
 
-    Lazy-loads on first call; raises :class:`ImportError` with install hint
-    when the ``nltk`` package or Punkt data is absent.
+    Loads eagerly at construction; raises :class:`ImportError` with install
+    hint when the ``nltk`` package or Punkt data is absent.
     """
 
+    def __init__(self, config: dict | None = None) -> None:
+        super().__init__(config=config)
+        self._model = self._load_model()
+
+    def _load_model(self):
+        try:
+            import nltk
+            return nltk
+        except ImportError as exc:
+            raise ImportError(
+                "NLTK is not installed. Install it with:\n"
+                "  pip install nltk\n"
+                "  python -c \"import nltk; nltk.download('punkt')\""
+            ) from exc
+
     def tokenize_sentences(self, text: str) -> list[str]:
-        if self._model is None:
-            try:
-                import nltk
-                self._model = nltk
-            except ImportError:
-                raise ImportError(
-                    "NLTK is not installed. Install it with:\n"
-                    "  pip install nltk\n"
-                    "  python -c \"import nltk; nltk.download('punkt')\""
-                )
         try:
             return self._model.sent_tokenize(text)
-        except LookupError:
+        except LookupError as exc:
             raise ImportError(
                 "NLTK Punkt data not found. Download it with:\n"
                 "  python -c \"import nltk; nltk.download('punkt')\""
-            )
+            ) from exc
 
 
 class SpacySentencizerSegment(SentenceSegment):
     """Sentence segmentation via spaCy ``Sentencizer`` component.
 
-    Lazy-loads on first call; raises :class:`ImportError` with install hint
-    when ``spacy`` is absent.
+    Loads eagerly at construction; raises :class:`ImportError` with install
+    hint when ``spacy`` is absent.
     """
 
+    def __init__(self, config: dict | None = None) -> None:
+        super().__init__(config=config)
+        self._model = self._load_model()
+
+    def _load_model(self):
+        try:
+            import spacy
+            nlp = spacy.blank("en")
+            nlp.add_pipe("sentencizer")
+            return nlp
+        except ImportError as exc:
+            raise ImportError(
+                "spaCy is not installed. Install it with:\n"
+                "  pip install spacy\n"
+                f"Underlying error: {exc}"
+            ) from exc
+
     def tokenize_sentences(self, text: str) -> list[str]:
-        if self._model is None:
-            try:
-                import spacy
-                nlp = spacy.blank("en")
-                nlp.add_pipe("sentencizer")
-                self._model = nlp
-            except ImportError as exc:
-                raise ImportError(
-                    "spaCy is not installed. Install it with:\n"
-                    "  pip install spacy\n"
-                    f"Underlying error: {exc}"
-                ) from exc
         doc = self._model(text)
         return [sent.text for sent in doc.sents]
 
@@ -459,20 +532,24 @@ class SpacySentencizerSegment(SentenceSegment):
 class StanzaSentenceSegment(SentenceSegment):
     """Sentence segmentation via Stanford Stanza.
 
-    Lazy-loads on first call; raises :class:`ImportError` with install hint
-    when the ``stanza`` package is absent.
+    Loads eagerly at construction; raises :class:`ImportError` with install
+    hint when the ``stanza`` package is absent.
     """
 
+    def __init__(self, config: dict | None = None) -> None:
+        super().__init__(config=config)
+        self._model = self._load_model()
+
+    def _load_model(self):
+        try:
+            import stanza
+            return stanza.Pipeline(lang="en", processors="tokenize")
+        except ImportError as exc:
+            raise ImportError(
+                "Stanza is not installed. Install it with:\n"
+                "  pip install stanza"
+            ) from exc
+
     def tokenize_sentences(self, text: str) -> list[str]:
-        if self._model is None:
-            try:
-                import stanza
-                pipeline = stanza.Pipeline(lang="en", processors="tokenize")
-                self._model = pipeline
-            except ImportError:
-                raise ImportError(
-                    "Stanza is not installed. Install it with:\n"
-                    "  pip install stanza"
-                )
         doc = self._model(text)
         return [sent.text for sent in doc.sentences]
