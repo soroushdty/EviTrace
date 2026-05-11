@@ -308,7 +308,7 @@ def _get_chunk_max_tokens(num_chunks: int) -> dict[int, int]:
     if num_chunks == 5:
         return {1: 3500, 2: 3000, 3: 5000, 4: 3500, 5: 2500}
     elif num_chunks == 3:
-        return {1: 3500, 2: 5000, 3: 2500}
+        return {1: 4096, 2: 5000, 3: 8192}
     else:
         # For other values, distribute tokens evenly
         base_tokens = 3500
