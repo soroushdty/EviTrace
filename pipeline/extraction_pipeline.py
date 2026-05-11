@@ -82,7 +82,12 @@ def build_qc_bundle(
         "text_processor",
         {"sentence_tokenizer": {"backend": "nltk_punkt"}},
     )
-    tp = TextProcessor(config=tp_cfg)
+    import importlib as _importlib  # noqa: PLC0415
+    _tp_class_path = tp_cfg.get("class", "text_processing.composite.DefaultTextProcessor")
+    _tp_module_name, _tp_class_name = _tp_class_path.rsplit(".", 1)
+    _tp_module = _importlib.import_module(_tp_module_name)
+    _tp_cls = getattr(_tp_module, _tp_class_name)
+    tp = _tp_cls(config=tp_cfg)
 
     import fitz as _fitz  # noqa: PLC0415 — lazy; not installed in all envs
     doc = _fitz.open(str(pdf_path))

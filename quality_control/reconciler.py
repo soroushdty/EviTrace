@@ -379,8 +379,6 @@ def reconcile(
         DEFAULT_TABLE_FIGURE_MERGE,
         DEFAULT_TEXT_FIDELITY,
     )
-    from text_processing.base import TextProcessor
-
     if text_fidelity_strategy is None:
         text_fidelity_strategy = DEFAULT_TEXT_FIDELITY
     if section_strategy is None:
@@ -388,7 +386,9 @@ def reconcile(
     if table_figure_strategy is None:
         table_figure_strategy = DEFAULT_TABLE_FIGURE_MERGE
     if text_processor is None:
-        text_processor = TextProcessor()
+        import importlib as _importlib  # noqa: PLC0415
+        _mod = _importlib.import_module("text_processing.composite")
+        text_processor = getattr(_mod, "DefaultTextProcessor")()
 
     logger.debug("Repair: reconciling outputs for document_id=%s", document_id)
 

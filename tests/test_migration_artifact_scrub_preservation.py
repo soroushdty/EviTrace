@@ -98,7 +98,7 @@ def _make_minimal_config() -> dict:
             "section_verification": {"font_size_tolerance": 1.0},
         },
         "text_processor": {
-            "class": "utils.text_processor.TextProcessor",
+            "class": "text_processing.composite.DefaultTextProcessor",
             "sentence_tokenizer": {"backend": "scispacy", "model": "en_core_sci_sm"},
             "word_tokenizer": {"backend": "simple"},
             "normalizer": {"backend": "nfkc"},

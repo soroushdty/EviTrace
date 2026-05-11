@@ -28,7 +28,6 @@ validate_qc_context_input(ctx)
 
 from __future__ import annotations
 
-from dataclasses import asdict
 from typing import Any
 
 from quality_control.models import QCBundle

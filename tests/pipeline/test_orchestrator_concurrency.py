@@ -80,7 +80,7 @@ _FAKE_QC_CONFIG_FALLBACK = {
         "reconciler": {"enable_tei_export": False, "enable_annotation_export": False},
     },
     "text_processor": {
-        "class": "utils.text_processor.TextProcessor",
+        "class": "text_processing.composite.DefaultTextProcessor",
         "sentence_tokenizer": {"backend": "scispacy", "model": "en_core_sci_sm"},
         "word_tokenizer": {"backend": "simple"},
         "normalizer": {"backend": "nfkc"},

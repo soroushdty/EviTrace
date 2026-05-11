@@ -1,6 +1,5 @@
 import subprocess
 import time
-import requests
 import logging
 import sys
 import os
@@ -96,6 +95,7 @@ class GrobidServerManager:
             self.container_id = None
 
     def _is_server_alive(self):
+        import requests
         try:
             resp = requests.get(f"{self.url.rstrip('/')}/api/isalive", timeout=2)
             return resp.status_code == 200

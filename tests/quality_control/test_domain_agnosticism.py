@@ -30,6 +30,7 @@ from quality_control.models import (
 )
 from pdf_extractor.extraction.scan_detector import classify_page, PageScanClassification
 from text_processing.base import TextProcessor
+from text_processing.composite import DefaultTextProcessor
 
 
 @pytest.fixture(autouse=True)
@@ -291,7 +292,7 @@ class TestAcceptanceCriteriaVerification:
 
     def test_text_fidelity_concern_asymmetric_preferred_reading(self):
         """Verify TextFidelityConcern.reconcile swaps preferred_reading based on argument order."""
-        tp = TextProcessor()
+        tp = DefaultTextProcessor()
         concern = TextFidelityConcern(source_label="source_a")
 
         text_a = "The quick brown fox"
@@ -344,7 +345,7 @@ class TestAcceptanceCriteriaVerification:
             # Make sure comparisons work for calculating page area
             mock_page.mediabox.__getitem__ = MagicMock(side_effect=lambda i: [0, 0, 612, 792][i])
 
-            tp = TextProcessor()
+            tp = DefaultTextProcessor()
             config = {
                 "quality_control": {
                     "scan_detection": {
@@ -386,8 +387,8 @@ class TestAcceptanceCriteriaVerification:
 
             tp = quality_control._load_text_processor(config)
 
-            # The text processor should have a configured sentence tokenizer backend
-            assert hasattr(tp, "_segmenter"), "TextProcessor should have _segmenter attribute"
+            # The text processor should be callable for sentence tokenization
+            # (_sentence_backend is lazy-loaded on first tokenize_sentences call)
 
             # Test that tokenize_sentences works with the configured backend
             text = "First sentence. Second sentence. Third sentence."

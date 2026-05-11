@@ -3,7 +3,6 @@ import asyncio
 import json
 from typing import Optional
 
-from agents.openai.api_client import extract_chunk, warm_pdf_cache
 from quality_control import QCBundle
 from .evidence_index import (
     attach_table_figure_crops,
@@ -60,6 +59,8 @@ async def _run_parallel_chunks(
     if not chunk_sources:
         return []
 
+    from agents.openai.api_client import extract_chunk, warm_pdf_cache  # noqa: PLC0415
+
     warm_source = chunk_sources.get(1) or next(iter(chunk_sources.values()))
     if enable_prewarm:
         await warm_pdf_cache(warm_source, api_semaphore, pdf_name=pdf_name, model=chunk_model)
@@ -114,6 +115,8 @@ async def process_pdf(
     openai_config: dict,
 ) -> Optional[list[dict]]:
     """Process one PDF end-to-end. Returns extracted field list on success, None on failure."""
+    from agents.openai.api_client import extract_chunk, warm_pdf_cache  # noqa: PLC0415
+
     validate_qc_context_input(qc_context)
     pdf_name = qc_context.unified.document_id
     pdf_text = qc_context.unified.content["exact_text"]

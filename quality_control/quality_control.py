@@ -341,11 +341,7 @@ def run_quality_control(
     borderline_branches: list[tuple[int, Candidate, ExtractionCoverageReport]] = []
     metrics_hierarchy: dict = {"extraction_coverage": [], "source_text_verification": [], "semantic_verification": {}}
 
-    try:
-        text_processor = _load_text_processor(config)
-    except Exception:
-        # Fall back to None to preserve behavior in test environments
-        text_processor = None
+    text_processor = _load_text_processor(config)
 
     # --- Stage 1: PDF rater (ExtractionCoverageReport) ---
     def _pdf_rater_fn(
@@ -430,18 +426,9 @@ def run_quality_control(
             None,
         )
         secondary_branch = next(
-            (
-                b
-                for b in all_branches
-                if str(b.index).lower() in {"pdfplumber", "pymupdf"}
-            ),
+            (b for b in all_branches if b.extractor in {"pdfplumber", "pymupdf"}),
             None,
         )
-        if secondary_branch is None:
-            secondary_branch = next(
-                (b for b in all_branches if b.extractor in {"pdfplumber", "pymupdf"}),
-                None,
-            )
 
         primary_artifact = _build_reconciler_artifact(grobid_branch)
         secondary_artifact = _build_reconciler_artifact(secondary_branch)

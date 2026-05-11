@@ -221,9 +221,11 @@ def test_run_parallel_chunks_all_succeed(tmp_path):
     # A valid compact chunk result (list of field dicts with compact keys)
     valid_result = [{"i": 3, "v": "RCT", "loc": [], "c": "h"}]
 
-    with patch.object(_pdf_processor, "extract_chunk", new_callable=AsyncMock) as mock_ec:
-        mock_ec.return_value = valid_result
+    mock_api = MagicMock()
+    mock_api.extract_chunk = AsyncMock(return_value=valid_result)
+    mock_api.warm_pdf_cache = AsyncMock()
 
+    with patch.dict(sys.modules, {"agents": MagicMock(), "agents.openai": MagicMock(), "agents.openai.api_client": mock_api}):
         async def _run():
             semaphore = asyncio.Semaphore(5)
             lock = asyncio.Lock()
@@ -266,9 +268,12 @@ def test_run_parallel_chunks_one_fails(tmp_path):
             raise RuntimeError("API error on chunk 2")
         return valid_result
 
-    with patch.object(_pdf_processor, "extract_chunk", new_callable=AsyncMock) as mock_ec, \
+    mock_api = MagicMock()
+    mock_api.extract_chunk = AsyncMock(side_effect=_side_effect)
+    mock_api.warm_pdf_cache = AsyncMock()
+
+    with patch.dict(sys.modules, {"agents": MagicMock(), "agents.openai": MagicMock(), "agents.openai.api_client": mock_api}), \
          patch.object(_pdf_processor, "save_manifest"):
-        mock_ec.side_effect = _side_effect
 
         async def _run():
             semaphore = asyncio.Semaphore(5)
@@ -325,8 +330,12 @@ def test_process_pdf_cache_hit_skips_extract_chunk(tmp_path):
         "max_evidence_chars_per_chunk": 60000,
     }
 
+    mock_api = MagicMock()
+    mock_api.extract_chunk = AsyncMock()
+    mock_api.warm_pdf_cache = AsyncMock()
+
     with patch.object(_pdf_processor, "OUTPUT_DIR", tmp_path), \
-         patch.object(_pdf_processor, "extract_chunk", new_callable=AsyncMock) as mock_ec, \
+         patch.dict(sys.modules, {"agents": MagicMock(), "agents.openai": MagicMock(), "agents.openai.api_client": mock_api}), \
          patch.object(_pdf_processor, "validate_qc_context_input"):
 
         async def _run():
@@ -344,5 +353,5 @@ def test_process_pdf_cache_hit_skips_extract_chunk(tmp_path):
 
         result = asyncio.run(_run())
 
-    mock_ec.assert_not_called()
+    mock_api.extract_chunk.assert_not_called()
     assert result == fields

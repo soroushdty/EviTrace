@@ -17,6 +17,7 @@ from text_processing.base import (
 )
 from text_processing.matchers import LexicalMatcher, SemanticMatcher
 from text_processing.embedding import EmbeddingProcessor
+from text_processing.composite import DefaultTextProcessor
 
 __all__ = [
     "TextProcessor",
@@ -29,4 +30,5 @@ __all__ = [
     "LexicalMatcher",
     "SemanticMatcher",
     "EmbeddingProcessor",
+    "DefaultTextProcessor",
 ]

@@ -87,7 +87,7 @@ def test_qc_config_defaults_applied(config_without_qc):
     assert merged["iaa_calculator"]["agreement_metrics"] == []
 
     # adjudicator defaults
-    assert merged["adjudicator"]["strategy"] == "placeholder"
+    assert merged["adjudicator"]["strategy"] == "majority_vote"
 
     # reconciler defaults
     assert merged["reconciler"]["enable_tei_export"] is False
@@ -163,7 +163,7 @@ class TestQCSubNamespaceDefaults:
     # adjudicator
     def test_adjudicator_strategy_default_placeholder(self, tmp_path):
         cfg = self._load(tmp_path)
-        assert cfg["quality_control"]["adjudicator"]["strategy"] == "placeholder"
+        assert cfg["quality_control"]["adjudicator"]["strategy"] == "majority_vote"
 
     # reconciler
     def test_downstream_enable_tei_export_default_false(self, tmp_path):
@@ -496,8 +496,8 @@ class TestTextProcessorDefaults:
         assert "text_processor" in _QC_DEFAULTS
 
     def test_text_processor_class_default(self):
-        """class must default to 'text_processing.base.ScispaCySentenceSegment'."""
-        assert _QC_DEFAULTS["text_processor"]["class"] == "text_processing.base.ScispaCySentenceSegment"
+        """class must default to 'text_processing.composite.DefaultTextProcessor'."""
+        assert _QC_DEFAULTS["text_processor"]["class"] == "text_processing.composite.DefaultTextProcessor"
 
     def test_text_processor_sentence_tokenizer_backend_default(self):
         """sentence_tokenizer.backend must default to 'scispacy'."""
@@ -522,7 +522,7 @@ class TestTextProcessorDefaults:
     def test_load_qc_config_text_processor_class_default(self, tmp_path):
         cfg_file = _write_config(tmp_path, {"pdfs_path": "data/pdfs"})
         cfg = load_qc_config(str(cfg_file))
-        assert cfg["text_processor"]["class"] == "text_processing.base.ScispaCySentenceSegment"
+        assert cfg["text_processor"]["class"] == "text_processing.composite.DefaultTextProcessor"
 
     def test_load_qc_config_text_processor_sentence_backend_default(self, tmp_path):
         cfg_file = _write_config(tmp_path, {"pdfs_path": "data/pdfs"})

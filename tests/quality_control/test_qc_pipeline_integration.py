@@ -43,10 +43,10 @@ def _mock_text_processor(monkeypatch):
     monkeypatch.setitem(sys.modules, "scispacy", MagicMock())
     monkeypatch.setitem(sys.modules, "spacy", mock_spacy)
     for key in list(sys.modules):
-        if "text_processor" in key or "ScispaCy" in key:
+        if key == "utils.text_processor" or "ScispaCy" in key:
             monkeypatch.delitem(sys.modules, key, raising=False)
     monkeypatch.setattr(
-        "utils.text_processor.TextProcessor.tokenize_sentences",
+        "text_processing.composite.DefaultTextProcessor.tokenize_sentences",
         lambda self, text: text.split(". ") if text else [],
     )
 
@@ -58,6 +58,10 @@ def _mock_text_processor(monkeypatch):
 def _minimal_config(*, semantic_enabled: bool = False, ea_enabled: bool = False) -> dict:
     """Return a minimal valid config dict for run_quality_control."""
     return {
+        "text_processor": {
+            "class": "text_processing.composite.DefaultTextProcessor",
+            "sentence_tokenizer": {"backend": "nltk_punkt"},
+        },
         "quality_control": {
             "artifact_generator": {"export_to_disk": False, "output_dir": "output/qc_artifacts"},
             "rater": {"attributes": []},

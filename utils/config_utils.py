@@ -26,7 +26,7 @@ _QC_DEFAULTS: dict = {
     # word_tokenizer.backend: valid values — "simple" | "spacy" | "nltk"
     # normalizer.backend: valid values — "nfc" | "nfkc"
     "text_processor": {
-        "class": "text_processing.base.ScispaCySentenceSegment",
+        "class": "text_processing.composite.DefaultTextProcessor",
         "sentence_tokenizer": {"backend": "scispacy", "model": "en_core_sci_sm"},
         "word_tokenizer": {"backend": "simple"},
         "normalizer": {"backend": "nfkc"},
@@ -39,7 +39,7 @@ _QC_DEFAULTS: dict = {
         "artifact_generator": {"export_to_disk": False, "output_dir": "output/qc_artifacts"},
         "rater": {"attributes": []},
         "iaa_calculator": {"thresholds": {}, "agreement_metrics": []},
-        "adjudicator": {"strategy": "placeholder"},
+        "adjudicator": {"strategy": "majority_vote"},
         "reconciler": {"enable_tei_export": False, "enable_annotation_export": False},
         "source_text_verification": {
             "enabled": True,
@@ -57,7 +57,7 @@ _QC_DEFAULTS: dict = {
             },
         },
         "task_quality_scaffold": {
-            "enabled": True,
+            "enabled": False,
         },
         "local_metrics": {
             "min_chars_per_page": 100,
@@ -84,7 +84,7 @@ _QC_DEFAULTS: dict = {
         },
         "grobid_integration": {
             "enabled": True,
-            "failure_behavior": "fallback",
+            "failure_behavior": "manifest_fail",
             "crop_figures": True,
             "crop_tables": True,
         },
@@ -292,7 +292,7 @@ def load_openai_config(config_path: str | None = None) -> dict:
         "max_evidence_items_per_chunk": int(extraction_cfg.get("max_evidence_items_per_chunk", 250)),
         "max_evidence_chars_per_chunk": int(extraction_cfg.get("max_evidence_chars_per_chunk", 60000)),
         "evidence_cache_dir": extraction_cfg.get("evidence_cache_dir", "outputs/evidence_cache"),
-        "grobid_failure_behavior": grobid_integration_cfg.get("failure_behavior", "fallback"),
+        "grobid_failure_behavior": grobid_integration_cfg.get("failure_behavior", "manifest_fail"),
     }
 
 

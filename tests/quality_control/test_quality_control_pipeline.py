@@ -30,7 +30,7 @@ def _mock_text_processor_tokenize(monkeypatch):
         if "text_processor" in key or "ScispaCy" in key:
             monkeypatch.delitem(sys.modules, key, raising=False)
     monkeypatch.setattr(
-        "utils.text_processor.TextProcessor.tokenize_sentences",
+        "text_processing.composite.DefaultTextProcessor.tokenize_sentences",
         lambda self, text: text.split(". "),
     )
 
