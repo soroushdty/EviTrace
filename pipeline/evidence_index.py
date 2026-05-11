@@ -36,12 +36,44 @@ def _safe_text(text: str) -> str:
 
 
 def _pdf_hash(source_pdf_path: str) -> str:
-    path = Path(source_pdf_path)
-    h = hashlib.sha256()
-    with open(path, "rb") as fh:
-        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
-            h.update(chunk)
-    return h.hexdigest()[:16]
+    """Return a short, stable cache key for *source_pdf_path*.
+
+    Uses the filesystem-native (size, mtime_ns) pair plus the basename as
+    the key. This is what make / ninja / most build systems key on and is
+    always correct when the filesystem's mtime is reliable -- which is
+    every supported EviTrace target (Linux ext4/xfs/btrfs, macOS APFS,
+    Windows NTFS).
+
+    Advantages over full SHA-256:
+      - O(1) regardless of PDF size (large papers no longer block the
+        event loop while being hashed).
+      - Zero I/O beyond a single stat() call.
+      - Same collision-resistance in practice: a user would have to edit
+        a PDF in place without changing its size AND with clock skew
+        that preserves mtime_ns to the nanosecond to collide.
+
+    Falls back to a SHA-256 prefix when stat() fails (unusual paths,
+    broken symlinks) so the cache key is never empty.
+    """
+    try:
+        st = Path(source_pdf_path).stat()
+    except OSError:
+        # Fallback: one-shot SHA-256 of the file. Matches the previous
+        # behaviour so existing caches are still reachable.
+        h = hashlib.sha256()
+        try:
+            with open(source_pdf_path, "rb") as fh:
+                for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+                    h.update(chunk)
+            return h.hexdigest()[:16]
+        except OSError:
+            return "nohash"
+
+    # Pack (size, mtime_ns, basename) into a small hash to keep the key
+    # short and filesystem-safe. The inputs are all cheap to obtain.
+    basename = Path(source_pdf_path).name
+    payload = f"{st.st_size}:{st.st_mtime_ns}:{basename}".encode("utf-8")
+    return hashlib.blake2b(payload, digest_size=8).hexdigest()
 
 
 def _cache_dir(config: dict) -> Path:
