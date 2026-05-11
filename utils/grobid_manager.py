@@ -112,9 +112,9 @@ class GrobidServerManager:
 
         # 3. Poll until responsive.
         print("Waiting for GROBID server to become ready (this may take a few minutes on first run)...")
-        logger.debug("Polling %s/api/isalive (up to 300s)...", self.url)
+        logger.debug("Polling %s/api/isalive (up to 180s)...", self.url)
         ready = False
-        for i in range(300):
+        for i in range(180):
             if self._is_server_alive():
                 ready = True
                 logger.info("GROBID became ready after %d seconds.", i)
@@ -123,9 +123,31 @@ class GrobidServerManager:
             print(".", end="", flush=True)
             time.sleep(1)
         if not ready:
-            print("GROBID server failed to start in time.")
-            logger.error("GROBID did not report healthy within 300s.")
-            sys.exit(1)
+            # Container is running but unresponsive — likely a stale/crashed
+            # JVM from a previous session. Remove it and start fresh.
+            print()
+            logger.warning(
+                "GROBID container %r is running but not responding after 180s; "
+                "removing stale container and recreating.",
+                self.container_name,
+            )
+            print("GROBID container is unresponsive; recreating...")
+            self._remove_container(self.container_name)
+            self._create_new_container()
+            # Poll again for the fresh container.
+            ready = False
+            for i in range(300):
+                if self._is_server_alive():
+                    ready = True
+                    logger.info("GROBID (fresh) became ready after %d seconds.", i)
+                    print()
+                    break
+                print(".", end="", flush=True)
+                time.sleep(1)
+            if not ready:
+                print("\nGROBID server failed to start in time.")
+                logger.error("GROBID did not report healthy within 300s (fresh container).")
+                sys.exit(1)
 
         # 4. Warm up the CRF models by sending a trivial PDF.
         # /api/isalive returns before the CRF models are fully loaded into
