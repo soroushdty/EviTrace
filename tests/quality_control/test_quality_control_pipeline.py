@@ -159,12 +159,7 @@ class TestPipelineOrchestration:
             "figures": [],
             "images": [],
             "exact_text": "",
-            "geometry": {},
             "provenance": {},
-            "observer_summary": {},
-            "investigator_summary": {},
-            "adjudication_status": "placeholder",
-            "placeholder_notice": "placeholder",
         }
 
     def test_reconciler_call_is_strategy_driven_and_extractor_agnostic(self):
@@ -312,12 +307,7 @@ def test_full_pipeline_integration():
         "figures",
         "images",
         "exact_text",
-        "geometry",
         "provenance",
-        "observer_summary",
-        "investigator_summary",
-        "adjudication_status",
-        "placeholder_notice",
     ]
     for field in required_fields:
         assert field in result.unified.content, f"Missing required field: {field!r}"

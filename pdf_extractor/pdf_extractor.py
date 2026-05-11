@@ -19,10 +19,10 @@ import os
 import time
 from pathlib import Path
 
-from .extraction import extract_with_pymupdf, extract_with_pdfplumber
+from .extraction import extract_with_pdfplumber
 from .processing import sentence_processor
 from utils import path_utils
-from utils.config_utils import load_config
+from utils.config_utils import load_local_config
 from utils.logging_utils import setup_logging
 from utils.text_processor import TextProcessor
 
@@ -37,7 +37,7 @@ def _save_artifact(output_folder: str, pdf_name: str, artifact: dict) -> str:
 
 
 def run_pipeline(config_path: str) -> None:
-    cfg = load_config(config_path)
+    cfg = load_local_config(config_path)
 
     logger = setup_logging(
         log_file=cfg["log_file"],
@@ -56,7 +56,6 @@ def run_pipeline(config_path: str) -> None:
     logger.info("PDFs found: %d", len(pdf_files))
 
     ocr: bool = cfg["ocr"]
-    ocr_threshold: float = cfg["ocr_text_quality_threshold"]
     len_filter: int = cfg["len_filter"]
 
     text_processor = TextProcessor(cfg.get("text_processor"))
@@ -72,7 +71,6 @@ def run_pipeline(config_path: str) -> None:
         try:
             # Step 3 – Extract text via pdfplumber (structural authority)
             blocks = extract_with_pdfplumber(pdf_path)
-            font_metadata = []
         except Exception as exc:
             logger.error("Extraction failed | pdf=%s | error=%s", pdf_name, exc)
             continue

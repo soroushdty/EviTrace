@@ -1,11 +1,11 @@
 """
-tests/test_text_extractor_tier1.py
-------------------------------------
+tests/pdf_extractor/test_pdfplumber_backend.py
+-----------------------------------------------
 Property-based tests for ``pdf_extractor.extraction.pdfplumber`` (pdfplumber backend).
 
 Properties covered:
-  7. pdfplumber backend output conforms to BlockDict schema with null geometry
-  8. pdfplumber backend embeds [PAGE n] marker in every block
+  - pdfplumber backend output conforms to BlockDict schema with null geometry
+  - pdfplumber backend embeds [PAGE n] marker in every block
 """
 
 import sys
@@ -16,7 +16,7 @@ import pytest
 from hypothesis import given, settings, strategies as st
 
 from pdf_extractor.extraction import schemas
-from pdf_extractor.extraction import pdfplumber as tier1
+from pdf_extractor.extraction import pdfplumber as pdfplumber_backend
 
 pytestmark = pytest.mark.slow
 
@@ -39,16 +39,14 @@ def _build_mock_pdfplumber(page_texts: list[str]) -> MagicMock:
     mock_pdf.__enter__ = MagicMock(return_value=mock_pdf)
     mock_pdf.__exit__ = MagicMock(return_value=False)
 
-    mock_pdfplumber = MagicMock()
-    mock_pdfplumber.open.return_value = mock_pdf
+    mock_pdfplumber_mod = MagicMock()
+    mock_pdfplumber_mod.open.return_value = mock_pdf
 
-    return mock_pdfplumber
+    return mock_pdfplumber_mod
 
 
 # ---------------------------------------------------------------------------
-# Property 7: pdfplumber backend output conforms to BlockDict schema with null geometry
-# Feature: text-extractor-restructure, Property 7: pdfplumber backend output conforms to BlockDict schema with null geometry
-# Validates: Requirements 4.1, 4.3, 11.2
+# pdfplumber backend output conforms to BlockDict schema with null geometry
 # ---------------------------------------------------------------------------
 
 @given(
@@ -59,12 +57,11 @@ def _build_mock_pdfplumber(page_texts: list[str]) -> MagicMock:
     )
 )
 @settings(max_examples=20)
-def test_tier1_output_conforms_to_blockdict_schema(page_texts):
-    # Feature: text-extractor-restructure, Property 7: pdfplumber backend output conforms to BlockDict schema with null geometry
-    mock_pdfplumber = _build_mock_pdfplumber(page_texts)
+def test_pdfplumber_output_conforms_to_blockdict_schema(page_texts):
+    mock_pdfplumber_mod = _build_mock_pdfplumber(page_texts)
 
-    with patch.dict(sys.modules, {"pdfplumber": mock_pdfplumber}):
-        blocks = tier1.extract_with_pdfplumber(Path("fake.pdf"))
+    with patch.dict(sys.modules, {"pdfplumber": mock_pdfplumber_mod}):
+        blocks = pdfplumber_backend.extract_with_pdfplumber(Path("fake.pdf"))
 
     # Every block must pass validate_blocks without raising.
     schemas.validate_blocks(blocks)
@@ -76,9 +73,7 @@ def test_tier1_output_conforms_to_blockdict_schema(page_texts):
 
 
 # ---------------------------------------------------------------------------
-# Property 8: pdfplumber backend embeds [PAGE n] marker in every block
-# Feature: text-extractor-restructure, Property 8: pdfplumber backend embeds [PAGE n] marker in every block
-# Validates: Requirements 4.2
+# pdfplumber backend embeds [PAGE n] marker in every block
 # ---------------------------------------------------------------------------
 
 @given(
@@ -86,13 +81,12 @@ def test_tier1_output_conforms_to_blockdict_schema(page_texts):
     page_texts=st.data(),
 )
 @settings(max_examples=20)
-def test_tier1_embeds_page_markers(page_count, page_texts):
-    # Feature: text-extractor-restructure, Property 8: pdfplumber backend embeds [PAGE n] marker in every block
+def test_pdfplumber_embeds_page_markers(page_count, page_texts):
     texts = [page_texts.draw(st.text(min_size=1)) for _ in range(page_count)]
-    mock_pdfplumber = _build_mock_pdfplumber(texts)
+    mock_pdfplumber_mod = _build_mock_pdfplumber(texts)
 
-    with patch.dict(sys.modules, {"pdfplumber": mock_pdfplumber}):
-        blocks = tier1.extract_with_pdfplumber(Path("fake.pdf"))
+    with patch.dict(sys.modules, {"pdfplumber": mock_pdfplumber_mod}):
+        blocks = pdfplumber_backend.extract_with_pdfplumber(Path("fake.pdf"))
 
     assert len(blocks) == page_count, (
         f"Expected {page_count} blocks, got {len(blocks)}"

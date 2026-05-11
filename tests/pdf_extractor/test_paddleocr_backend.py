@@ -1,10 +1,11 @@
 """
-tests/test_text_extractor_tier3.py
-------------------------------------
+tests/pdf_extractor/test_paddleocr_backend.py
+----------------------------------------------
 Property-based tests for ``pdf_extractor.extraction.PaddleOCR`` (PaddleOCR backend).
 
 Properties covered:
-  6 (PaddleOCR half): OCR backend output conforms to BlockDict schema with null geometry
+  - PaddleOCR backend output conforms to BlockDict schema with non-None bbox
+    in PDF-space coordinates
 """
 
 import sys
@@ -14,7 +15,7 @@ import pytest
 from hypothesis import given, settings, strategies as st
 
 from pdf_extractor.extraction import schemas
-from pdf_extractor.extraction import PaddleOCR as tier3
+from pdf_extractor.extraction import PaddleOCR as paddleocr_backend
 
 pytestmark = pytest.mark.slow
 
@@ -24,8 +25,12 @@ pytestmark = pytest.mark.slow
 # ---------------------------------------------------------------------------
 
 def _build_mock_modules(page_texts: list[str]) -> dict:
-    """Return a sys.modules patch dict for paddleocr and pdf2image."""
-    # Mock PaddleOCR engine
+    """Return a sys.modules patch dict for paddleocr and pdf2image.
+
+    Each page produces one OCR line with a proper bounding box so that
+    ``block_bbox`` is populated with PDF-space coordinates.
+    """
+    # Mock PaddleOCR engine — returns lines with bounding boxes
     call_count = {"n": 0}
 
     def _ocr(image_array, cls=True):
@@ -35,7 +40,9 @@ def _build_mock_modules(page_texts: list[str]) -> dict:
             text = page_texts[idx]
             if text.strip():
                 # Return format: list[list[list]] — one image, one line
-                return [[[None, (text, 0.99)]]]
+                # bbox_pts: four [x, y] corner points (pixel coords)
+                bbox_pts = [[10.0, 10.0], [200.0, 10.0], [200.0, 30.0], [10.0, 30.0]]
+                return [[[bbox_pts, (text, 0.99)]]]
         return [[]]
 
     mock_ocr_engine = MagicMock()
@@ -45,12 +52,10 @@ def _build_mock_modules(page_texts: list[str]) -> dict:
     mock_paddleocr_module.PaddleOCR.return_value = mock_ocr_engine
 
     # Mock pdf2image — PIL image must be convertible to a numpy array.
-    # We use a real numpy array as the return value of np.array(pil_image).
     import numpy as np
 
     mock_pil_image = MagicMock()
     mock_pil_image.close = MagicMock()
-    # Make np.array(mock_pil_image) return a real array by implementing __array__.
     mock_pil_image.__array__ = MagicMock(return_value=np.zeros((10, 10, 3), dtype=np.uint8))
 
     mock_pdf2image = MagicMock()
@@ -68,9 +73,7 @@ def _build_mock_modules(page_texts: list[str]) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Property 6 (PaddleOCR): OCR backend output conforms to BlockDict schema with null geometry
-# Feature: text-extractor-restructure, Property 6: OCR backends output conforms to BlockDict schema with null geometry
-# Validates: Requirements 6.1, 6.2, 11.4
+# PaddleOCR backend output conforms to BlockDict schema with non-None bbox
 # ---------------------------------------------------------------------------
 
 @given(
@@ -81,17 +84,30 @@ def _build_mock_modules(page_texts: list[str]) -> dict:
     )
 )
 @settings(max_examples=20)
-def test_tier3_output_conforms_to_blockdict_schema(page_texts):
-    # Feature: text-extractor-restructure, Property 6: OCR backends output conforms to BlockDict schema with null geometry
+def test_paddleocr_output_conforms_to_blockdict_schema(page_texts):
     mock_modules = _build_mock_modules(page_texts)
 
     with patch.dict(sys.modules, mock_modules):
-        blocks = tier3.extract_with_paddleocr("fake.pdf")
+        blocks = paddleocr_backend.extract_with_paddleocr("fake.pdf")
 
     # Every block must pass validate_blocks without raising.
     schemas.validate_blocks(blocks)
 
-    # Null-geometry invariants.
+    # PaddleOCR blocks carry PDF-space bounding boxes (non-None).
     for block in blocks:
-        assert block["block_bbox"] is None, "block_bbox must be None for PaddleOCR backend"
+        assert block["block_bbox"] is not None, (
+            "block_bbox must not be None for PaddleOCR backend — "
+            "it should contain PDF-space coordinates (x0, y0, x1, y1)"
+        )
+        bbox = block["block_bbox"]
+        assert isinstance(bbox, tuple), f"block_bbox must be a tuple, got {type(bbox)}"
+        assert len(bbox) == 4, f"block_bbox must have 4 elements, got {len(bbox)}"
+        # All coordinates must be finite floats
+        for coord in bbox:
+            assert isinstance(coord, float), f"bbox coordinate must be float, got {type(coord)}"
+        # x1 > x0 and y1 > y0 (valid bounding box)
+        x0, y0, x1, y1 = bbox
+        assert x1 > x0, f"block_bbox x1 ({x1}) must be greater than x0 ({x0})"
+        assert y1 > y0, f"block_bbox y1 ({y1}) must be greater than y0 ({y0})"
+        # spans is always [] for PaddleOCR backend
         assert block["spans"] == [], "spans must be [] for PaddleOCR backend"

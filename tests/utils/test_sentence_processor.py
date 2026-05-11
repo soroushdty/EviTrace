@@ -1,13 +1,11 @@
 """
-tests/pdf_extractor/test_sentence_processor_task61.py
-======================================================
-TDD tests for task 6.1:
+tests/utils/test_sentence_processor.py
+=======================================
+Tests for ``pdf_extractor.processing.sentence_processor``:
   - Remove _RE_SENTENCE_SPLIT constant from sentence_processor.py
   - Add text_processor as 3rd positional parameter to process_sentences()
   - Replace regex split with text_processor.tokenize_sentences()
   - pdf_extractor.py passes a TextProcessor instance to process_sentences()
-
-Requirements: 5.1
 """
 
 import importlib
@@ -265,7 +263,6 @@ class TestPdfExtractorPassesTextProcessor:
                 "pdfs_path": ".",
                 "output_folder_path": ".",
                 "ocr": False,
-                "ocr_text_quality_threshold": 0.5,
                 "len_filter": 40,
             }
 
@@ -280,7 +277,7 @@ class TestPdfExtractorPassesTextProcessor:
 
         monkeypatch.setattr(sp_module, "process_sentences", mock_process_sentences)
         monkeypatch.setattr(sp_module, "build_full_text", mock_build_full_text)
-        monkeypatch.setattr("pdf_extractor.pdf_extractor.load_config", mock_load_config)
+        monkeypatch.setattr("pdf_extractor.pdf_extractor.load_local_config", mock_load_config)
         monkeypatch.setattr("pdf_extractor.pdf_extractor.setup_logging", mock_setup_logging)
         monkeypatch.setattr(
             "pdf_extractor.pdf_extractor.path_utils.list_pdf_files_from_source",
@@ -327,7 +324,6 @@ class TestPdfExtractorPassesTextProcessor:
                 "pdfs_path": ".",
                 "output_folder_path": str(tmp_path),
                 "ocr": False,
-                "ocr_text_quality_threshold": 0.5,
                 "len_filter": 40,
             }
 
@@ -344,7 +340,7 @@ class TestPdfExtractorPassesTextProcessor:
         monkeypatch.setattr(sp_module, "build_full_text", mock_build_full_text)
         monkeypatch.setattr("pdf_extractor.pdf_extractor.extract_with_pdfplumber", mock_extract_with_pdfplumber)
         monkeypatch.setattr("pdf_extractor.pdf_extractor._save_artifact", mock_save_artifact)
-        monkeypatch.setattr("pdf_extractor.pdf_extractor.load_config", mock_load_config)
+        monkeypatch.setattr("pdf_extractor.pdf_extractor.load_local_config", mock_load_config)
         monkeypatch.setattr("pdf_extractor.pdf_extractor.setup_logging", mock_setup_logging)
         monkeypatch.setattr(
             "pdf_extractor.pdf_extractor.path_utils.list_pdf_files_from_source",

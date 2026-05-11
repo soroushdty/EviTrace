@@ -2,10 +2,10 @@
 Tests for quality_control/reconciler.py — Unified Output production.
 
 Covers:
-  - Property 11: Unified Output contains all required top-level fields with correct status
+  - Property 11: Unified Output contains all required top-level fields
   - Property 12: Unified Output is JSON-serializable without custom encoders
-  - Unit tests for PLACEHOLDER_NOTICE, document_id, provenance, and structural contract
-  - Tasks 9.1–9.3: concern routing, strategy injection, no extractor literals
+  - Unit tests for document_id, provenance, and structural contract
+  - Concern routing, strategy injection, no extractor literals
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from quality_control.models import (
     StructuralLayer,
     UnifiedRecord,
 )
-from quality_control.reconciler import PLACEHOLDER_NOTICE, reconcile
+from quality_control.reconciler import reconcile
 
 
 @pytest.fixture(autouse=True)
@@ -47,37 +47,28 @@ def _mock_scispacy(monkeypatch):
 # ---------------------------------------------------------------------------
 
 REQUIRED_PROVENANCE_KEYS = [
-    "grobid_artifact_id",
-    "pymupdf_artifact_id",
-    "grobid_observation",
-    "pymupdf_observation",
+    "primary_artifact_id",
+    "secondary_artifact_id",
+    "primary_observation",
+    "secondary_observation",
     "investigator_object",
 ]
+
+_VALID_ADJUDICATION = {"primary_extractor": "primary", "confidence": 0.9, "rationale": "test"}
 
 
 def _make_primary_artifact(document_id: str, primary_id: str) -> dict:
     return {
         "document_id": document_id,
-        "grobid": {"id": primary_id, "content": "<root/>", "format": "tei_xml"},
-        "pymupdf": {"id": "p1", "content": "{}", "format": "json"},
+        "primary": {"id": primary_id, "content": "<root/>", "format": "tei_xml"},
     }
 
 
 def _make_secondary_artifact(document_id: str, secondary_id: str) -> dict:
     return {
         "document_id": document_id,
-        "grobid": {"id": "g1", "content": "<root/>", "format": "tei_xml"},
-        "pymupdf": {"id": secondary_id, "content": "{}", "format": "json"},
+        "secondary": {"id": secondary_id, "content": "{}", "format": "json"},
     }
-
-
-# Keep these as aliases for backward-compat test names
-def _make_grobid_artifact(document_id: str, grobid_id: str) -> dict:
-    return _make_primary_artifact(document_id, grobid_id)
-
-
-def _make_pymupdf_artifact(document_id: str, pymupdf_id: str) -> dict:
-    return _make_secondary_artifact(document_id, pymupdf_id)
 
 
 def _make_artifact_with_blocks(document_id: str, blocks: list[dict]) -> dict:
@@ -85,123 +76,138 @@ def _make_artifact_with_blocks(document_id: str, blocks: list[dict]) -> dict:
     return {
         "document_id": document_id,
         "blocks": blocks,
-        "grobid": {"id": "g1", "content": "<root/>", "format": "tei_xml"},
-        "pymupdf": {"id": "p1", "content": "{}", "format": "json"},
     }
 
 
 # ---------------------------------------------------------------------------
-# Property 11 (backward compat): placeholder path returns UnifiedRecord
+# Property 11: reconcile() returns UnifiedRecord with all required content keys
 # ---------------------------------------------------------------------------
 
 
 @given(
     document_id=st.text(min_size=1),
-    grobid_id=st.text(min_size=1),
-    pymupdf_id=st.text(min_size=1),
+    primary_id=st.text(min_size=1),
+    secondary_id=st.text(min_size=1),
 )
 @settings(max_examples=20)
 def test_unified_output_required_fields_and_status(
-    document_id: str, grobid_id: str, pymupdf_id: str
+    document_id: str, primary_id: str, secondary_id: str
 ) -> None:
-    """**Validates: Requirements 6.3, 6.4** — placeholder path returns UnifiedRecord."""
-    grobid_artifact = _make_grobid_artifact(document_id, grobid_id)
-    pymupdf_artifact = _make_pymupdf_artifact(document_id, pymupdf_id)
-    config = {"quality_control": {}}
+    """**Validates: Requirements 6.3, 6.4** — reconcile returns UnifiedRecord with required keys."""
+    primary_artifact = _make_primary_artifact(document_id, primary_id)
+    secondary_artifact = _make_secondary_artifact(document_id, secondary_id)
 
-    result = reconcile(grobid_artifact, pymupdf_artifact, {}, {}, {}, config)
+    result = reconcile(
+        primary_artifact,
+        secondary_artifact,
+        adjudication_decisions=_VALID_ADJUDICATION,
+    )
 
     assert isinstance(result, UnifiedRecord)
     assert result.document_id == document_id
-    assert result.content.get("adjudication_status") == "placeholder"
-    assert result.content.get("placeholder_notice") == PLACEHOLDER_NOTICE
+
+    required_content_keys = {
+        "document_id", "metadata", "pages", "segments", "annotations",
+        "tables", "figures", "images", "exact_text", "provenance",
+    }
+    for key in required_content_keys:
+        assert key in result.content, f"Missing content key: {key!r}"
 
 
 # ---------------------------------------------------------------------------
-# Property 12 (backward compat): content dict is JSON-serializable
+# Property 12: content dict is JSON-serializable
 # ---------------------------------------------------------------------------
 
 
 @given(
     document_id=st.text(min_size=1),
-    grobid_id=st.text(min_size=1),
-    pymupdf_id=st.text(min_size=1),
+    primary_id=st.text(min_size=1),
+    secondary_id=st.text(min_size=1),
 )
 @settings(max_examples=20)
 def test_unified_output_json_serializable(
-    document_id: str, grobid_id: str, pymupdf_id: str
+    document_id: str, primary_id: str, secondary_id: str
 ) -> None:
     """**Validates: Requirements 6.6** — content dict is JSON-serializable."""
-    grobid_artifact = _make_grobid_artifact(document_id, grobid_id)
-    pymupdf_artifact = _make_pymupdf_artifact(document_id, pymupdf_id)
-    config = {"quality_control": {}}
+    primary_artifact = _make_primary_artifact(document_id, primary_id)
+    secondary_artifact = _make_secondary_artifact(document_id, secondary_id)
 
-    result = reconcile(grobid_artifact, pymupdf_artifact, {}, {}, {}, config)
+    result = reconcile(
+        primary_artifact,
+        secondary_artifact,
+        adjudication_decisions=_VALID_ADJUDICATION,
+    )
     # content must not raise
     json.dumps(result.content)
 
 
 # ---------------------------------------------------------------------------
-# Unit tests (backward compat)
+# Unit tests
 # ---------------------------------------------------------------------------
 
 
 class TestRepair:
-    def test_placeholder_notice_is_non_empty_string(self) -> None:
-        assert isinstance(PLACEHOLDER_NOTICE, str)
-        assert len(PLACEHOLDER_NOTICE) > 0
-
-    def test_document_id_from_grobid_artifact(self) -> None:
+    def test_document_id_from_primary_artifact(self) -> None:
         """document_id in UnifiedRecord matches primary_artifact['document_id']."""
-        grobid_artifact = _make_grobid_artifact("doc-abc-123", "gid-1")
-        pymupdf_artifact = _make_pymupdf_artifact("doc-abc-123", "pid-1")
-        config = {"quality_control": {}}
+        primary_artifact = _make_primary_artifact("doc-abc-123", "pid-1")
+        secondary_artifact = _make_secondary_artifact("doc-abc-123", "sid-1")
 
-        result = reconcile(grobid_artifact, pymupdf_artifact, {}, {}, {}, config)
+        result = reconcile(
+            primary_artifact,
+            secondary_artifact,
+            adjudication_decisions=_VALID_ADJUDICATION,
+        )
 
         assert result.document_id == "doc-abc-123"
 
     def test_provenance_contains_all_five_references(self) -> None:
         """provenance in content has all five required keys."""
-        grobid_artifact = _make_grobid_artifact("doc-xyz", "gid-42")
-        pymupdf_artifact = _make_pymupdf_artifact("doc-xyz", "pid-99")
-        grobid_obs = {"extractor_name": "grobid", "status": "placeholder"}
-        pymupdf_obs = {"extractor_name": "pymupdf", "status": "placeholder"}
+        primary_artifact = _make_primary_artifact("doc-xyz", "pid-42")
+        secondary_artifact = _make_secondary_artifact("doc-xyz", "sid-99")
+        primary_obs = {"status": "ok"}
+        secondary_obs = {"status": "ok"}
         inv_obj = {"decision": "deferred_to_adjudicator"}
-        config = {"quality_control": {}}
 
         result = reconcile(
-            grobid_artifact, pymupdf_artifact, grobid_obs, pymupdf_obs, inv_obj, config
+            primary_artifact,
+            secondary_artifact,
+            primary_obs,
+            secondary_obs,
+            inv_obj,
+            adjudication_decisions=_VALID_ADJUDICATION,
         )
 
         provenance = result.content["provenance"]
         for key in REQUIRED_PROVENANCE_KEYS:
             assert key in provenance, f"Missing provenance key: {key!r}"
 
-        assert provenance["grobid_artifact_id"] == "gid-42"
-        assert provenance["pymupdf_artifact_id"] == "pid-99"
-        assert provenance["grobid_observation"] is grobid_obs
-        assert provenance["pymupdf_observation"] is pymupdf_obs
+        assert provenance["primary_artifact_id"] == "pid-42"
+        assert provenance["secondary_artifact_id"] == "sid-99"
+        assert provenance["primary_observation"] is primary_obs
+        assert provenance["secondary_observation"] is secondary_obs
         assert provenance["investigator_object"] is inv_obj
 
     def test_reconcile_returns_unified_record(self) -> None:
         """reconcile() returns a UnifiedRecord instance, not a plain dict."""
-        grobid_artifact = _make_grobid_artifact("doc-struct", "gid-s")
-        pymupdf_artifact = _make_pymupdf_artifact("doc-struct", "pid-s")
-        config = {"quality_control": {}}
+        primary_artifact = _make_primary_artifact("doc-struct", "pid-s")
+        secondary_artifact = _make_secondary_artifact("doc-struct", "sid-s")
 
-        result = reconcile(grobid_artifact, pymupdf_artifact, {}, {}, {}, config)
+        result = reconcile(
+            primary_artifact,
+            secondary_artifact,
+            adjudication_decisions=_VALID_ADJUDICATION,
+        )
 
         assert isinstance(result, UnifiedRecord)
 
 
 # ---------------------------------------------------------------------------
-# Task 9.3 — Concern routing tests
+# Concern routing tests
 # ---------------------------------------------------------------------------
 
 
 class TestConcernRouting:
-    """Task 9.3: reconcile() routes concerns to injected strategy objects."""
+    """reconcile() routes concerns to injected strategy objects."""
 
     def _make_text_processor(self) -> MagicMock:
         tp = MagicMock()
@@ -449,14 +455,3 @@ class TestConcernRouting:
         assert result.alignment is not None
         assert len(result.alignment.paragraph_to_blocks) > 0
         assert len(result.alignment.section_header_to_block) > 0
-
-    def test_placeholder_path_retained_when_adjudication_decisions_is_none(self) -> None:
-        """PLACEHOLDER_NOTICE backward-compat path is retained when decisions is None."""
-        primary = self._make_artifact_with_paragraph_blocks("doc-ph")
-        secondary = self._make_artifact_with_paragraph_blocks("doc-ph")
-
-        result = reconcile(primary, secondary, {}, {}, {}, adjudication_decisions=None)
-
-        assert isinstance(result, UnifiedRecord)
-        assert result.content.get("adjudication_status") == "placeholder"
-        assert result.content.get("placeholder_notice") == PLACEHOLDER_NOTICE

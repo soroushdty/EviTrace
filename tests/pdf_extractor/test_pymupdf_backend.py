@@ -1,14 +1,11 @@
 """
-tests/test_text_extractor_tier2.py
-------------------------------------
+tests/pdf_extractor/test_pymupdf_backend.py
+---------------------------------------------
 Property-based tests for ``pdf_extractor.extraction.PyMuPDF`` (PyMuPDF backend).
 
-Tesseract OCR backend removed as of architecture-migration task 1.1.
-Scanned pages are now routed to PaddleOCR (tier 3).
-
 Properties covered:
-  9. PyMuPDF backend output conforms to BlockDict schema with non-null geometry
-  10. PyMuPDF backend returns font metadata with correct schema
+  - PyMuPDF backend output conforms to BlockDict schema with non-null geometry
+  - PyMuPDF backend returns font metadata with correct schema
 """
 
 import sys
@@ -18,7 +15,7 @@ import pytest
 from hypothesis import given, settings, strategies as st
 
 from pdf_extractor.extraction import schemas
-from pdf_extractor.extraction import PyMuPDF as tier2
+from pdf_extractor.extraction import PyMuPDF as pymupdf_backend
 
 pytestmark = pytest.mark.slow
 
@@ -73,9 +70,7 @@ def _build_mock_fitz(page_spans: list[list[dict]]) -> MagicMock:
 
 
 # ---------------------------------------------------------------------------
-# Property 9: PyMuPDF backend output conforms to BlockDict schema with non-null geometry
-# Feature: text-extractor-restructure, Property 9: PyMuPDF backend output conforms to BlockDict schema
-# Validates: Requirements 3.1, 4
+# PyMuPDF backend output conforms to BlockDict schema with non-null geometry
 # ---------------------------------------------------------------------------
 
 @given(
@@ -97,12 +92,11 @@ def _build_mock_fitz(page_spans: list[list[dict]]) -> MagicMock:
     )
 )
 @settings(max_examples=15)
-def test_tier2_output_conforms_to_blockdict_schema(page_spans):
-    # Feature: text-extractor-restructure, Property 9: PyMuPDF backend output conforms to BlockDict schema
+def test_pymupdf_output_conforms_to_blockdict_schema(page_spans):
     mock_fitz = _build_mock_fitz(page_spans)
 
     with patch.dict(sys.modules, {"fitz": mock_fitz}):
-        blocks, font_metadata = tier2.extract_with_pymupdf("fake.pdf")
+        blocks, font_metadata = pymupdf_backend.extract_with_pymupdf("fake.pdf")
 
     # Every block must pass validate_blocks without raising.
     schemas.validate_blocks(blocks)
@@ -115,9 +109,7 @@ def test_tier2_output_conforms_to_blockdict_schema(page_spans):
 
 
 # ---------------------------------------------------------------------------
-# Property 10: PyMuPDF backend returns font metadata with correct schema
-# Feature: text-extractor-restructure, Property 10: PyMuPDF backend returns FontMetaDict
-# Validates: Requirements 3.1, 4
+# PyMuPDF backend returns font metadata with correct schema
 # ---------------------------------------------------------------------------
 
 @given(
@@ -139,12 +131,11 @@ def test_tier2_output_conforms_to_blockdict_schema(page_spans):
     )
 )
 @settings(max_examples=15)
-def test_tier2_returns_font_metadata(page_spans):
-    # Feature: text-extractor-restructure, Property 10: PyMuPDF backend returns FontMetaDict
+def test_pymupdf_returns_font_metadata(page_spans):
     mock_fitz = _build_mock_fitz(page_spans)
 
     with patch.dict(sys.modules, {"fitz": mock_fitz}):
-        blocks, font_metadata = tier2.extract_with_pymupdf("fake.pdf")
+        blocks, font_metadata = pymupdf_backend.extract_with_pymupdf("fake.pdf")
 
     # Font metadata must be returned alongside blocks.
     total_spans = sum(len(spans) for spans in page_spans)

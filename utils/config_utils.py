@@ -131,8 +131,7 @@ def load_qc_config(config_path: str | None = None) -> dict:
 
     Returns a dict with 'quality_control' and 'text_processor' top-level keys.
     Missing keys are filled in from _QC_DEFAULTS so that callers always receive
-    the full documented default set regardless of what is present in config.yaml
-    (Requirement 9 backward-compatibility guarantee).
+    the full documented default set regardless of what is present in config.yaml.
     """
     raw = _load_config_yaml(config_path)
     user_cfg = {
@@ -151,7 +150,6 @@ _LOCAL_DEFAULTS: dict = {
     "log_level": "INFO",
     "len_filter": 40,
     "ocr": True,
-    "ocr_text_quality_threshold": 0.7,
     "output_folder_path": "output",
 }
 
@@ -424,10 +422,6 @@ def load_local_config(config_path: str | None = None) -> dict:
         raise TypeError(
             f"Config 'ocr' must be a boolean, got {type(cfg['ocr']).__name__}"
         )
-    if not isinstance(cfg["ocr_text_quality_threshold"], (int, float)) or isinstance(
-        cfg["ocr_text_quality_threshold"], bool
-    ):
-        raise TypeError("Config 'ocr_text_quality_threshold' must be a number")
 
     return cfg
 
@@ -435,6 +429,3 @@ def load_local_config(config_path: str | None = None) -> dict:
 # ============================================================================
 # Public API: Centralized configuration access
 # ============================================================================
-
-# Maintain backward compatibility
-load_config = load_local_config

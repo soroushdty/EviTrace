@@ -6,11 +6,6 @@ Asymmetric text fidelity reconciliation and adjudication strategy.
 The strategy encodes which argument is authoritative: ``reference`` is always
 the preferred reading.  Callers that need the opposite asymmetry simply swap
 the argument order.
-
-Design reference: .kiro/specs/architecture-migration/design.md
-                  §Concern Strategy Package
-Requirements: 7.3
-Boundary: quality_control/concerns/text_fidelity
 """
 
 from __future__ import annotations

@@ -78,8 +78,8 @@ class BranchOutput:
     Attributes
     ----------
     extractor:
-        Name of the extractor: ``"grobid"`` | ``"pymupdf"`` | ``"tier1"`` |
-        ``"tier2"`` | ``"tier3"``.
+        Name of the extractor (e.g. ``"grobid"``, ``"pdfplumber"``,
+        ``"paddleocr"``, ``"pymupdf"``). Not constrained to a fixed set.
     branch:
         Branch index (integer).
     payload:
@@ -372,7 +372,9 @@ class UnifiedRecord:
     document_id:
         Stable document identifier.
     content:
-        Reconciled content dict (retained for backward compatibility).
+        Reconciled content dict carrying document-level fields for downstream
+        consumers (document_id, metadata, pages, segments, annotations, tables,
+        figures, images, exact_text, provenance).
     semantic:
         Optional typed semantic layer.
     structural:

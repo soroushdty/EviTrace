@@ -6,8 +6,6 @@ TDD tests for :class:`utils.text_processor.TextProcessor`.
 Covers requirements 5.2, 5.3, 5.4, 5.5 — word segmentation, normalization,
 text comparison, OCR cleaning, keyword extraction, backend validation.
 
-Also covers task 2.2: SentenceSegment hierarchy (requirements 5.1, 5.5).
-
 Run with::
 
     pytest tests/pdf_extractor/test_text_processor.py -v
@@ -451,7 +449,7 @@ class TestTokenizeSentencesStub:
 
 
 # ---------------------------------------------------------------------------
-# Task 2.2 — SentenceSegment hierarchy (requirements 5.1, 5.5)
+# SentenceSegment hierarchy
 # ---------------------------------------------------------------------------
 
 class TestSentenceSegmentHierarchy:

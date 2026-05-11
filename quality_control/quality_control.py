@@ -24,9 +24,7 @@ Public API
 
 from __future__ import annotations
 
-import hashlib
 import importlib
-import json
 import logging
 from typing import Callable
 
@@ -220,14 +218,14 @@ def _build_native_page_texts(branches: list[BranchOutput], current_index: int) -
     }
 
 
-def _build_tier1_report(
+def _build_local_metrics_report(
     branch: BranchOutput,
     branches: list[BranchOutput],
     branch_index: int,
     config: dict,
     text_processor,
 ) -> LocalQCReport:
-    """Create and evaluate the Metrics Tier 1 report for a single branch."""
+    """Create and evaluate the local metrics report for a single branch."""
     full_text, page_texts, blocks = _extract_branch_payload(branch.payload)
     sentence_records = [
         {"sentence": sentence}
@@ -261,71 +259,6 @@ def _build_placeholder_sentence_store(full_text: str, text_processor) -> dict:
         "embeddings": [],
         "faiss_index": None,
     }
-
-
-def _derive_document_id(grobid_output: str, pymupdf_output: dict | list) -> str:
-    """Derive a deterministic SHA-256 document ID from both extractor outputs."""
-    payload = json.dumps(
-        {"grobid": grobid_output, "pymupdf": pymupdf_output},
-        sort_keys=True,
-        ensure_ascii=False,
-    ).encode("utf-8")
-    return hashlib.sha256(payload).hexdigest()
-
-
-def _run_legacy_pipeline(
-    grobid_output: str,
-    pymupdf_output: dict | list,
-    document_id: str,
-    config: dict,
-) -> UnifiedRecord:
-    """Run the legacy two-extractor QC pipeline and return a UnifiedRecord."""
-    from pdf_extractor import artifact_generator
-
-    logger.debug("QC: building canonical artifacts for document_id=%s", document_id)
-    canonical_artifacts = artifact_generator.build_canonical_artifacts(
-        grobid_output, pymupdf_output, document_id
-    )
-    logger.debug("QC: canonical artifacts built for document_id=%s", document_id)
-
-    if config.get("quality_control", {}).get("artifact_generator", {}).get("export_to_disk", False):
-        output_dir = config["quality_control"]["artifact_generator"]["output_dir"]
-        artifact_generator.export_canonical_artifacts(canonical_artifacts, output_dir)
-
-    logger.debug("QC: rating grobid for document_id=%s", document_id)
-    grobid_observation = rater.observe("grobid", canonical_artifacts, document_id, config)
-    logger.debug("QC: rating pymupdf for document_id=%s", document_id)
-    pymupdf_observation = rater.observe("pymupdf", canonical_artifacts, document_id, config)
-
-    logger.debug("QC: computing IAA for document_id=%s", document_id)
-    investigator_object = iaa_calculator.investigate(
-        grobid_observation,
-        pymupdf_observation,
-        canonical_artifacts,
-        canonical_artifacts,
-        config,
-    )
-    logger.debug("QC: IAA computation complete for document_id=%s", document_id)
-
-    logger.debug("QC: adjudicating for document_id=%s", document_id)
-    # Build a minimal AlignmentMap for the legacy pipeline path.
-    # The legacy path has no pre-computed alignment entries, so all lists are
-    # empty and the adjudicator will return an empty decisions dict.
-    alignment_map = AlignmentMap()
-    decisions = adjudicator.adjudicate(alignment_map, config)
-    logger.debug("QC: adjudication complete for document_id=%s", document_id)
-
-    # Delegate to the reconciler with adjudication decisions (may be empty).
-    # reconciler.reconcile() returns a UnifiedRecord; return it directly.
-    return reconciler.reconcile(
-        canonical_artifacts,
-        canonical_artifacts,
-        grobid_observation,
-        pymupdf_observation,
-        investigator_object,
-        decisions if decisions else None,
-        config,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -401,9 +334,8 @@ def run_quality_control(
 
     # --- PDF-specific state captured by stage closures ---
     borderline_branches: list[tuple[int, BranchOutput, LocalQCReport]] = []
-    metrics_hierarchy: dict = {"tier1": [], "tier2": [], "tier3": []}
+    metrics_hierarchy: dict = {"local_metrics": [], "exact_match": [], "semantic_match": []}
 
-    # Instantiate a single TextProcessor for this run (Task 12.1)
     try:
         text_processor = _load_text_processor(config)
     except Exception:
@@ -417,10 +349,10 @@ def run_quality_control(
         index: int,
         cfg: dict,
     ) -> QualityMetrics:
-        report = _build_tier1_report(branch, all_branches, index, cfg, text_processor)
+        report = _build_local_metrics_report(branch, all_branches, index, cfg, text_processor)
         passed = not any(m.triggered for m in report.metric_records)
         report.status = "pass" if passed else "fail"
-        metrics_hierarchy["tier1"].append(
+        metrics_hierarchy["local_metrics"].append(
             {"extractor": branch.extractor, "branch": branch.branch, "report": report}
         )
         triggered_count = sum(1 for m in report.metric_records if m.triggered)
@@ -557,19 +489,6 @@ def run_quality_control(
 
         return updated_unified
 
-    # Retained for compatibility; no longer used by the active reconciler closure.
-    def _run_legacy_annotation_path(unified: UnifiedRecord) -> UnifiedRecord:  # pragma: no cover
-        try:
-            from pdf_extractor.annotation import w3c_annotation as _w3c_annotation
-            from pdf_extractor.annotation import artifact_generator as _annotation_artifact_generator
-            annotation_records = _w3c_annotation.project(unified)
-            jsonld = _annotation_artifact_generator.generate_w3c_jsonld(annotation_records)
-            if isinstance(unified.content, dict):
-                unified.content["annotations"] = jsonld
-        except ImportError as exc:
-            logger.warning("Annotation projection unavailable: %s", exc)
-        return unified
-
     # --- Run the generic pipeline ---
     ctx = run_pipeline(
         branches,
@@ -605,7 +524,7 @@ def run_quality_control(
                 candidate_page_texts,
                 candidate_blocks,
             )
-            metrics_hierarchy["tier2"].append(
+            metrics_hierarchy["exact_match"].append(
                 {
                     "source_branch": branch.branch,
                     "target_branch": candidate_branch.branch,
@@ -640,7 +559,7 @@ def run_quality_control(
         else:
             semantic_result = None
 
-        metrics_hierarchy["tier3"].append(
+        metrics_hierarchy["semantic_match"].append(
             {"source_branch": branch.branch, "result": semantic_result}
         )
 

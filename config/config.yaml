@@ -54,7 +54,6 @@ log_level: "DEBUG"
 # Extraction and OCR settings
 len_filter: 40
 ocr: false
-ocr_text_quality_threshold: 0.7
 
 # Text processor configuration
 # class: fully-qualified class path resolved via importlib

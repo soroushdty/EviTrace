@@ -1,186 +1,150 @@
 """
-tests/test_quality_control_observer.py
-=======================================
-Tests for pdf_extractor/extraction/quality_control/observer.py.
+tests/quality_control/test_quality_control_rater.py
+=====================================================
+Tests for quality_control/rater.py.
 
 Covers:
-  - Property 5: Observer output contains all required fields with correct extractor name
-  - Property 6: Observer attributes are driven entirely by config
-  - Property 7: Observer output is deterministic and JSON-serializable
-  - Unit tests for observer (4.4)
+  - Property 5: observe returns a QualityReport with correct extractor and branch
+  - Property 6: observe is deterministic
+  - Property 7: observe output is a QualityReport instance
+  - Unit tests for rater
 """
 
 from __future__ import annotations
-
-import json
-from unittest.mock import patch
 
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+from quality_control.models import BranchOutput, QualityReport
 from quality_control.rater import observe
 
 
 # ---------------------------------------------------------------------------
-# Shared test fixtures / helpers
+# Shared helpers
 # ---------------------------------------------------------------------------
 
-_CANONICAL_ARTIFACT = {
-    "document_id": "doc1",
-    "grobid": {"id": "grobid_id_123", "content": "<root/>", "format": "tei_xml"},
-    "pymupdf": {"id": "pymupdf_id_456", "content": "{}", "format": "json"},
-}
+def _make_branch(extractor: str = "grobid", branch: int = 0) -> BranchOutput:
+    return BranchOutput(extractor=extractor, branch=branch, payload=None, status=None)
 
 
-def _make_config(attribute_names: list[str]) -> dict:
-    return {"quality_control": {"rater": {"attributes": attribute_names}}}
+def _make_config(attribute_names: list[str] | None = None) -> dict:
+    return {"quality_control": {"rater": {"attributes": attribute_names or []}}}
 
 
 # ---------------------------------------------------------------------------
-# Property 5: Observer output contains all required fields with correct extractor name
+# Property 5: observe returns a QualityReport with correct extractor and branch
 # ---------------------------------------------------------------------------
 
-# Feature: quality-control-module, Property 5: Observer output contains all required fields with correct extractor name
 @given(
-    extractor_name=st.sampled_from(["grobid", "pymupdf"]),
-    document_id=st.text(min_size=1),
-    attribute_names=st.lists(st.text(min_size=1)),
+    extractor=st.text(min_size=1),
+    branch_idx=st.integers(min_value=0, max_value=100),
 )
 @settings(max_examples=20)
-def test_observer_required_fields_and_extractor_name(
-    extractor_name: str, document_id: str, attribute_names: list[str]
+def test_observe_returns_quality_report_with_correct_fields(
+    extractor: str, branch_idx: int
 ):
     """**Validates: Requirements 3.2, 3.4**
 
-    For any extractor name, canonical artifact dict, document_id, and config
-    dict, observe SHALL return a dict containing all five required fields and
-    extractor_name SHALL equal the input extractor name.
+    For any extractor name and branch index, observe SHALL return a
+    QualityReport whose extractor and branch fields match the input branch.
     """
-    canonical_artifact = {
-        "document_id": document_id,
-        "grobid": {"id": "grobid_id_123", "content": "<root/>", "format": "tei_xml"},
-        "pymupdf": {"id": "pymupdf_id_456", "content": "{}", "format": "json"},
-    }
-    config = _make_config(attribute_names)
-    result = observe(extractor_name, canonical_artifact, document_id, config)
+    branch = BranchOutput(extractor=extractor, branch=branch_idx, payload=None, status=None)
+    config = _make_config()
+    result = observe(branch, config)
 
-    # All five required fields must be present
-    for field in ("extractor_name", "document_id", "attributes", "status", "provenance"):
-        assert field in result, f"Missing required field: {field!r}"
-
-    # extractor_name must equal the input
-    assert result["extractor_name"] == extractor_name
+    assert isinstance(result, QualityReport)
+    assert result.extractor == extractor
+    assert result.branch == branch_idx
 
 
 # ---------------------------------------------------------------------------
-# Property 6: Observer attributes are driven entirely by config
+# Property 6: observe is deterministic
 # ---------------------------------------------------------------------------
 
-# Feature: quality-control-module, Property 6: Observer attributes are driven entirely by config
-@given(attribute_names=st.lists(st.text(min_size=1)))
-@settings(max_examples=20)
-def test_observer_attributes_driven_by_config(attribute_names: list[str]):
-    """**Validates: Requirements 3.3**
-
-    For any list of attribute name strings in config, the attributes dict in
-    the returned Observation_Object SHALL contain exactly those keys (no more,
-    no fewer) with None values.
-    """
-    config = _make_config(attribute_names)
-    canonical_artifact = {
-        "document_id": "doc1",
-        "grobid": {"id": "g1", "content": "<root/>", "format": "tei_xml"},
-        "pymupdf": {"id": "p1", "content": "{}", "format": "json"},
-    }
-    result = observe("grobid", canonical_artifact, "doc1", config)
-
-    # Keys must match exactly (set comparison handles duplicates in input list)
-    assert set(result["attributes"].keys()) == set(attribute_names)
-    # All values must be None
-    assert all(v is None for v in result["attributes"].values())
-
-
-# ---------------------------------------------------------------------------
-# Property 7: Observer output is deterministic and JSON-serializable
-# ---------------------------------------------------------------------------
-
-# Feature: quality-control-module, Property 7: Observer output is deterministic and JSON-serializable
 @given(
-    extractor_name=st.sampled_from(["grobid", "pymupdf"]),
-    document_id=st.text(min_size=1),
-    attribute_names=st.lists(st.text(min_size=1)),
+    extractor=st.text(min_size=1),
+    branch_idx=st.integers(min_value=0, max_value=100),
 )
 @settings(max_examples=20)
-def test_observer_deterministic_and_json_serializable(
-    extractor_name: str, document_id: str, attribute_names: list[str]
-):
+def test_observe_is_deterministic(extractor: str, branch_idx: int):
     """**Validates: Requirements 3.5**
 
-    Calling observe twice with the same arguments SHALL return equal dicts,
-    and json.dumps on the result SHALL succeed without raising.
+    Calling observe twice with the same branch SHALL return QualityReport
+    instances with equal field values.
     """
-    config = _make_config(attribute_names)
-    canonical_artifact = {
-        "document_id": document_id,
-        "grobid": {"id": "g1", "content": "<root/>", "format": "tei_xml"},
-        "pymupdf": {"id": "p1", "content": "{}", "format": "json"},
-    }
-    result1 = observe(extractor_name, canonical_artifact, document_id, config)
-    result2 = observe(extractor_name, canonical_artifact, document_id, config)
+    branch = BranchOutput(extractor=extractor, branch=branch_idx, payload=None, status=None)
+    config = _make_config()
+    result1 = observe(branch, config)
+    result2 = observe(branch, config)
 
-    assert result1 == result2
-    json.dumps(result1)  # must not raise
+    assert result1.extractor == result2.extractor
+    assert result1.branch == result2.branch
+    assert result1.status == result2.status
 
 
 # ---------------------------------------------------------------------------
-# Unit tests: observer (4.4)
+# Property 7: observe always returns a QualityReport instance
 # ---------------------------------------------------------------------------
 
-class TestObserver:
-    def test_observe_produces_one_observation_per_extractor(self):
-        """observe for grobid and pymupdf returns separate dicts with correct extractor_name."""
-        config = _make_config(["length", "encoding"])
-        grobid_result = observe("grobid", _CANONICAL_ARTIFACT, "doc1", config)
-        pymupdf_result = observe("pymupdf", _CANONICAL_ARTIFACT, "doc1", config)
+@given(
+    extractor=st.sampled_from(["grobid", "pymupdf", "pdfplumber", "paddleocr"]),
+    branch_idx=st.integers(min_value=0, max_value=10),
+)
+@settings(max_examples=20)
+def test_observe_always_returns_quality_report_instance(
+    extractor: str, branch_idx: int
+):
+    """**Validates: Requirements 3.3**
 
-        assert grobid_result is not pymupdf_result
-        assert grobid_result["extractor_name"] == "grobid"
-        assert pymupdf_result["extractor_name"] == "pymupdf"
+    observe SHALL always return an instance of QualityReport (not a plain dict).
+    """
+    branch = BranchOutput(extractor=extractor, branch=branch_idx, payload=None, status=None)
+    config = _make_config(["attr1", "attr2"])
+    result = observe(branch, config)
 
-    def test_status_is_placeholder(self):
-        """observe always sets status to 'placeholder'."""
-        config = _make_config([])
-        result = observe("grobid", _CANONICAL_ARTIFACT, "doc1", config)
-        assert result["status"] == "placeholder"
+    assert isinstance(result, QualityReport)
 
-    def test_provenance_references_correct_artifact(self):
-        """provenance must reference the artifact id and format for the named extractor."""
-        config = _make_config([])
-        result = observe("grobid", _CANONICAL_ARTIFACT, "doc1", config)
-        assert result["provenance"]["artifact_id"] == _CANONICAL_ARTIFACT["grobid"]["id"]
-        assert result["provenance"]["artifact_format"] == "tei_xml"
 
-    def test_provenance_references_pymupdf_artifact(self):
-        """provenance for pymupdf extractor references the pymupdf artifact."""
-        config = _make_config([])
-        result = observe("pymupdf", _CANONICAL_ARTIFACT, "doc1", config)
-        assert result["provenance"]["artifact_id"] == _CANONICAL_ARTIFACT["pymupdf"]["id"]
-        assert result["provenance"]["artifact_format"] == "json"
+# ---------------------------------------------------------------------------
+# Unit tests
+# ---------------------------------------------------------------------------
 
-    def test_document_id_forwarded(self):
-        """document_id in the observation must equal the input document_id."""
-        config = _make_config([])
-        result = observe("grobid", _CANONICAL_ARTIFACT, "my_document_42", config)
-        assert result["document_id"] == "my_document_42"
+class TestRater:
+    def test_observe_grobid_branch(self):
+        """observe for a grobid branch returns QualityReport with extractor='grobid'."""
+        branch = _make_branch(extractor="grobid", branch=0)
+        result = observe(branch, _make_config())
+        assert isinstance(result, QualityReport)
+        assert result.extractor == "grobid"
+        assert result.branch == 0
 
-    def test_empty_attributes_when_config_list_is_empty(self):
-        """When config attributes list is empty, attributes dict must be empty."""
-        config = _make_config([])
-        result = observe("grobid", _CANONICAL_ARTIFACT, "doc1", config)
-        assert result["attributes"] == {}
+    def test_observe_pymupdf_branch(self):
+        """observe for a pymupdf branch returns QualityReport with extractor='pymupdf'."""
+        branch = _make_branch(extractor="pymupdf", branch=1)
+        result = observe(branch, _make_config())
+        assert isinstance(result, QualityReport)
+        assert result.extractor == "pymupdf"
+        assert result.branch == 1
 
-    def test_observer_does_not_call_artifacts_module(self, monkeypatch):
+    def test_observe_status_is_none(self):
+        """observe sets status to None (not yet adjudicated)."""
+        branch = _make_branch()
+        result = observe(branch, _make_config())
+        assert result.status is None
+
+    def test_observe_different_branches_produce_separate_reports(self):
+        """observe for two different branches returns separate QualityReport instances."""
+        branch0 = _make_branch(extractor="grobid", branch=0)
+        branch1 = _make_branch(extractor="pymupdf", branch=1)
+        result0 = observe(branch0, _make_config())
+        result1 = observe(branch1, _make_config())
+
+        assert result0 is not result1
+        assert result0.extractor == "grobid"
+        assert result1.extractor == "pymupdf"
+
+    def test_observe_does_not_call_artifacts_module(self, monkeypatch):
         """observe must not call any function from the artifact_generator module."""
         import pdf_extractor.artifact_generator as artifact_generator_mod
 
@@ -200,9 +164,16 @@ class TestObserver:
 
             monkeypatch.setattr(artifact_generator_mod, fn_name, _spy)
 
-        config = _make_config(["attr1"])
-        observe("grobid", _CANONICAL_ARTIFACT, "doc1", config)
+        branch = _make_branch(extractor="grobid", branch=0)
+        observe(branch, _make_config(["attr1"]))
 
         assert called == [], (
             f"observe unexpectedly called artifact_generator functions: {called}"
         )
+
+    def test_observe_passes_check_returns_true(self):
+        """QualityReport.passes_check() must return True (default unconditional pass)."""
+        branch = _make_branch()
+        result = observe(branch, _make_config())
+        assert result.passes_check() is True
+        assert result.status == "pass"

@@ -26,7 +26,7 @@ from utils.config_utils import (
     _QC_DEFAULTS,
     _deep_merge,
     get_qc_config,
-    load_config,
+    load_local_config,
     load_qc_config,
 )
 
@@ -62,13 +62,13 @@ def test_qc_config_defaults_applied(config_without_qc):
     deep-merge logic SHALL produce a quality_control sub-dict containing all
     required sub-namespaces with their correct default values.
 
-    We test the _deep_merge helper directly (which is what load_config uses
+    We test the _deep_merge helper directly (which is what load_local_config uses
     internally) to avoid the need for a real file on disk in a property test.
     """
     assert "quality_control" not in config_without_qc
 
     qc_defaults = _QC_DEFAULTS["quality_control"]
-    # Simulate what load_config does: deep-merge defaults with an empty user dict
+    # Simulate what load_local_config does: deep-merge defaults with an empty user dict
     merged = _deep_merge(qc_defaults, {})
 
     # All required sub-namespaces must be present
@@ -106,7 +106,7 @@ class TestQualityControlKeyAccepted:
             "quality_control": {},
         })
         # Should not raise
-        cfg = load_config(cfg_file)
+        cfg = load_local_config(cfg_file)
         assert "quality_control" in cfg
 
     def test_unknown_top_level_key_still_raises(self, tmp_path):
@@ -116,12 +116,12 @@ class TestQualityControlKeyAccepted:
             "totally_unknown_key": True,
         })
         with pytest.raises(ValueError, match="Unknown config keys"):
-            load_config(cfg_file)
+            load_local_config(cfg_file)
 
     def test_quality_control_absent_does_not_raise(self, tmp_path):
         """Omitting quality_control entirely must not raise."""
         cfg_file = _write_config(tmp_path, {"pdfs_path": "data/pdfs"})
-        cfg = load_config(cfg_file)
+        cfg = load_local_config(cfg_file)
         assert "quality_control" in cfg
 
 
@@ -135,7 +135,7 @@ class TestQCSubNamespaceDefaults:
         if qc_override is not None:
             data["quality_control"] = qc_override
         cfg_file = _write_config(tmp_path, data)
-        return load_config(cfg_file)
+        return load_local_config(cfg_file)
 
     # artifacts
     def test_artifacts_export_to_disk_default_false(self, tmp_path):
@@ -182,7 +182,7 @@ class TestQCSubNamespaceDefaults:
 class TestQCDeepMerge:
     def _load_with_qc(self, tmp_path, qc: dict) -> dict:
         cfg_file = _write_config(tmp_path, {"pdfs_path": "data/pdfs", "quality_control": qc})
-        return load_config(cfg_file)
+        return load_local_config(cfg_file)
 
     def test_user_export_to_disk_true_overrides_default(self, tmp_path):
         cfg = self._load_with_qc(tmp_path, {"artifact_generator": {"export_to_disk": True}})
@@ -226,13 +226,13 @@ class TestQCDeepMerge:
 class TestGetQcConfig:
     def test_returns_quality_control_subdict(self, tmp_path):
         cfg_file = _write_config(tmp_path, {"pdfs_path": "data/pdfs"})
-        cfg = load_config(cfg_file)
+        cfg = load_local_config(cfg_file)
         qc = get_qc_config(cfg)
         assert qc is cfg["quality_control"]
 
     def test_returned_dict_contains_all_sub_namespaces(self, tmp_path):
         cfg_file = _write_config(tmp_path, {"pdfs_path": "data/pdfs"})
-        cfg = load_config(cfg_file)
+        cfg = load_local_config(cfg_file)
         qc = get_qc_config(cfg)
         for sub_ns in ("artifact_generator", "rater", "iaa_calculator", "adjudicator", "reconciler"):
             assert sub_ns in qc
@@ -242,7 +242,7 @@ class TestGetQcConfig:
             "pdfs_path": "data/pdfs",
             "quality_control": {"adjudicator": {"strategy": "custom"}},
         })
-        cfg = load_config(cfg_file)
+        cfg = load_local_config(cfg_file)
         qc = get_qc_config(cfg)
         assert qc["adjudicator"]["strategy"] == "custom"
 
@@ -255,7 +255,7 @@ class TestSemanticQCDefaults:
     """**Validates: Requirements 7.1, 7.2, 7.3, 7.4, 7.5**
 
     The semantic_qc sub-section must be present in _QC_DEFAULTS and must
-    be surfaced via load_config even when the caller omits quality_control
+    be surfaced via load_local_config even when the caller omits quality_control
     entirely from config.yaml.
     """
 
@@ -264,7 +264,7 @@ class TestSemanticQCDefaults:
         if qc_override is not None:
             data["quality_control"] = qc_override
         cfg_file = _write_config(tmp_path, data)
-        return load_config(cfg_file)
+        return load_local_config(cfg_file)
 
     # --- presence ---
 
@@ -273,12 +273,12 @@ class TestSemanticQCDefaults:
         assert "semantic_qc" in _QC_DEFAULTS["quality_control"]
 
     def test_semantic_qc_present_when_qc_omitted(self, tmp_path):
-        """load_config must produce semantic_qc even when quality_control is absent."""
+        """load_local_config must produce semantic_qc even when quality_control is absent."""
         cfg = self._load(tmp_path)
         assert "semantic_qc" in cfg["quality_control"]
 
     def test_semantic_qc_present_when_qc_empty(self, tmp_path):
-        """load_config must produce semantic_qc when quality_control is an empty dict."""
+        """load_local_config must produce semantic_qc when quality_control is an empty dict."""
         cfg = self._load(tmp_path, qc_override={})
         assert "semantic_qc" in cfg["quality_control"]
 
@@ -347,7 +347,7 @@ class TestLocalMetricsDefaults:
     """**Validates: Requirements 7.8, 7.9, 14.1, 14.2, 14.3, 14.7**
 
     The local_metrics sub-section must be present in _QC_DEFAULTS and must
-    be surfaced via load_config with all required keys at their default values.
+    be surfaced via load_local_config with all required keys at their default values.
     It must contain NO keys that toggle faiss/torch/sentence_transformers.
     """
 
@@ -356,7 +356,7 @@ class TestLocalMetricsDefaults:
         if qc_override is not None:
             data["quality_control"] = qc_override
         cfg_file = _write_config(tmp_path, data)
-        return load_config(cfg_file)
+        return load_local_config(cfg_file)
 
     # --- presence ---
 
@@ -452,13 +452,13 @@ class TestLocalMetricsDefaults:
 
     def test_get_qc_config_includes_local_metrics(self, tmp_path):
         cfg_file = _write_config(tmp_path, {"pdfs_path": "data/pdfs"})
-        cfg = load_config(cfg_file)
+        cfg = load_local_config(cfg_file)
         qc = get_qc_config(cfg)
         assert "local_metrics" in qc
 
     def test_get_qc_config_includes_semantic_qc(self, tmp_path):
         cfg_file = _write_config(tmp_path, {"pdfs_path": "data/pdfs"})
-        cfg = load_config(cfg_file)
+        cfg = load_local_config(cfg_file)
         qc = get_qc_config(cfg)
         assert "semantic_qc" in qc
 
@@ -654,14 +654,14 @@ class TestQCNewSubkeyDefaults:
 
 
 # ---------------------------------------------------------------------------
-# Task 4.1: backward compatibility — existing config.yaml without new keys
+# Task 4.1: config defaults — existing config.yaml without new keys
 # ---------------------------------------------------------------------------
 
-class TestBackwardCompatibility:
-    """**Validates: Requirement 9 (backward compat clause)**
+class TestConfigDefaults:
+    """**Validates: Requirement 9**
 
-    Loading a config.yaml that omits all migration-introduced keys must NOT
-    raise and must still provide defaults for every new key.
+    Loading a config.yaml that omits all new keys must NOT
+    raise and must still provide defaults for every key.
     """
 
     def _minimal_cfg_file(self, tmp_path) -> str:
@@ -721,7 +721,7 @@ class TestTextProcessorEmptyConfig:
     """**Validates: Requirement 9**
 
     Instantiating TextProcessor() with an empty config dict ({}) must use all
-    defaults without raising.  This exercises the backward-compat path in
+    defaults without raising.  This exercises the default initialization path in
     TextProcessor.__init__ itself (not just the config layer).
     """
 

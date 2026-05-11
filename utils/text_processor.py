@@ -7,10 +7,7 @@ are lazy-imported inside method bodies; the default scispaCy small model is
 loaded eagerly because it is a required runtime dependency.
 
 Also provides the :class:`SentenceSegment` abstract base class and five
-built-in concrete backends for sentence boundary detection (task 2.2).
-
-Design reference: .kiro/specs/architecture-migration/design.md §TextProcessor
-Requirements: 5.1, 5.2, 5.3, 5.4, 5.5
+built-in concrete backends for sentence boundary detection.
 """
 
 from __future__ import annotations
@@ -64,7 +61,7 @@ class TextProcessor:
             {
                 "normalizer": {"backend": "nfkc"},        # "nfc" | "nfkc"
                 "word_tokenizer": {"backend": "simple"},  # "simple" | "spacy" | "nltk"
-                "sentence_tokenizer": {"backend": "..."},  # resolved in task 2.2
+                "sentence_tokenizer": {"backend": "..."},  # configured backend
             }
 
         If a key is absent the documented default is used.  Unknown backend
@@ -294,7 +291,7 @@ class TextProcessor:
         return [tok for tok in tokens if tok not in _ENGLISH_STOPWORDS]
 
     # -----------------------------------------------------------------------
-    # tokenize_sentences  (stub — wired in task 2.2 via SentenceSegment)
+    # tokenize_sentences
     # -----------------------------------------------------------------------
 
     def tokenize_sentences(self, text: str) -> list[str]:
@@ -302,7 +299,7 @@ class TextProcessor:
 
         Raises :class:`NotImplementedError` when no segmenter has been wired
         (i.e., ``_segmenter is None``).  This should not happen for plain
-        ``TextProcessor`` instances after task 2.2; ``SentenceSegment``
+        ``TextProcessor`` instances; ``SentenceSegment``
         subclasses override this method directly.
         """
         if self._segmenter is None:
@@ -315,7 +312,7 @@ class TextProcessor:
 
 
 # ---------------------------------------------------------------------------
-# SentenceSegment hierarchy  (task 2.2 — requirements 5.1, 5.5)
+# SentenceSegment hierarchy
 # ---------------------------------------------------------------------------
 
 class SentenceSegment(TextProcessor):

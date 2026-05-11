@@ -1,18 +1,10 @@
 """
 tests/pdf_extractor/test_text_extractor_orchestrator.py
 ---------------------------------------------------------
-Tests for the extraction routing architecture in pdf_extractor/extraction/.
+Tests for the public API of ``pdf_extractor.extraction``.
 
-NOTE: The standalone ``extract_pdf()`` orchestrator function was removed from
-``pdf_extractor/extraction/__init__.py`` as part of the extraction-routing-
-alignment bugfix (task 3.3).  The routing logic now lives in
-``pipeline/orchestrator._build_qc_context()``, which is tested by:
-
-  - tests/steering/test_steering_drift_extraction_routing_alignment_bug_condition.py
-  - tests/steering/test_steering_drift_extraction_routing_alignment_preservation.py
-  - tests/pipeline/test_orchestrator_concurrency.py
-
-The tests in this file have been updated to reflect the new architecture.
+Verifies that all six expected symbols are exported from the package and
+that ``extract_pdf`` (a removed orchestrator function) is not present.
 """
 
 from __future__ import annotations
@@ -45,19 +37,17 @@ def _mock_scispacy(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Architecture verification — extract_pdf must NOT exist
+# Public API verification — extract_pdf must NOT exist
 # ---------------------------------------------------------------------------
 
-def test_extract_pdf_removed():
+def test_extract_pdf_not_in_public_api():
     """extract_pdf() must NOT be present in pdf_extractor.extraction.
 
-    The standalone extract_pdf() orchestrator was removed as part of the
-    extraction-routing-alignment bugfix (task 3.3).  Routing is now handled
-    by pipeline/orchestrator._build_qc_context().
+    The standalone extract_pdf() orchestrator is not part of the current
+    public API.  Routing is handled by pipeline/orchestrator.
     """
     assert not hasattr(pdf_extractor.extraction, "extract_pdf"), (
-        "extract_pdf() must be removed from pdf_extractor.extraction. "
-        "Routing is now handled by pipeline/orchestrator._build_qc_context()."
+        "extract_pdf() must not be exported from pdf_extractor.extraction."
     )
 
 

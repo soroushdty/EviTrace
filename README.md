@@ -50,9 +50,9 @@ can each be reused outside the end-to-end review workflow.
 
 ## Features
 
-- Multi-backend PDF text extraction with quality-driven cascade
-  (PyMuPDF → pdfplumber → Tesseract → PaddleOCR), plus an optional
-  GROBID branch used by the QC adjudicator.
+- Per-page scan-detector routing to complementary, non-competing
+  backends: GROBID and pdfplumber for native/digital pages; PaddleOCR
+  (primary) and PyMuPDF built-in OCR (cross-validator) for scanned pages.
 - Generic branch-adjudication QC pipeline with pluggable rater, IAA,
   adjudicator, and reconciler stages.
 - Chunked extraction against the OpenAI Responses API with prompt cache
@@ -149,38 +149,49 @@ tree.
 The end-to-end workflow per PDF, as orchestrated by
 [`pipeline/`](pipeline/README.md):
 
-1. **Branch extraction.** [`pdf_extractor.extraction.GROBID`](pdf_extractor/extraction/README.md)
-   produces a TEI XML branch and
-   [`pdf_extractor.extraction.PyMuPDF`](pdf_extractor/extraction/README.md)
-   produces a native-text branch for the same PDF.
-2. **Quality control.** [`quality_control.run_quality_control`](quality_control/README.md)
-   evaluates the two branches, computes Tier 1 local heuristics,
-   adjudicates a primary branch, and reconciles a `UnifiedRecord` that
-   carries the canonical `exact_text` for the paper.
-3. **Cache prewarm (optional).** A tiny call against the chunk model
+1. **Per-page scan detection.** [`scan_detector.classify_page()`](pdf_extractor/extraction/README.md)
+   runs five sequential criteria on every page (empty text, low word
+   count, low alpha-char ratio, zero embedded fonts, image-area
+   dominance) and classifies each page as `native` or `scanned`.
+2. **Backend routing.** Native pages go to the digital path (GROBID for
+   semantic structure, pdfplumber for structural text blocks, PyMuPDF
+   for font metadata). Scanned pages go to the OCR path (PaddleOCR as
+   primary, PyMuPDF built-in OCR as cross-validator).
+3. **Quality control.** [`quality_control.run_quality_control`](quality_control/README.md)
+   evaluates all branches, computes local heuristics and exact-match
+   search, adjudicates a primary branch, and reconciles a
+   `UnifiedRecord` that carries the canonical `exact_text` for the
+   paper.
+4. **Cache prewarm (optional).** A tiny call against the chunk model
    warms the OpenAI prompt cache for the shared `(system + PDF text)`
    prefix. If the synthesis model differs and `prewarm_synthesis_if_model_diff`
    is enabled, a separate synthesis-model warmup runs concurrently.
-4. **Parallel extraction chunks.** Chunks `1..N-1` run in parallel
+5. **Parallel extraction chunks.** Chunks `1..N-1` run in parallel
    against the chunk model, each scoped to a subset of fields by
    domain. See [`pipeline/extraction_map.py`](pipeline/README.md).
-5. **Local validation.** Each chunk's structured-output JSON is
+6. **Local validation.** Each chunk's structured-output JSON is
    validated locally against the expected `field_index` set
    (see [`pipeline/validator.py`](pipeline/README.md)).
-6. **Synthesis chunk.** Chunk `N` runs against the synthesis model with
+7. **Synthesis chunk.** Chunk `N` runs against the synthesis model with
    the prior chunks' results passed as a trailing read-only context
    block.
-7. **Persist.** Fields from all chunks are merged, sorted by
+8. **Persist.** Fields from all chunks are merged, sorted by
    `field_index`, written to `outputs/<paper>.extracted.json`, and the
    PDF is marked `complete` in `manifest.json`.
-8. **Report.** After all PDFs are processed, a flagged-fields CSV is
+9. **Report.** After all PDFs are processed, a flagged-fields CSV is
    written to `outputs/qc_report.csv` for manual review.
 
 ```text
 pdfs/paper.pdf
       |
       v
-[GROBID + PyMuPDF branches]  ── quality_control ──► UnifiedRecord (exact_text)
+[scan_detector.classify_page()]  ── per-page classification ──► native | scanned
+      |
+      ├── native pages ──► digital path: GROBID + pdfplumber + PyMuPDF
+      └── scanned pages ──► OCR path: PaddleOCR (primary) + PyMuPDF OCR (cross-validator)
+      |
+      v
+[quality_control.run_quality_control]  ── QC pipeline ──► UnifiedRecord (exact_text)
       |
       v
 [OpenAI chunk model] tiny cache warmup
@@ -217,7 +228,7 @@ EviTrace/
 │   └── openai/              Async OpenAI Responses API client + prompt builders
 ├── pipeline/                End-to-end orchestrator: chunks, validation, manifest, QC report
 ├── pdf_extractor/           Standalone PDF text extraction module
-│   ├── extraction/          Multi-backend extraction cascade (PyMuPDF, pdfplumber, OCR, GROBID)
+│   ├── extraction/          Per-page scan-detector routing + backend extractors (GROBID, PyMuPDF, pdfplumber, PaddleOCR)
 │   ├── processing/          Sentence segmentation and full-text assembly
 │   └── utils/               Text, embedding, and layout helpers
 ├── quality_control/         Generic branch-adjudication QC pipeline
@@ -232,7 +243,7 @@ EviTrace/
 | `config/` | YAML configuration files | [config/README.md](config/README.md) |
 | `pipeline/` | End-to-end chunked extraction orchestrator | [pipeline/README.md](pipeline/README.md) |
 | `pdf_extractor/` | Standalone PDF text extraction module | [pdf_extractor/README.md](pdf_extractor/README.md) |
-| `pdf_extractor/extraction/` | Backend-specific PDF text extractors | [pdf_extractor/extraction/README.md](pdf_extractor/extraction/README.md) |
+| `pdf_extractor/extraction/` | Per-page scan-detector routing and backend-specific PDF text extractors | [pdf_extractor/extraction/README.md](pdf_extractor/extraction/README.md) |
 | `pdf_extractor/processing/` | Sentence segmentation and full-text assembly | [pdf_extractor/processing/README.md](pdf_extractor/processing/README.md) |
 | `pdf_extractor/utils/` | Text, embedding, and layout utilities | [pdf_extractor/utils/README.md](pdf_extractor/utils/README.md) |
 | `quality_control/` | Branch adjudication and reconciliation | [quality_control/README.md](quality_control/README.md) |
@@ -333,14 +344,13 @@ Each extracted record looks like:
 - **PyMuPDF** (`PyMuPDF>=1.24.0`) — primary native-text extractor
 - **pdfplumber** (`pdfplumber>=0.10.0`) — table-aware fallback extractor
 - **GROBID** — TEI XML extractor used as a QC branch (optional service)
-- **Tesseract** (`pytesseract`, `pdf2image`) — OCR fallback (lazy import)
-- **PaddleOCR** (`paddleocr`, `paddlepaddle`) — second OCR fallback (lazy import)
+- **PaddleOCR** (`paddleocr`, `paddlepaddle`) — OCR backend for scanned pages (lazy import)
 - **PyYAML** — configuration loading
 - **gdown** — URL / Google Drive folder ingestion for the parser
 - **NumPy** — numeric helpers in layout / embedding utilities
 - **pytest** — test runner
 - **Optional:** `sentence-transformers`, `faiss-cpu`/`faiss-gpu`, `torch`
-  for the semantic-QC scaffold (Tier 3); never imported unless
+  for the semantic-QC scaffold; never imported unless
   `quality_control.semantic_qc.enabled` is `true`.
 
 ---
@@ -351,7 +361,7 @@ Active research project. Core pipeline is functional end-to-end. The
 following components are explicitly scaffolded but **not driving final
 adjudication** today:
 
-- Tier 3 semantic QC (embeddings + FAISS).
+- Semantic QC (embeddings + FAISS) — scaffolded only; not wired into adjudication.
 - Multi-agent adjudication beyond the GROBID/PyMuPDF branch pair.
 - Optional `extraction_manifest.json` summarising every QC step
   (planned; see `pdf_extractor/next steps.txt`).

@@ -6,11 +6,6 @@ Section heading confidence strategy.
 Compares the heading text of a primary section against a reference font block,
 optionally penalizing confidence when the reference block's font size falls
 below a configured median threshold.
-
-Design reference: .kiro/specs/architecture-migration/design.md
-                  §Concern Strategy Package (SectionVerificationConcern)
-Requirements: 7.3
-Boundary: quality_control/concerns/section_verification
 """
 
 from __future__ import annotations

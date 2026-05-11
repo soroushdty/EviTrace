@@ -224,10 +224,10 @@ class TestAlignmentMap:
 
 
 # ---------------------------------------------------------------------------
-# Requirement 1.4 — UnifiedRecord backward compatibility
+# Requirement 1.4 — UnifiedRecord default field values
 # ---------------------------------------------------------------------------
 
-class TestUnifiedRecordExtension:
+class TestUnifiedRecordDefaults:
     """UnifiedRecord gains three optional fields; existing fields unchanged (Req 1.4)."""
 
     def test_document_id_unchanged(self):
@@ -267,11 +267,11 @@ class TestUnifiedRecordExtension:
         assert rec.structural.pages[0]["index"] == 0
         assert rec.alignment is not None
 
-    def test_existing_unified_record_instantiation_still_works(self):
-        """Backward compat: old call-sites that only pass document_id and content."""
+    def test_unified_record_with_only_document_id_and_content(self):
+        """Callers that only pass document_id and content still work correctly."""
         from quality_control import UnifiedRecord
-        rec = UnifiedRecord(document_id="old-caller", content={"data": [1, 2, 3]})
-        assert rec.document_id == "old-caller"
+        rec = UnifiedRecord(document_id="caller-1", content={"data": [1, 2, 3]})
+        assert rec.document_id == "caller-1"
         assert rec.semantic is None   # new fields are silently absent
         assert rec.structural is None
         assert rec.alignment is None

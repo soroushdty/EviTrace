@@ -1,10 +1,10 @@
 """
-tests/test_text_extractor_branch2.py
---------------------------------------
+tests/pdf_extractor/test_pymupdf_schema.py
+-------------------------------------------
 Property-based tests for ``pdf_extractor.extraction.PyMuPDF`` (PyMuPDF backend).
 
 Properties covered:
-  5. PyMuPDF backend output conforms to BlockDict schema
+  - PyMuPDF backend output conforms to BlockDict schema
 """
 
 import sys
@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 from hypothesis import given, settings, strategies as st, HealthCheck
 
 from pdf_extractor.extraction import schemas
-from pdf_extractor.extraction import PyMuPDF as branch2
+from pdf_extractor.extraction import PyMuPDF as pymupdf_backend
 
 
 # ---------------------------------------------------------------------------
@@ -73,19 +73,16 @@ def _build_mock_fitz(pages_data: list[dict]) -> MagicMock:
 
 
 # ---------------------------------------------------------------------------
-# Property 5: PyMuPDF backend output conforms to BlockDict schema
-# Feature: text-extractor-restructure, Property 5: PyMuPDF backend output conforms to BlockDict schema
-# Validates: Requirements 2.2, 11.1
+# PyMuPDF backend output conforms to BlockDict schema
 # ---------------------------------------------------------------------------
 
 @given(pages_data=st.lists(_page_strategy, min_size=1, max_size=5))
 @settings(max_examples=20, suppress_health_check=[HealthCheck.too_slow])
-def test_branch2_output_conforms_to_blockdict_schema(pages_data):
-    # Feature: text-extractor-restructure, Property 5: PyMuPDF backend output conforms to BlockDict schema
+def test_pymupdf_output_conforms_to_blockdict_schema(pages_data):
     mock_fitz = _build_mock_fitz(pages_data)
 
     with patch.dict(sys.modules, {"fitz": mock_fitz}):
-        blocks, font_metadata = branch2.extract_with_pymupdf("fake_path.pdf")
+        blocks, font_metadata = pymupdf_backend.extract_with_pymupdf("fake_path.pdf")
 
     # Every block must pass validate_blocks without raising.
     schemas.validate_blocks(blocks)
