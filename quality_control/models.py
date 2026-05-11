@@ -3,28 +3,22 @@ quality_control/models.py
 -----------------------------------------
 Shared dataclass models for the QC pipeline.
 
-All five QC modules communicate through a single ``QCContext`` instance that
+All five QC modules communicate through a single ``QCBundle`` instance that
 is mutated in place rather than passed by value.  This avoids copying large
 extractor payloads at each step and keeps the full pipeline state inspectable
 at any point.
 
+This module contains **only** abstract base classes and pure data containers.
+Concrete default implementations of the ABCs live in
+``quality_control/builtin_impls/``:
+
+- :class:`~quality_control.builtin_impls.QualityReport`
+- :class:`~quality_control.builtin_impls.InterRaterReport`
+- :class:`~quality_control.builtin_impls.AdjudicationDecision`
+
 Classes
 -------
-SemanticLayer
-    Typed semantic layer holding sections, paragraphs, sentences, references,
-    and document metadata.
-
-StructuralLayer
-    Typed structural layer holding pages, text blocks, tables, and figures.
-
-AlignmentMapEntry
-    Provenance and agreement record for one semantic-to-structural alignment.
-
-AlignmentMap
-    Container linking semantic elements to structural blocks via alignment
-    entries.
-
-BranchOutput
+Candidate
     One extractor branch's output, carrying extractor name, branch index,
     native payload, and pass/fail status.
 
@@ -32,34 +26,35 @@ QualityMetrics
     Abstract base class defining the schema and the ``passes_check`` interface.
     Users subclass this with custom metrics.
 
-QualityReport
-    Concrete report produced by the rater for one branch.  Inherits from
-    ``QualityMetrics`` and carries the actual metrics and pass/fail status.
-
 InterRaterMetrics
     Abstract base class for inter-rater agreement metrics.  Users subclass
     this with custom metric fields and implement ``compute``.
-
-InterRaterReport
-    Default concrete inter-rater report.  Inherits from ``InterRaterMetrics``
-    and carries pairwise agreement scores.
 
 AdjudicationRules
     Abstract base class for adjudication logic.  Users subclass this with
     custom decision fields and implement ``adjudicate``.
 
-AdjudicationDecision
-    Default concrete adjudication decision.  Inherits from
-    ``AdjudicationRules`` and carries the preferred extractor, confidence,
-    and rationale.
+SemanticLayer
+    Typed semantic layer holding sections, paragraphs, sentences, references,
+    and document metadata.
+
+StructuralLayer
+    Typed structural layer holding pages, text blocks, tables, and figures.
+
+AlignmentRecord
+    Provenance and agreement record for one semantic-to-structural alignment.
+
+DocumentAlignment
+    Container linking semantic elements to structural blocks via alignment
+    entries.
 
 UnifiedRecord
     Final reconciled output produced by the Reconciler.
 
-LocalQCMetricRecord
+ExtractionCoverageMetricRecord
     Structured record for a single Metrics Tier 1 (Local_QC_Metrics) result.
 
-QCContext
+QCBundle
     Shared mutable state passed through all five QC modules.
 """
 
@@ -67,44 +62,60 @@ from __future__ import annotations
 
 from abc import abstractmethod
 from dataclasses import dataclass, field
-from itertools import combinations
 from typing import Any
 
 
+# ---------------------------------------------------------------------------
+# Candidate — one contributor's output entering the QC pipeline
+# ---------------------------------------------------------------------------
+
 @dataclass
-class BranchOutput:
-    """One extractor branch's output.
+class Candidate:
+    """One contributor's output entering the QC pipeline.
+
+    The contributor can be anything: a PDF extraction backend, an LLM agent,
+    a human annotator, or any other source.  ``source`` is the canonical
+    field name; ``extractor`` and ``agent`` are aliases for backwards
+    compatibility and domain-specific readability.
 
     Attributes
     ----------
-    extractor:
-        Name of the extractor: ``"grobid"`` | ``"pymupdf"`` | ``"tier1"`` |
-        ``"tier2"`` | ``"tier3"``.
-    branch:
-        Branch index (integer).
+    source:
+        Name of the contributor. Not constrained to a fixed set.
+    index:
+        Position of this candidate in the run (integer).
     payload:
-        Native format of the extractor's output.
+        The contributor's native output in whatever format it produces.
     status:
-        Pass/fail tag: ``"pass"`` | ``"fail"`` | ``None`` (not yet rated).
+        Pass/fail tag set by the rater: ``"pass"`` | ``"fail"`` | ``None``.
     """
 
-    extractor: str
-    branch: int
+    source: str
+    index: int
     payload: Any
     status: str | None
 
     @property
-    def agent(self) -> str:
-        """Alias for ``extractor`` — use this name in multi-agent contexts."""
-        return self.extractor
+    def extractor(self) -> str:
+        """Alias for ``source`` — use in extraction pipeline contexts."""
+        return self.source
 
+    @property
+    def agent(self) -> str:
+        """Alias for ``source`` — use in multi-agent contexts."""
+        return self.source
+
+
+# ---------------------------------------------------------------------------
+# Abstract base classes
+# ---------------------------------------------------------------------------
 
 @dataclass
 class QualityMetrics:
     """Abstract base class for quality metrics.
 
     Users subclass this with custom metrics.  The only constraint is that all
-    extractor branches within a given run must use the same ``QualityReport``
+    extractor branches within a given run must use the same ``QualityMetrics``
     subclass so that comparisons are fair.
 
     Attributes
@@ -115,40 +126,12 @@ class QualityMetrics:
 
     status: str | None = None
 
+    @abstractmethod
     def passes_check(self, source: Any = None) -> bool:
         """Return True if this branch passes the quality check.
 
         Subclasses must override this method with their actual criteria.
         """
-        raise NotImplementedError
-
-
-@dataclass
-class QualityReport(QualityMetrics):
-    """Concrete quality report produced by the rater for one branch.
-
-    Inherits ``status`` from ``QualityMetrics``.
-
-    Attributes
-    ----------
-    extractor:
-        Name of the extractor this report covers.
-    branch:
-        Branch index this report covers.
-    """
-
-    extractor: str = ""
-    branch: int = 0
-
-    @property
-    def agent(self) -> str:
-        """Alias for ``extractor`` — use this name in multi-agent contexts."""
-        return self.extractor
-
-    def passes_check(self, source: Any = None) -> bool:  # noqa: ARG002
-        """Default: unconditionally pass all branches with no checks applied."""
-        self.status = "pass"
-        return True
 
 
 @dataclass
@@ -157,7 +140,7 @@ class InterRaterMetrics:
 
     Users subclass this with custom metric fields and implement ``compute``,
     which populates those fields from a list of quality reports.  All reports
-    within a run must use the same ``InterRaterReport`` subclass so that
+    within a run must use the same ``InterRaterMetrics`` subclass so that
     comparisons are consistent.
     """
 
@@ -167,29 +150,6 @@ class InterRaterMetrics:
 
         Subclasses must override this method with their actual computation.
         """
-
-
-@dataclass
-class InterRaterReport(InterRaterMetrics):
-    """Default concrete inter-rater report produced by the IAA Calculator.
-
-    Inherits the ``compute`` interface from ``InterRaterMetrics``.
-
-    Attributes
-    ----------
-    pairwise:
-        Dict mapping extractor-pair keys to agreement scores.
-    """
-
-    pairwise: dict = field(default_factory=dict)
-
-    def compute(self, reports: list[QualityMetrics]) -> None:
-        """Default: pairwise pass/fail agreement (1.0 = agree, 0.0 = disagree)."""
-        indexed = list(enumerate(reports))
-        for (i, a), (j, b) in combinations(indexed, 2):
-            name_a = getattr(a, "extractor", str(i))
-            name_b = getattr(b, "extractor", str(j))
-            self.pairwise[f"{name_a}_vs_{name_b}"] = 1.0 if a.status == b.status else 0.0
 
 
 @dataclass
@@ -233,32 +193,9 @@ class AdjudicationRules:
         """
 
 
-@dataclass
-class AdjudicationDecision(AdjudicationRules):
-    """Default concrete adjudication decision produced by the Adjudicator.
-
-    Inherits ``primary_extractor``, ``confidence``, ``rationale``, and the
-    ``adjudicate`` interface from ``AdjudicationRules``.
-    """
-
-    def adjudicate(
-        self,
-        reports: list[QualityMetrics],
-        metrics: InterRaterMetrics,  # noqa: ARG002
-    ) -> None:
-        """Default: elect the extractor with the most passing branches."""
-        pass_counts: dict[str, int] = {}
-        for i, r in enumerate(reports):
-            name = getattr(r, "extractor", str(i))
-            pass_counts[name] = pass_counts.get(name, 0) + (1 if r.status == "pass" else 0)
-        if not pass_counts:
-            self.rationale = "no reports available"
-            return
-        best = max(pass_counts, key=lambda k: pass_counts[k])
-        self.primary_extractor = best
-        self.confidence = pass_counts[best] / len(reports)
-        self.rationale = f"{best} selected: {pass_counts[best]}/{len(reports)} branches passed"
-
+# ---------------------------------------------------------------------------
+# Typed document layers
+# ---------------------------------------------------------------------------
 
 @dataclass
 class SemanticLayer:
@@ -308,7 +245,7 @@ class StructuralLayer:
 
 
 @dataclass
-class AlignmentMapEntry:
+class AlignmentRecord:
     """Provenance and agreement record for one semantic-to-structural alignment.
 
     Attributes
@@ -341,20 +278,29 @@ class AlignmentMapEntry:
 
 
 @dataclass
-class AlignmentMap:
-    """Container linking semantic elements to structural blocks.
+class DocumentAlignment:
+    """Alignment layer produced by the Reconciler as a mandatory output.
+
+    Always fully populated when returned from ``reconciler.reconcile()``.
+    The ``| None`` typing on :class:`UnifiedRecord` reflects only that the
+    field is unset before the reconciler runs — it is never ``None`` in a
+    completed pipeline run.
 
     Attributes
     ----------
     paragraph_to_blocks:
-        List of :class:`AlignmentMapEntry` linking paragraphs to blocks.
+        List of :class:`AlignmentRecord` linking paragraphs to structural
+        blocks, one entry per matched paragraph/block pair.
     sentence_to_char_range:
-        List of dicts mapping sentence text to character ranges
+        List of dicts mapping each sentence to its character range in the
+        full document text
         (``{"sentence": str, "start": int, "end": int, "page_index": int}``).
     section_header_to_block:
-        List of :class:`AlignmentMapEntry` linking section headings to blocks.
+        List of :class:`AlignmentRecord` linking section headings to their
+        corresponding structural blocks.
     reconciliation_flags:
-        List of :class:`AlignmentMapEntry` recording unresolved divergences.
+        List of :class:`AlignmentRecord` recording sentences or blocks that
+        could not be matched across backends (``agreement="one_engine_only"``).
     """
 
     paragraph_to_blocks: list = field(default_factory=list)
@@ -363,33 +309,65 @@ class AlignmentMap:
     reconciliation_flags: list = field(default_factory=list)
 
 
+# ---------------------------------------------------------------------------
+# Unified output record
+# ---------------------------------------------------------------------------
+
 @dataclass
 class UnifiedRecord:
-    """Final reconciled output produced by the Reconciler.
+    """The Reconciler's output — a composition of all four prior pipeline layers.
+
+    Produced by ``reconciler.reconcile()`` as the final stage of the QC
+    pipeline, after the rater, IAA calculator, adjudicator, and reconciler
+    have each contributed their outputs.  By the time this object is returned,
+    ``semantic``, ``structural``, and ``alignment`` are always populated.
+    The ``| None`` typing reflects only that the fields are unset while the
+    pipeline is still in progress.
+
+    Composition
+    -----------
+    ``UnifiedRecord`` is a composition of four layers, each produced by a
+    distinct pipeline stage:
+
+    - ``content``   — flat dict for downstream consumers (LLM retrieval,
+                      annotation export, manifest persistence)
+    - ``semantic``  — typed semantic layer (:class:`SemanticLayer`), built
+                      from the primary extractor's blocks
+    - ``structural``— typed structural layer (:class:`StructuralLayer`),
+                      built from the secondary extractor's blocks
+    - ``alignment`` — alignment layer (:class:`DocumentAlignment`), the
+                      mandatory by-product of reconciliation
 
     Attributes
     ----------
     document_id:
-        Stable document identifier.
+        Stable document identifier, resolved from whichever artifact carries it.
     content:
-        Reconciled content dict (retained for backward compatibility).
+        Reconciled content dict carrying: ``document_id``, ``metadata``,
+        ``pages``, ``segments``, ``annotations``, ``tables``, ``figures``,
+        ``images``, ``exact_text``, ``provenance``.
     semantic:
-        Optional typed semantic layer.
+        Typed semantic layer; always set after reconciliation.
     structural:
-        Optional typed structural layer.
+        Typed structural layer; always set after reconciliation.
     alignment:
-        Optional alignment map linking semantic to structural elements.
+        Alignment layer linking semantic to structural elements; always set
+        after reconciliation.
     """
 
     document_id: str = ""
     content: dict = field(default_factory=dict)
     semantic: SemanticLayer | None = None
     structural: StructuralLayer | None = None
-    alignment: AlignmentMap | None = None
+    alignment: DocumentAlignment | None = None
 
+
+# ---------------------------------------------------------------------------
+# Metric record
+# ---------------------------------------------------------------------------
 
 @dataclass
-class LocalQCMetricRecord:
+class ExtractionCoverageMetricRecord:
     """Structured record for a single Metrics Tier 1 (Local_QC_Metrics) result.
 
     Attributes
@@ -411,8 +389,64 @@ class LocalQCMetricRecord:
     triggered: bool
 
 
+# ---------------------------------------------------------------------------
+# Verification result
+# ---------------------------------------------------------------------------
+
 @dataclass
-class QCContext:
+class VerificationResult:
+    """Stable result dataclass produced by QC check classes.
+
+    Each QC check class produces one ``VerificationResult`` per invocation,
+    describing the outcome of a single verification check.
+
+    Attributes
+    ----------
+    check_name:
+        Identifier for the check that produced this result
+        (e.g. ``"source_text_presence"``).
+    status:
+        Outcome of the check.  Must be one of ``"verified"``,
+        ``"candidate_match"``, ``"no_match"``, ``"skipped"``, or
+        ``"unavailable"``.
+    score:
+        Confidence score in the closed range ``[0.0, 1.0]``.  Raises
+        ``ValueError`` on construction if outside this range.
+    evidence:
+        Evidence dict.  When produced by source-verification checks the dict
+        contains exactly the six standard keys: ``found_sentence``,
+        ``page_index``, ``prefix``, ``suffix``, ``block_bbox``,
+        ``span_bboxes``.  Each key is ``None`` when no evidence is available.
+    details:
+        Free-form additional information.  The semantic check stores a
+        below-threshold diagnostic score here under the key
+        ``"below_threshold_score"``.
+    """
+
+    check_name: str
+    status: str
+    score: float
+    evidence: dict
+    details: dict
+
+    def __post_init__(self) -> None:
+        _VALID_STATUSES = {"verified", "candidate_match", "no_match", "skipped", "unavailable"}
+        if self.status not in _VALID_STATUSES:
+            raise ValueError(
+                f"status must be one of {_VALID_STATUSES!r}; got {self.status!r}"
+            )
+        if not (0.0 <= self.score <= 1.0):
+            raise ValueError(
+                f"score must be in [0.0, 1.0]; got {self.score!r}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# Pipeline state bundle
+# ---------------------------------------------------------------------------
+
+@dataclass
+class QCBundle:
     """Shared mutable state passed through all five QC modules.
 
     Each module reads from and writes to specific fields:
@@ -439,9 +473,11 @@ class QCContext:
         Adjudication decision (set by adjudicator).
     unified:
         Final unified record (set by reconciler).
+    metrics_hierarchy:
+        Tier 1/2/3 metric results keyed by tier name.
     """
 
-    branches: list[BranchOutput]
+    branches: list[Candidate]
     reports: list[QualityMetrics] = field(default_factory=list)
     iaa_metrics: InterRaterMetrics | None = None
     decision: AdjudicationRules | None = None

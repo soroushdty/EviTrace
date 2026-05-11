@@ -7,11 +7,6 @@ Merges a primary caption reference (e.g., from GROBID) with a reference
 spatial record (e.g., from pdfplumber).  Raises ``MissingContributionError``
 when either side is absent so the caller can decide how to handle the
 incomplete data.
-
-Design reference: .kiro/specs/architecture-migration/design.md
-                  §Concern Strategy Package (TableFigureMergeConcern)
-Requirements: 7.3
-Boundary: quality_control/concerns/table_figure_merge
 """
 
 from __future__ import annotations

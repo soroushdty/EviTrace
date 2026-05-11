@@ -18,7 +18,7 @@ import re
 import pytest
 
 from quality_control.models import (
-    AlignmentMap,
+    DocumentAlignment,
     SemanticLayer,
     StructuralLayer,
     UnifiedRecord,
@@ -37,7 +37,7 @@ def _born_digital_unified() -> UnifiedRecord:
         ]
     )
     # sentence_to_char_range is a list of dicts
-    alignment = AlignmentMap(
+    alignment = DocumentAlignment(
         sentence_to_char_range=[
             {"sentence": "Hello world.", "start": 0, "end": 12, "page_index": 0},
         ]
@@ -65,7 +65,7 @@ def _scanned_unified() -> UnifiedRecord:
             }
         ]
     )
-    alignment = AlignmentMap()
+    alignment = DocumentAlignment()
     return UnifiedRecord(
         document_id="doc-scan",
         semantic=semantic,
@@ -87,7 +87,7 @@ def _mixed_unified() -> UnifiedRecord:
             {"page_index": 1, "block_bbox": (5, 10, 105, 40)},
         ]
     )
-    alignment = AlignmentMap(
+    alignment = DocumentAlignment(
         sentence_to_char_range=[
             {"sentence": "Born digital.", "start": 0, "end": 13, "page_index": 0},
         ]
@@ -208,7 +208,7 @@ class TestProject:
 
         unified = UnifiedRecord(
             document_id="empty",
-            alignment=AlignmentMap(),
+            alignment=DocumentAlignment(),
             semantic=None,
         )
         result = project(unified)

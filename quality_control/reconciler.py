@@ -1,16 +1,13 @@
 """
-Sole producer of the Unified Output, which is the source of truth for all
+Sole producer of the UnifiedRecord, which is the source of truth for all
 downstream consumers (PDF reader highlighting, LLM retrieval/QA, TEI XML
 export, W3C Web Annotation JSON-LD export). TEI XML and W3C JSON-LD exports
 are optional downstream projections.
 
-Repair receives adjudication decisions from the Adjudicator and reconciles
-the outputs from both extractors to create the unified "best of both worlds"
-output for downstream tasks.
-
-Tasks 9.1–9.2: Extractor-agnostic concern routing with injectable strategies.
-Requirements: 1.1, 1.2, 1.3, 1.4, 7.1
-Boundary: quality_control/reconciler
+Receives adjudication decisions from the Adjudicator and reconciles the
+outputs from two extractor branches using injectable concern strategies
+(text fidelity, section verification, table/figure merge) to produce a
+fully-populated UnifiedRecord with semantic, structural, and alignment layers.
 """
 
 from __future__ import annotations
@@ -19,19 +16,14 @@ import logging
 import re
 
 from quality_control.models import (
-    AlignmentMap,
-    AlignmentMapEntry,
+    DocumentAlignment,
+    AlignmentRecord,
     SemanticLayer,
     StructuralLayer,
     UnifiedRecord,
 )
 
 logger = logging.getLogger("pdf_extractor")
-
-PLACEHOLDER_NOTICE: str = (
-    "Reconciliation logic is not yet implemented. "
-    "This output is a structural placeholder for downstream interface stability."
-)
 
 # Heuristic patterns for classifying blocks from primary artifact.
 # A block whose text matches _SECTION_RE is treated as a section heading.
@@ -173,7 +165,7 @@ def _compute_sentence_to_char_range(
         start = full_text.find(sentence)
         if start == -1:
             reconciliation_flags.append(
-                AlignmentMapEntry(
+                AlignmentRecord(
                     source="reconciler",
                     agreement="one_engine_only",
                     preferred_reading=sentence,
@@ -196,9 +188,9 @@ def _route_paragraph_blocks(
     secondary_blocks: list[dict],
     text_fidelity_strategy,
     text_processor,
-) -> list[AlignmentMapEntry]:
+) -> list[AlignmentRecord]:
     """Route paragraph/block pairs through text_fidelity_strategy.reconcile()."""
-    entries: list[AlignmentMapEntry] = []
+    entries: list[AlignmentRecord] = []
 
     primary_para = [b for b in primary_blocks if _classify_block(b) == "paragraph"]
     secondary_para = [b for b in secondary_blocks if _classify_block(b) == "paragraph"]
@@ -210,7 +202,7 @@ def _route_paragraph_blocks(
 
         result = text_fidelity_strategy.reconcile(primary_text, secondary_text, text_processor)
 
-        entry = AlignmentMapEntry(
+        entry = AlignmentRecord(
             source="text_fidelity",
             edit_distance=result.get("edit_distance", 0.0),
             agreement=result.get("agreement", "full"),
@@ -227,9 +219,9 @@ def _route_section_blocks(
     secondary_blocks: list[dict],
     section_strategy,
     text_processor,
-) -> list[AlignmentMapEntry]:
+) -> list[AlignmentRecord]:
     """Route section heading pairs through section_strategy.reconcile()."""
-    entries: list[AlignmentMapEntry] = []
+    entries: list[AlignmentRecord] = []
 
     primary_sections = [b for b in primary_blocks if _classify_block(b) == "section"]
     secondary_sections = [b for b in secondary_blocks if _classify_block(b) == "section"]
@@ -247,7 +239,7 @@ def _route_section_blocks(
 
         confidence = section_strategy.reconcile(primary_section, reference_block, text_processor)
 
-        entry = AlignmentMapEntry(
+        entry = AlignmentRecord(
             source="section_verification",
             agreement="full" if confidence >= 0.8 else "partial",
             preferred_reading=reference_block["text"],
@@ -262,7 +254,7 @@ def _route_table_figure_blocks(
     primary_blocks: list[dict],
     secondary_blocks: list[dict],
     table_figure_strategy,
-) -> tuple[list[dict], list[AlignmentMapEntry]]:
+) -> tuple[list[dict], list[AlignmentRecord]]:
     """Route table/figure pairs through table_figure_strategy.merge().
 
     Returns (merged_records, alignment_entries).
@@ -270,7 +262,7 @@ def _route_table_figure_blocks(
     from quality_control.concerns import MissingContributionError
 
     merged: list[dict] = []
-    entries: list[AlignmentMapEntry] = []
+    entries: list[AlignmentRecord] = []
 
     primary_tables = [b for b in primary_blocks if _classify_block(b) in ("table", "figure")]
     secondary_tables = [b for b in secondary_blocks if _classify_block(b) in ("table", "figure")]
@@ -279,7 +271,7 @@ def _route_table_figure_blocks(
         try:
             result = table_figure_strategy.merge(p_block, s_block)
             merged.append(result)
-            entry = AlignmentMapEntry(
+            entry = AlignmentRecord(
                 source="table_figure_merge",
                 agreement=result.get("agreement", "present"),
                 preferred_reading=result.get("merged_text", ""),
@@ -287,7 +279,7 @@ def _route_table_figure_blocks(
             )
             entries.append(entry)
         except MissingContributionError:
-            entry = AlignmentMapEntry(
+            entry = AlignmentRecord(
                 source="table_figure_merge",
                 agreement="one_engine_only",
                 confidence=0.0,
@@ -308,7 +300,7 @@ def reconcile(
     primary_observation: dict | None = None,
     secondary_observation: dict | None = None,
     investigator_object: dict | None = None,
-    adjudication_decisions: dict | None = None,
+    adjudication_decisions: dict = None,
     config: dict | None = None,
     *,
     text_fidelity_strategy=None,
@@ -339,7 +331,6 @@ def reconcile(
         - primary_extractor: which extractor to prefer
         - confidence: confidence score
         - rationale: explanation of decision
-        If None (for backward compatibility), uses a default placeholder strategy.
     config:
         Pipeline config dict. If None, uses empty dict.
     text_fidelity_strategy:
@@ -357,7 +348,7 @@ def reconcile(
     -------
     UnifiedRecord
         Final reconciled record with semantic, structural, and alignment layers
-        populated alongside the backward-compatible content dict.
+        populated alongside the content dict.
     """
     # ------------------------------------------------------------------
     # Normalise optional observations / investigator
@@ -369,19 +360,8 @@ def reconcile(
     if investigator_object is None:
         investigator_object = {}
 
-    # ------------------------------------------------------------------
-    # Backward compatibility: handle old positional signature
-    # reconcile(primary, secondary, obs1, obs2, inv, config_dict)
-    # where the 6th arg was always a config dict, not adjudication_decisions.
-    # Detect this by checking if adjudication_decisions looks like a config dict.
-    # ------------------------------------------------------------------
-    if config is None and isinstance(adjudication_decisions, dict):
-        if "quality_control" in adjudication_decisions or not any(
-            k in adjudication_decisions
-            for k in ("primary_extractor", "confidence", "rationale")
-        ):
-            config = adjudication_decisions
-            adjudication_decisions = None
+    if adjudication_decisions is None:
+        adjudication_decisions = {}
 
     if config is None:
         config = {}
@@ -392,45 +372,6 @@ def reconcile(
     document_id = primary_artifact.get("document_id") or secondary_artifact.get("document_id", "")
 
     # ------------------------------------------------------------------
-    # PLACEHOLDER_NOTICE backward-compat path
-    # ------------------------------------------------------------------
-    if adjudication_decisions is None:
-        logger.debug("Repair: no adjudication decisions provided, using placeholder mode")
-
-        # Build provenance using whatever keys are available in the artifacts
-        provenance = _build_provenance_dict(
-            primary_artifact, secondary_artifact,
-            primary_observation, secondary_observation,
-            investigator_object, adjudication_decisions=None,
-        )
-
-        content: dict = {
-            "document_id": document_id,
-            "metadata": {},
-            "pages": [],
-            "segments": [],
-            "annotations": [],
-            "tables": [],
-            "figures": [],
-            "images": [],
-            "exact_text": "",
-            "geometry": {},
-            "provenance": provenance,
-            "observer_summary": {},
-            "investigator_summary": {},
-            "adjudication_status": "placeholder",
-            "placeholder_notice": PLACEHOLDER_NOTICE,
-        }
-
-        return UnifiedRecord(
-            document_id=document_id,
-            content=content,
-            semantic=None,
-            structural=None,
-            alignment=None,
-        )
-
-    # ------------------------------------------------------------------
     # Set strategy defaults
     # ------------------------------------------------------------------
     from quality_control.concerns import (
@@ -438,8 +379,6 @@ def reconcile(
         DEFAULT_TABLE_FIGURE_MERGE,
         DEFAULT_TEXT_FIDELITY,
     )
-    from utils.text_processor import TextProcessor
-
     if text_fidelity_strategy is None:
         text_fidelity_strategy = DEFAULT_TEXT_FIDELITY
     if section_strategy is None:
@@ -447,7 +386,9 @@ def reconcile(
     if table_figure_strategy is None:
         table_figure_strategy = DEFAULT_TABLE_FIGURE_MERGE
     if text_processor is None:
-        text_processor = TextProcessor()
+        import importlib as _importlib  # noqa: PLC0415
+        _mod = _importlib.import_module("text_processing.composite")
+        text_processor = getattr(_mod, "DefaultTextProcessor")()
 
     logger.debug("Repair: reconciling outputs for document_id=%s", document_id)
 
@@ -464,9 +405,9 @@ def reconcile(
     )
 
     # ------------------------------------------------------------------
-    # Concern routing — collect AlignmentMapEntry objects
+    # Concern routing — collect AlignmentRecord objects
     # ------------------------------------------------------------------
-    reconciliation_flags: list[AlignmentMapEntry] = []
+    reconciliation_flags: list[AlignmentRecord] = []
 
     # 1. Text fidelity: paragraph/block pairs
     paragraph_entries = _route_paragraph_blocks(
@@ -506,9 +447,9 @@ def reconcile(
     )
 
     # ------------------------------------------------------------------
-    # Assemble AlignmentMap
+    # Assemble DocumentAlignment
     # ------------------------------------------------------------------
-    alignment = AlignmentMap(
+    alignment = DocumentAlignment(
         paragraph_to_blocks=paragraph_entries,
         sentence_to_char_range=sentence_to_char_range,
         section_header_to_block=section_entries,
@@ -516,36 +457,13 @@ def reconcile(
     )
 
     # ------------------------------------------------------------------
-    # Determine adjudication status
-    # ------------------------------------------------------------------
-    confidence = adjudication_decisions.get("confidence", 0.0)
-    primary_name = adjudication_decisions.get("primary_extractor", "unknown")
-
-    if confidence >= 0.8:
-        status = f"accepted_{primary_name}"
-    elif confidence >= 0.5:
-        status = f"accepted_{primary_name}_low_confidence"
-    else:
-        status = "needs_review"
-
-    # ------------------------------------------------------------------
-    # Build backward-compat content dict
+    # Build content dict
     # ------------------------------------------------------------------
     provenance = _build_provenance_dict(
         primary_artifact, secondary_artifact,
         primary_observation, secondary_observation,
         investigator_object, adjudication_decisions=adjudication_decisions,
     )
-
-    observer_summary = {
-        "primary_status": primary_observation.get("status", "unknown"),
-        "secondary_status": secondary_observation.get("status", "unknown"),
-    }
-
-    investigator_summary = {
-        "decision": investigator_object.get("decision", "unknown"),
-        "agreement_metrics": investigator_object.get("agreement_metrics", {}),
-    }
 
     segments = [
         {
@@ -582,18 +500,12 @@ def reconcile(
         "figures": [],
         "images": [],
         "exact_text": full_text,
-        "geometry": {},
         "provenance": provenance,
-        "observer_summary": observer_summary,
-        "investigator_summary": investigator_summary,
-        "adjudication_status": status,
-        "placeholder_notice": None,
     }
 
     logger.info(
-        "Repair: reconciliation complete for document_id=%s, status=%s, blocks=%d",
+        "Repair: reconciliation complete for document_id=%s, blocks=%d",
         document_id,
-        status,
         len(primary_blocks),
     )
 
@@ -622,9 +534,7 @@ def _build_provenance_dict(
     """Build a provenance dict from the two artifacts.
 
     Uses artifact["id"] keys when available; falls back to empty strings.
-    The provenance keys retain the legacy names (grobid_artifact_id /
-    pymupdf_artifact_id) for downstream backward compatibility, but the
-    values are now sourced from extractor-agnostic artifact dicts.
+    Provenance keys use extractor-agnostic names.
     """
     def _extract_id(artifact: dict, preferred_keys: tuple[str, ...]) -> str:
         """Try preferred sub-keys first, then top-level 'id'."""
@@ -634,14 +544,14 @@ def _build_provenance_dict(
                 return sub["id"]
         return artifact.get("id", "")
 
-    primary_id = _extract_id(primary_artifact, ("grobid", "primary"))
-    secondary_id = _extract_id(secondary_artifact, ("pymupdf", "pdfplumber", "secondary"))
+    primary_id = _extract_id(primary_artifact, ("primary",))
+    secondary_id = _extract_id(secondary_artifact, ("secondary",))
 
     provenance: dict = {
-        "grobid_artifact_id": primary_id,
-        "pymupdf_artifact_id": secondary_id,
-        "grobid_observation": primary_observation,
-        "pymupdf_observation": secondary_observation,
+        "primary_artifact_id": primary_id,
+        "secondary_artifact_id": secondary_id,
+        "primary_observation": primary_observation,
+        "secondary_observation": secondary_observation,
         "investigator_object": investigator_object,
     }
     if adjudication_decisions is not None:

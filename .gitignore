@@ -217,13 +217,6 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-
-
-
-# soroush
+# IO
 output*/
-log.txt
-pdfs/
-.claude/
-CLAUDE.md
 input*/

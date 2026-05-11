@@ -11,7 +11,7 @@ Returns
 -------
 tuple[str, list[BlockDict]]
     ``(tei_xml_str, blocks)`` where *tei_xml_str* is the raw TEI XML
-    (used as ``BranchOutput.payload`` in the QC pipeline) and *blocks* is
+    (used as ``Candidate.payload`` in the QC pipeline) and *blocks* is
     a ``list[BlockDict]`` extracted from the XML (used for cascade quality
     scoring).
 
@@ -377,7 +377,7 @@ def extract_with_grobid(
     -------
     tuple
         ``(tei_xml_str, blocks)`` where *tei_xml_str* is the raw TEI XML
-        string (use as ``BranchOutput.payload`` for the QC pipeline) and
+        string (use as ``Candidate.payload`` for the QC pipeline) and
         *blocks* is a ``list[BlockDict]`` for cascade quality scoring.
 
     Raises

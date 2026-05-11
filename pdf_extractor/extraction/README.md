@@ -1,62 +1,130 @@
-# `pdf_extractor/extraction/` — Multi-Backend PDF Text Extractors
+# `pdf_extractor/extraction/` — Per-Page Routed PDF Text Extractors
 
-Backend-specific PDF text extractors and the cascade orchestrator that
-selects between them.
+Backend-specific PDF text extractors, a per-page scan detector, and
+shared output schemas. Each backend has a distinct authority role;
+they are complementary and non-competing — routing is determined
+per-page by `scan_detector`, not by a quality score.
 
-The package exposes a single high-level entry point —
-`extract_pdf(pdf_path, ocr, ocr_text_quality_threshold, embed_model=None)`
-— and one backend module per extractor. The `quality_control` pipeline
-also pulls `extract_with_grobid` and `extract_with_pymupdf` directly to
-build its two QC branches.
+---
+
+## Public API
+
+Five names are exported from `pdf_extractor.extraction`:
+
+| Export | Kind | Description |
+| ------ | ---- | ----------- |
+| `extract_with_pymupdf` | function | PyMuPDF extraction (font metadata + scanned cross-validator) |
+| `extract_with_pdfplumber` | function | pdfplumber extraction (structural authority) |
+| `extract_with_paddleocr` | function | PaddleOCR extraction (scanned primary) |
+| `scan_detector` | module | Per-page scan classification |
+| `schemas` | module | Canonical output types and validation helpers |
+| `PyMuPDF` | module | PyMuPDF backend module (re-exported for patch target resolution) |
+
+`extract_with_grobid` is **not** part of the `pdf_extractor.extraction`
+public API — it is called directly by `pipeline/extraction_pipeline.py`.
 
 ---
 
 ## Where it fits
 
 ```text
-                ┌── Cascade entry (extract_pdf)
-                │
-                ▼
-PyMuPDF.extract_with_pymupdf  ──► (blocks, font_metadata)
-        │                            │ score >= threshold? ─► return
-        ▼
-pdfplumber.extract_with_pdfplumber ─► blocks
-        │                            │ score >= threshold? ─► return
-        ▼
-Tesseract.extract_with_tesseract   ─► blocks
-        │                            │ score >= threshold? ─► return
-        ▼
-PaddleOCR.extract_with_paddleocr   ─► blocks
-                                       │ pick whichever OCR scored higher
-                                       ▼
-                                   blocks
-
-
-GROBID.extract_with_grobid          (used by quality_control branch 0)
-        ─► (tei_xml_str, blocks)
+pipeline/extraction_pipeline.build_qc_bundle(pdf_path, pdf_name, qc_config)
+      │
+      ├── scan_detector.classify_page(page, text_processor, config, page_index)
+      │         │
+      │         ├── native/mixed page ──► digital path
+      │         │         ├── GROBID          (semantic authority — TEI XML)
+      │         │         ├── pdfplumber      (structural authority — text blocks)
+      │         │         └── PyMuPDF         (font metadata stored in unified.content)
+      │         │
+      │         └── scanned page ──► OCR path
+      │                   ├── PaddleOCR       (primary — bounding boxes + text)
+      │                   └── PyMuPDF OCR     (built-in OCR — cross-validation)
+      │
+      └── quality_control/  ← consumes branch outputs for QC reconciliation
 ```
 
-`extract_pdf` is consumed by the standalone parser CLI in
-[`pdf_extractor/pdf_extractor.py`](../README.md). The QC pipeline in
-[`quality_control/`](../../quality_control/README.md) bypasses the
-cascade and uses `extract_with_grobid` and `extract_with_pymupdf`
-directly to obtain the two branches it adjudicates between.
+---
+
+## Per-Page Scan Detection
+
+`scan_detector.classify_page(page, text_processor, config, page_index=0) -> PageScanClassification`
+is a stateless pure function that runs five sequential stages on a single
+PyMuPDF page object:
+
+1. **Empty text short-circuit** — `page.get_text("text").strip() == ""`.
+   Fires immediately and short-circuits stages 2–5.
+2. **Low word count** — word count < `config["scan_detection"]["text_density_threshold"]`.
+3. **Low alpha-char ratio** — alpha-char fraction after `text_processor.clean_ocr()`
+   < `config["scan_detection"]["alpha_ratio_threshold"]`.
+4. **Zero embedded fonts** — `len(page.get_fonts()) == 0`.
+5. **Image-area dominance** — image coverage > `config["scan_detection"]["image_dominance_threshold"]`.
+
+A page is classified as `native` only when **no stage fires**.
+
+`PageScanClassification` dataclass fields: `page_index`, `is_native`,
+`triggered_stages` (list of stage numbers 1–5), `stage_values` (dict of
+computed signals: `word_count`, `alpha_ratio`, `font_count`, `image_coverage`).
+
+Thresholds are configurable under `quality_control.scan_detection` in
+`configs/config.yaml`.
+
+---
+
+## Backend Roles
+
+### GROBID — semantic authority
+
+`extract_with_grobid(pdf_path, config) -> tuple[str, list[BlockDict]]`
+
+Calls the GROBID `processFulltextDocument` REST endpoint and returns
+`(tei_xml_str, list[BlockDict])`. The raw TEI XML string is the primary
+payload consumed by the QC pipeline as `Candidate.payload` for the GROBID
+branch. Used on the digital path only.
+
+### pdfplumber — structural authority
+
+`extract_with_pdfplumber(pdf_path) -> list[BlockDict]`
+
+Returns `list[BlockDict]` for native/digital pages. One block per page;
+preserves `[PAGE n]`, `[TABLE]`, and `[/TABLE]` markers in the block's
+`text` field. Geometry fields are `None`/`[]` (pdfplumber does not produce
+bounding boxes in the same coordinate space as PyMuPDF).
+
+### PyMuPDF — font metadata + scanned cross-validator
+
+`extract_with_pymupdf(pdf_path) -> tuple[list[BlockDict], list[FontMetaDict]]`
+
+Returns `(list[BlockDict], list[FontMetaDict])`.
+
+- On the **digital path**: provides font metadata stored in
+  `ctx.unified.content` for section-heading detection and comparison signals.
+- On the **scanned path**: runs PyMuPDF's built-in OCR as a cross-validation
+  signal alongside PaddleOCR.
+
+`fitz` is imported lazily inside the function body.
+
+### PaddleOCR — scanned primary
+
+`extract_with_paddleocr(pdf_path) -> list[BlockDict]`
+
+Returns `list[PaddleOCRBlockDict]` for scanned pages. Each block carries
+bounding-box coordinates (`block_bbox`) and OCR text. `paddleocr`,
+`paddlepaddle`, and `pdf2image` are imported lazily.
 
 ---
 
 ## Files
 
-### `__init__.py` — cascade orchestrator
-
-- `extract_pdf(pdf_path, ocr, ocr_text_quality_threshold, embed_model=None)`
-  walks the four-tier cascade. The first tier whose alphanumeric-ratio
-  score (`_compute_quality_score`) meets `ocr_text_quality_threshold`
-  wins. If `ocr` is `False`, the cascade stops after PyMuPDF
-  regardless of score. If neither OCR backend clears the threshold,
-  the higher-scoring one of the two wins.
-- `_compute_quality_score(blocks, embed_model=None)` — alphanumeric
-  characters / non-whitespace characters. `embed_model` is accepted
-  but currently unused (reserved for future embedding-based scoring).
+| File | Purpose |
+| ---- | ------- |
+| `__init__.py` | Package re-exports (the six public API names) |
+| `schemas.py` | `BlockDict`, `SpanDict`, `FontMetaDict`, `PaddleOCRBlockDict`; factory helpers; `validate_blocks` |
+| `PyMuPDF.py` | PyMuPDF backend (`extract_with_pymupdf`) |
+| `pdfplumber.py` | pdfplumber backend (`extract_with_pdfplumber`) |
+| `PaddleOCR.py` | PaddleOCR backend (`extract_with_paddleocr`) |
+| `GROBID.py` | GROBID REST backend (`extract_with_grobid` — called by `pipeline/extraction_pipeline.py`) |
+| `scan_detector.py` | `classify_page()` — five-stage per-page scan classification |
 
 ### `schemas.py`
 
@@ -64,89 +132,47 @@ Canonical, framework-free output types and validation helpers.
 
 - `BlockDict` — `text`, `page_index`, `block_bbox`, `spans`.
 - `SpanDict` — span-level attributes (font, size, flags, color, bbox).
-- `FontMetaDict` — per-document span/font records.
-- Factory helpers (`make_block`, `make_span`, …) and `validate_blocks`
-  used by every backend so all extractors return shape-identical
-  payloads.
+- `FontMetaDict` — per-document span/font records (size, text, page).
+- `PaddleOCRBlockDict` — extends `BlockDict` with `rasterization_dpi` and
+  `ocr_confidence`.
+- Factory helpers: `make_block(text, page_index, block_bbox, spans)`,
+  `make_ocr_block(text, page_index, block_bbox, rasterization_dpi, ocr_confidence)`,
+  `make_font_meta(size, text, page)`.
+- `validate_blocks(blocks)` — validates that every element conforms to
+  `BlockDict` (required keys, correct types). Raises `ValueError` on
+  violation. Called by every backend on exit.
 
 No imports outside the standard library; no import-time side effects.
-
-### `PyMuPDF.py`
-
-PyMuPDF (`fitz`) backend. Returns `(blocks, font_metadata)`.
-
-- One `BlockDict` per block, with text formed by joining all spans in
-  that block.
-- One `FontMetaDict` per span across the whole document — used by
-  [`pdf_extractor/utils/layout_utils.py`](../utils/README.md) for
-  section-heading detection.
-- `fitz` is imported lazily inside the function body.
-
-### `pdfplumber.py`
-
-pdfplumber backend. Returns `list[BlockDict]` only (geometry fields
-are `None`/`[]`). One block per page; preserves `[PAGE n]`,
-`[TABLE]`, and `[/TABLE]` markers in the block's `text` field. Table
-detection settings live in `_TABLE_SETTINGS`.
-
-### `Tesseract.py`
-
-Tesseract OCR backend. Returns `list[BlockDict]` only.
-
-- `pytesseract` and `pdf2image` are installed lazily on first use
-  (`subprocess.check_call(... pip install ...)`), then imported.
-- Suitable as a fallback when the native extractors return garbled or
-  empty text.
-
-### `PaddleOCR.py`
-
-PaddleOCR backend. Returns `list[BlockDict]` only.
-
-- `paddleocr`, `paddlepaddle`, and `pdf2image` are installed lazily.
-- Used as the second OCR fallback. The cascade compares Tesseract and
-  Paddle scores when neither clears the threshold and picks the
-  higher one.
-
-### `GROBID.py`
-
-GROBID REST-API backend. Returns `(tei_xml_str, blocks)`.
-
-- Calls the `processFulltextDocument` endpoint configured under
-  `quality_control.grobid` in
-  [`config/config.yaml`](../../config/README.md) (default
-  `http://localhost:8070`).
-- Parses the TEI XML into `BlockDict` objects for cascade-style
-  scoring; the **raw XML string** is what the QC pipeline uses as
-  `BranchOutput.payload` (branch 0).
-- `requests` is imported lazily inside the function body.
 
 ---
 
 ## Inputs and outputs
 
 - **Input:** a path to a single PDF file (str or `os.PathLike`).
-- **Output:**
-  - `extract_pdf(...)` → `(list[BlockDict], list[FontMetaDict])`. The
-    `font_metadata` list is non-empty only on the PyMuPDF path; OCR
-    paths return `[]`.
-  - `extract_with_grobid(...)` → `(tei_xml_str, list[BlockDict])`.
+- **Output per backend:**
+  - `extract_with_pymupdf(...)` → `(list[BlockDict], list[FontMetaDict])`
+  - `extract_with_pdfplumber(...)` → `list[BlockDict]`
+  - `extract_with_paddleocr(...)` → `list[PaddleOCRBlockDict]`
+  - `extract_with_grobid(...)` → `(tei_xml_str, list[BlockDict])`
 
 The `BlockDict` contract is enforced by `schemas.validate_blocks` on
-every cascade exit.
+every backend exit.
 
 ---
 
 ## Configuration
 
-| Key (`config.yaml`) | Effect |
-| ------------------- | ------ |
-| `ocr` | When `False`, the cascade stops after PyMuPDF and returns whatever it produced. |
-| `ocr_text_quality_threshold` | Minimum alphanumeric-ratio score to accept a tier without falling through. |
-| `quality_control.grobid.url` | GROBID server URL used by `extract_with_grobid`. |
+| Key (`configs/config.yaml`) | Effect |
+| --------------------------- | ------ |
+| `ocr` | When `False`, scanned pages are not sent to the OCR path. |
+| `quality_control.grobid.url` | GROBID server URL. |
 | `quality_control.grobid.timeout` | Per-request timeout (seconds). |
-| `quality_control.grobid.consolidate_header` / `consolidate_citations` | GROBID consolidation flags. |
-| `quality_control.grobid.tei_coordinates` | Whether to ask GROBID for TEI coordinates. |
+| `quality_control.grobid.tei_coordinates` | Whether to request TEI coordinates from GROBID. |
 | `quality_control.grobid.max_retries` | GROBID retry count on transient failures. |
+| `quality_control.scan_detection.text_density_threshold` | Min word count for a native page. |
+| `quality_control.scan_detection.alpha_ratio_threshold` | Min alpha-char fraction after `clean_ocr`. |
+| `quality_control.scan_detection.image_dominance_threshold` | Max image-area fraction before scanned. |
+| `quality_control.ocr.rasterization_dpi` | DPI for PaddleOCR page rasterization. |
 
 ---
 
@@ -155,37 +181,15 @@ every cascade exit.
 - `PyMuPDF>=1.24.0` (always)
 - `pdfplumber>=0.10.0` (always)
 - `requests>=2.28.0` (lazy; required for GROBID)
-- `pytesseract`, `pdf2image` (lazy; required only when the Tesseract
-  tier is reached)
-- `paddleocr`, `paddlepaddle`, `pdf2image` (lazy; required only when
-  the PaddleOCR tier is reached)
-
-OCR system binaries (`tesseract`, `poppler-utils` for `pdf2image`) are
-**not** installed by `requirements.txt` — they must be available on
-`$PATH` for the OCR tiers to work.
-
----
-
-## Caveats and assumptions
-
-- `_compute_quality_score` is a deliberately simple alphanumeric-ratio
-  proxy. It will mis-score documents that mix unusual scripts or
-  heavy mathematical notation. The QC pipeline is the right place to
-  add stricter quality gates.
-- The OCR backends auto-install missing Python packages with
-  `pip install` on first use. This is convenient for research use but
-  a footgun in restricted environments.
-- The GROBID backend assumes a running GROBID instance at the
-  configured URL; if unreachable, the `quality_control` pipeline
-  falls back to the PyMuPDF branch.
+- `paddleocr`, `paddlepaddle`, `pdf2image` (lazy; required only for scanned pages)
 
 ---
 
 ## Related
 
 - Parent: [../README.md](../README.md)
+- Single source of truth for routing: [../../pipeline/README.md](../../pipeline/README.md)
 - Sentence segmentation that consumes `BlockDict`: [../processing/README.md](../processing/README.md)
-- Layout helper consuming `FontMetaDict`: [../utils/README.md](../utils/README.md)
-- QC consumer of GROBID + PyMuPDF: [../../quality_control/README.md](../../quality_control/README.md)
-- Config keys: [../../config/README.md](../../config/README.md)
+- QC consumer of GROBID + pdfplumber branches: [../../quality_control/README.md](../../quality_control/README.md)
+- Config keys: [../../configs/README.md](../../configs/README.md)
 - Root overview: [../../README.md](../../README.md)

@@ -21,8 +21,7 @@ project(unified, base_uri="")
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-
-from quality_control.models import UnifiedRecord
+from typing import Any
 
 
 @dataclass
@@ -58,7 +57,7 @@ class AnnotationRecord:
     body_value: str = ""
 
 
-def project(unified: UnifiedRecord, base_uri: str = "") -> list[AnnotationRecord]:  # noqa: ARG001
+def project(unified: Any, base_uri: str = "") -> list[AnnotationRecord]:  # noqa: ARG001
     """Project a UnifiedRecord into annotation records.
 
     Reads only from ``unified.semantic`` and ``unified.alignment``.

@@ -17,10 +17,6 @@ Usage::
         DEFAULT_SECTION_VERIFICATION,
         DEFAULT_TABLE_FIGURE_MERGE,
     )
-
-Design reference: .kiro/specs/architecture-migration/design.md
-                  §Concern Strategy Package
-Requirements: 7.3
 """
 
 from __future__ import annotations

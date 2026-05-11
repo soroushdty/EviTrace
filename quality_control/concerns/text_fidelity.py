@@ -6,16 +6,11 @@ Asymmetric text fidelity reconciliation and adjudication strategy.
 The strategy encodes which argument is authoritative: ``reference`` is always
 the preferred reading.  Callers that need the opposite asymmetry simply swap
 the argument order.
-
-Design reference: .kiro/specs/architecture-migration/design.md
-                  §Concern Strategy Package
-Requirements: 7.3
-Boundary: quality_control/concerns/text_fidelity
 """
 
 from __future__ import annotations
 
-from quality_control.models import AlignmentMapEntry
+from quality_control.models import AlignmentRecord
 
 
 class TextFidelityConcern:
@@ -23,7 +18,7 @@ class TextFidelityConcern:
 
     Args:
         source_label: Free string identifying the ground-truth source.
-            Stored on :class:`~quality_control.models.AlignmentMapEntry` and
+            Stored on :class:`~quality_control.models.AlignmentRecord` and
             returned as ``preferred_source`` by :meth:`adjudicate`.
         threshold: Edit-distance threshold (exclusive) for the ``"partial"``
             agreement band.  Entries with ``edit_distance < threshold`` are
@@ -99,7 +94,7 @@ class TextFidelityConcern:
         ``self.source_label`` with zero confidence.
 
         Args:
-            alignment_entries: List of :class:`~quality_control.models.AlignmentMapEntry`
+            alignment_entries: List of :class:`~quality_control.models.AlignmentRecord`
                 objects (or dicts with compatible attributes via ``getattr``).
             config: Pipeline configuration dict (reserved for future thresholds).
 

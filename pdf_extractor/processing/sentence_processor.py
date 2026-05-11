@@ -4,7 +4,7 @@ sentence_processor.py
 Sentence-level text processing module.
 
 Responsibilities:
-    - Text normalisation         (normalise_text)
+    - Text normalisation         (LineHealingNormalizer)
     - Noise / metadata filtering (is_noise)
     - Sentence segmentation      (process_sentences)
     - Full-text assembly         (build_full_text)
@@ -15,48 +15,13 @@ No code executes at import time.
 import re
 from typing import TYPE_CHECKING
 
+from text_processing.normalizers import LineHealingNormalizer
+
 if TYPE_CHECKING:
-    from utils.text_processor import TextProcessor
+    from text_processing.base import TextProcessor
 
-
-# ---------------------------------------------------------------------------
-# 1. normalise_text
-# ---------------------------------------------------------------------------
-
-def normalise_text(text: str) -> str:
-    """Normalise a raw text block for downstream sentence segmentation.
-
-    Operations applied (in order):
-        1. Merge broken lines: a single newline that is NOT followed by an
-           uppercase letter (A-Z) or a bullet character (-, *, •, ·) is
-           replaced with a space, so mid-sentence line-breaks are healed.
-        2. Collapse runs of two or more newlines into a single newline.
-        3. Collapse runs of two or more spaces into a single space.
-        4. Strip leading and trailing whitespace.
-
-    Parameters
-    ----------
-    text : str
-        Raw text block, potentially containing line breaks and extra spaces.
-
-    Returns
-    -------
-    str
-        The normalised string.
-    """
-    # Step 1 – heal mid-sentence line breaks.
-    # A single '\n' NOT followed by an uppercase letter or a bullet character
-    # is treated as a soft wrap; replace it with a space.
-    text = re.sub(r'\n(?![A-Z\-\*•·])', ' ', text)  # FIX 9: \d excluded from lookahead intentionally — merges "Table\n1…" correctly
-
-    # Step 2 – collapse multiple consecutive newlines into one.
-    text = re.sub(r'\n{2,}', '\n', text)
-
-    # Step 3 – collapse multiple spaces into one.
-    text = re.sub(r' {2,}', ' ', text)
-
-    # Step 4 – strip leading / trailing whitespace.
-    return text.strip()
+# Module-level normalizer instance (replaces the old normalise_text function)
+_line_healer = LineHealingNormalizer()
 
 
 # ---------------------------------------------------------------------------
@@ -230,7 +195,7 @@ def process_sentences(
         if page_index is None:
             continue
 
-        normalised = normalise_text(text_block)
+        normalised = _line_healer.normalize(text_block)
 
         candidates = text_processor.tokenize_sentences(normalised)
 

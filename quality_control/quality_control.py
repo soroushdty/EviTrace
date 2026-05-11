@@ -13,40 +13,45 @@ of branch outputs — not just PDF extraction results.
 PDF pipeline
 ------------
 ``run_quality_control`` builds PDF-specific stage closures and delegates to
-``run_pipeline``.  Tier 1 / 2 / 3 metrics tracking is layered on top via
+``run_pipeline``.  Metrics tracking is layered on top via
 ``ctx.metrics_hierarchy``.
 
 Public API
 ----------
-- run_pipeline(branches, *, rater_fn, iaa_fn, adjudicator_fn, reconciler_fn, config) -> QCContext
-- run_quality_control(branches, document_id, config) -> QCContext
+- run_pipeline(branches, *, rater_fn, iaa_fn, adjudicator_fn, reconciler_fn, config) -> QCBundle
+- run_quality_control(branches, document_id, config) -> QCBundle
 """
 
 from __future__ import annotations
 
-import hashlib
 import importlib
-import json
 import logging
 from typing import Callable
 
 from . import rater, iaa_calculator, adjudicator, reconciler
-from .local_metrics import LocalQCReport
+from .checks import (
+    ExtractorAgreementCheck,
+    SemanticSourceVerificationCheck,
+    SourceTextPresenceCheck,
+)
+from .local_metrics import ExtractionCoverageReport
 from .models import (
-    AdjudicationDecision,
     AdjudicationRules,
-    AlignmentMap,
-    BranchOutput,
+    DocumentAlignment,
+    Candidate,
     InterRaterMetrics,
-    InterRaterReport,
-    QCContext,
+    QCBundle,
     QualityMetrics,
-    QualityReport,
     SemanticLayer,
     StructuralLayer,
     UnifiedRecord,
+    VerificationResult,
 )
-from pdf_extractor.utils.text_utils import exact_match_search, semantic_search
+from .builtin_impls import (
+    AdjudicationDecision,
+    InterRaterReport,
+    QualityReport,
+)
 
 logger = logging.getLogger("pdf_extractor")
 
@@ -56,14 +61,14 @@ logger = logging.getLogger("pdf_extractor")
 # ---------------------------------------------------------------------------
 
 def run_pipeline(
-    branches: list[BranchOutput],
+    branches: list[Candidate],
     *,
-    rater_fn: Callable[[BranchOutput, list[BranchOutput], int, dict], QualityMetrics],
+    rater_fn: Callable[[Candidate, list[Candidate], int, dict], QualityMetrics],
     iaa_fn: Callable[[list[QualityMetrics], dict], InterRaterMetrics],
     adjudicator_fn: Callable[[list[QualityMetrics], InterRaterMetrics, dict], AdjudicationRules],
-    reconciler_fn: Callable[[AdjudicationRules, list[BranchOutput], dict], UnifiedRecord],
+    reconciler_fn: Callable[[AdjudicationRules, list[Candidate], dict], UnifiedRecord],
     config: dict | None = None,
-) -> QCContext:
+) -> QCBundle:
     """Generic four-stage QC pipeline with injectable stage callables.
 
     Each stage callable receives the outputs of the previous stages plus the
@@ -106,7 +111,7 @@ def run_pipeline(
 
     Returns
     -------
-    QCContext
+    QCBundle
         Fully populated context with ``branches``, ``reports``,
         ``iaa_metrics``, ``decision``, and ``unified`` set.
 
@@ -119,7 +124,7 @@ def run_pipeline(
         raise TypeError(f"branches must be a list, got {type(branches).__name__!r}")
 
     config = config or {}
-    ctx = QCContext(branches=branches)
+    ctx = QCBundle(branches=branches)
 
     for i, branch in enumerate(branches):
         report = rater_fn(branch, branches, i, config)
@@ -141,12 +146,11 @@ def _load_text_processor(config: dict) -> object:
     """Resolve and instantiate the configured TextProcessor class.
 
     Expects config["quality_control"]["text_processor"]["class"] to be a
-    fully-qualified import path (eg. "utils.text_processor.TextProcessor").
-    If absent, defaults to utils.text_processor.TextProcessor.
+    fully-qualified import path (eg. "text_processing.base.ScispaCySentenceSegment").
+    If absent, defaults to text_processing.base.ScispaCySentenceSegment.
     """
-    qc_cfg = (config or {}).get("quality_control", {})
-    tp_cfg = qc_cfg.get("text_processor", {}) if isinstance(qc_cfg, dict) else {}
-    class_path = tp_cfg.get("class", "utils.text_processor.TextProcessor")
+    tp_cfg = (config or {}).get("text_processor", {})
+    class_path = tp_cfg.get("class", "text_processing.base.ScispaCySentenceSegment")
     try:
         module_name, class_name = class_path.rsplit(".", 1)
         module = importlib.import_module(module_name)
@@ -204,7 +208,7 @@ def _extract_branch_payload(payload: object) -> tuple[str, dict[int, str], list[
     )
 
 
-def _build_native_page_texts(branches: list[BranchOutput], current_index: int) -> dict[int, str]:
+def _build_native_page_texts(branches: list[Candidate], current_index: int) -> dict[int, str]:
     """Build a best-effort native backend page-text map from the other branches."""
     native_page_texts: dict[int, list[str]] = {}
     for index, branch in enumerate(branches):
@@ -221,14 +225,14 @@ def _build_native_page_texts(branches: list[BranchOutput], current_index: int) -
     }
 
 
-def _build_tier1_report(
-    branch: BranchOutput,
-    branches: list[BranchOutput],
+def _build_local_metrics_report(
+    branch: Candidate,
+    branches: list[Candidate],
     branch_index: int,
     config: dict,
     text_processor,
-) -> LocalQCReport:
-    """Create and evaluate the Metrics Tier 1 report for a single branch."""
+) -> ExtractionCoverageReport:
+    """Create and evaluate the local metrics report for a single branch."""
     full_text, page_texts, blocks = _extract_branch_payload(branch.payload)
     sentence_records = [
         {"sentence": sentence}
@@ -236,7 +240,7 @@ def _build_tier1_report(
     ]
     native_page_texts = _build_native_page_texts(branches, branch_index)
 
-    report = LocalQCReport(
+    report = ExtractionCoverageReport(
         config=config,
         blocks=blocks,
         sentence_records=sentence_records,
@@ -249,7 +253,7 @@ def _build_tier1_report(
 
 
 def _build_placeholder_sentence_store(full_text: str, text_processor) -> dict:
-    """Return a scaffold sentence store used only to record Tier 3 attempts."""
+    """Return a scaffold sentence store used only to record semantic verification attempts."""
     first_sentence = (
         (text_processor.tokenize_sentences(full_text)[:1] if text_processor else [])
     )
@@ -264,99 +268,37 @@ def _build_placeholder_sentence_store(full_text: str, text_processor) -> dict:
     }
 
 
-def _derive_document_id(grobid_output: str, pymupdf_output: dict | list) -> str:
-    """Derive a deterministic SHA-256 document ID from both extractor outputs."""
-    payload = json.dumps(
-        {"grobid": grobid_output, "pymupdf": pymupdf_output},
-        sort_keys=True,
-        ensure_ascii=False,
-    ).encode("utf-8")
-    return hashlib.sha256(payload).hexdigest()
-
-
-def _run_legacy_pipeline(
-    grobid_output: str,
-    pymupdf_output: dict | list,
-    document_id: str,
-    config: dict,
-) -> UnifiedRecord:
-    """Run the legacy two-extractor QC pipeline and return a UnifiedRecord."""
-    from pdf_extractor import artifact_generator
-
-    logger.debug("QC: building canonical artifacts for document_id=%s", document_id)
-    canonical_artifacts = artifact_generator.build_canonical_artifacts(
-        grobid_output, pymupdf_output, document_id
-    )
-    logger.debug("QC: canonical artifacts built for document_id=%s", document_id)
-
-    if config.get("quality_control", {}).get("artifact_generator", {}).get("export_to_disk", False):
-        output_dir = config["quality_control"]["artifact_generator"]["output_dir"]
-        artifact_generator.export_canonical_artifacts(canonical_artifacts, output_dir)
-
-    logger.debug("QC: rating grobid for document_id=%s", document_id)
-    grobid_observation = rater.observe("grobid", canonical_artifacts, document_id, config)
-    logger.debug("QC: rating pymupdf for document_id=%s", document_id)
-    pymupdf_observation = rater.observe("pymupdf", canonical_artifacts, document_id, config)
-
-    logger.debug("QC: computing IAA for document_id=%s", document_id)
-    investigator_object = iaa_calculator.investigate(
-        grobid_observation,
-        pymupdf_observation,
-        canonical_artifacts,
-        canonical_artifacts,
-        config,
-    )
-    logger.debug("QC: IAA computation complete for document_id=%s", document_id)
-
-    logger.debug("QC: adjudicating for document_id=%s", document_id)
-    # Build a minimal AlignmentMap for the legacy pipeline path.
-    # The legacy path has no pre-computed alignment entries, so all lists are
-    # empty and the adjudicator will return an empty decisions dict.
-    alignment_map = AlignmentMap()
-    decisions = adjudicator.adjudicate(alignment_map, config)
-    logger.debug("QC: adjudication complete for document_id=%s", document_id)
-
-    # Delegate to the reconciler with adjudication decisions (may be empty).
-    # reconciler.reconcile() returns a UnifiedRecord; return it directly.
-    return reconciler.reconcile(
-        canonical_artifacts,
-        canonical_artifacts,
-        grobid_observation,
-        pymupdf_observation,
-        investigator_object,
-        decisions if decisions else None,
-        config,
-    )
-
-
 # ---------------------------------------------------------------------------
 # PDF-specific pipeline (wraps run_pipeline with concrete stage closures)
 # ---------------------------------------------------------------------------
 
 def run_quality_control(
-    branches: list[BranchOutput],
+    branches: list[Candidate],
     document_id: str,
     config: dict,
-) -> QCContext:
+    *,
+    exact_match_fn: "Callable | None" = None,
+    semantic_search_fn: "Callable | None" = None,
+) -> QCBundle:
     """PDF-specific QC pipeline built on top of ``run_pipeline``.
 
-    Accepts a list of :class:`~quality_control.models.BranchOutput` instances
+    Accepts a list of :class:`~quality_control.models.Candidate` instances
     (one per extractor branch), wires the five-module PDF pipeline into the
     generic ``run_pipeline`` orchestrator, and returns a fully populated
-    :class:`~quality_control.models.QCContext`.
+    :class:`~quality_control.models.QCBundle`.
 
     Metrics hierarchy
     -----------------
-    The pipeline runs three tiers of quality checks, independent of the
+    The pipeline runs three layers of quality checks, independent of the
     extractor hierarchy:
 
-    - **Tier 1** (Local_QC_Metrics) — cheap heuristics, always run.
-    - **Tier 2** (exact/fuzzy text comparison) — run on borderline Tier 1
-      results (1–2 triggered metrics).
-    - **Tier 3** (FAISS semantic comparison) — scaffolded; not yet wired into
-      adjudication.
-
-    Results from all tiers are stored in ``ctx.metrics_hierarchy``.
+    - **Extraction coverage** — cheap heuristics, always run.
+    - **Source text verification** (exact/fuzzy text comparison) — run on
+      borderline extraction-coverage results (1–2 triggered metrics).
+      Requires ``exact_match_fn`` to be provided; skipped when ``None``.
+    - **Semantic verification** (FAISS semantic comparison) — scaffolded; not
+      yet wired into adjudication.  Requires ``semantic_search_fn`` to be
+      provided; skipped when ``None``.
 
     Parameters
     ----------
@@ -366,10 +308,18 @@ def run_quality_control(
         Stable document identifier (non-empty string).
     config:
         Loaded pipeline config dict.
+    exact_match_fn:
+        Optional callable ``(sentence, full_text, page_texts, blocks) -> result``
+        used for source-text verification search.  When ``None``, source-text
+        verification is skipped.
+    semantic_search_fn:
+        Optional callable used for semantic verification search.  When ``None``,
+        semantic verification is skipped even when ``semantic_verification.enabled``
+        is ``True``.
 
     Returns
     -------
-    QCContext
+    QCBundle
         Fully populated context with ``branches``, ``reports``,
         ``iaa_metrics``, ``decision``, and ``unified`` set.
 
@@ -387,42 +337,24 @@ def run_quality_control(
 
     logger.info("QC pipeline start: document_id=%s", document_id)
 
-    # Tier 3 scaffolding check: enabled flag is recorded but does NOT alter
-    # any branch selection or adjudication outcome.
-    semantic_qc_enabled = (
-        config.get("quality_control", {})
-        .get("semantic_qc", {})
-        .get("enabled", False)
-    )
-    if semantic_qc_enabled:
-        logger.debug(
-            "Metrics Tier 3 (semantic QC) is enabled but not yet wired into adjudication"
-            " — scaffolded only"
-        )
-
     # --- PDF-specific state captured by stage closures ---
-    borderline_branches: list[tuple[int, BranchOutput, LocalQCReport]] = []
-    metrics_hierarchy: dict = {"tier1": [], "tier2": [], "tier3": []}
+    borderline_branches: list[tuple[int, Candidate, ExtractionCoverageReport]] = []
+    metrics_hierarchy: dict = {"extraction_coverage": [], "source_text_verification": [], "semantic_verification": {}}
 
-    # Instantiate a single TextProcessor for this run (Task 12.1)
-    try:
-        text_processor = _load_text_processor(config)
-    except Exception:
-        # Fall back to None to preserve behavior in test environments
-        text_processor = None
+    text_processor = _load_text_processor(config)
 
-    # --- Stage 1: PDF rater (Tier 1 LocalQCReport) ---
+    # --- Stage 1: PDF rater (ExtractionCoverageReport) ---
     def _pdf_rater_fn(
-        branch: BranchOutput,
-        all_branches: list[BranchOutput],
+        branch: Candidate,
+        all_branches: list[Candidate],
         index: int,
         cfg: dict,
     ) -> QualityMetrics:
-        report = _build_tier1_report(branch, all_branches, index, cfg, text_processor)
+        report = _build_local_metrics_report(branch, all_branches, index, cfg, text_processor)
         passed = not any(m.triggered for m in report.metric_records)
         report.status = "pass" if passed else "fail"
-        metrics_hierarchy["tier1"].append(
-            {"extractor": branch.extractor, "branch": branch.branch, "report": report}
+        metrics_hierarchy["extraction_coverage"].append(
+            {"source": branch.source, "index": branch.index, "report": report}
         )
         triggered_count = sum(1 for m in report.metric_records if m.triggered)
         if 0 < triggered_count <= 2:
@@ -447,14 +379,14 @@ def run_quality_control(
         return decision
 
     # --- Stage 4: Reconciliation (strategy-driven, extractor-agnostic call site) ---
-    def _build_reconciler_artifact(branch: BranchOutput | None) -> dict:
+    def _build_reconciler_artifact(branch: Candidate | None) -> dict:
         if branch is None:
             return {"document_id": document_id, "blocks": []}
         full_text, _page_texts, blocks = _extract_branch_payload(branch.payload)
         return {
             "document_id": document_id,
-            "extractor": branch.extractor,
-            "branch": branch.branch,
+            "source": branch.source,
+            "index": branch.index,
             "text": full_text,
             "blocks": blocks,
         }
@@ -480,7 +412,7 @@ def run_quality_control(
 
     def _pdf_reconciler_fn(
         decision: AdjudicationRules,
-        all_branches: list[BranchOutput],
+        all_branches: list[Candidate],
         cfg: dict,
     ) -> UnifiedRecord:
         from quality_control.concerns import (
@@ -488,26 +420,15 @@ def run_quality_control(
             DEFAULT_TABLE_FIGURE_MERGE,
             DEFAULT_TEXT_FIDELITY,
         )
-        from pdf_extractor.annotation import w3c_annotation
-        from pdf_extractor.annotation import artifact_generator as annotation_artifact_generator
 
         grobid_branch = next(
             (b for b in all_branches if b.extractor == "grobid"),
             None,
         )
         secondary_branch = next(
-            (
-                b
-                for b in all_branches
-                if str(b.branch).lower() in {"pdfplumber", "pymupdf"}
-            ),
+            (b for b in all_branches if b.extractor in {"pdfplumber", "pymupdf"}),
             None,
         )
-        if secondary_branch is None:
-            secondary_branch = next(
-                (b for b in all_branches if b.extractor in {"pdfplumber", "pymupdf"}),
-                None,
-            )
 
         primary_artifact = _build_reconciler_artifact(grobid_branch)
         secondary_artifact = _build_reconciler_artifact(secondary_branch)
@@ -540,13 +461,6 @@ def run_quality_control(
                         }
                     )
 
-        # Wire annotation chain: project and generate JSON-LD, store on record.
-        annotation_records = w3c_annotation.project(updated_unified)
-        jsonld = annotation_artifact_generator.generate_w3c_jsonld(annotation_records)
-        if not isinstance(updated_unified.content, dict):
-            updated_unified.content = {}
-        updated_unified.content["annotations"] = jsonld
-
         # If any branch exists, enforce non-None typed layers.
         if all_branches:
             if updated_unified.semantic is None:
@@ -554,22 +468,9 @@ def run_quality_control(
             if updated_unified.structural is None:
                 updated_unified.structural = StructuralLayer()
             if updated_unified.alignment is None:
-                updated_unified.alignment = AlignmentMap()
+                updated_unified.alignment = DocumentAlignment()
 
         return updated_unified
-
-    # Retained for compatibility; no longer used by the active reconciler closure.
-    def _run_legacy_annotation_path(unified: UnifiedRecord) -> UnifiedRecord:  # pragma: no cover
-        try:
-            from pdf_extractor.annotation import w3c_annotation as _w3c_annotation
-            from pdf_extractor.annotation import artifact_generator as _annotation_artifact_generator
-            annotation_records = _w3c_annotation.project(unified)
-            jsonld = _annotation_artifact_generator.generate_w3c_jsonld(annotation_records)
-            if isinstance(unified.content, dict):
-                unified.content["annotations"] = jsonld
-        except ImportError as exc:
-            logger.warning("Annotation projection unavailable: %s", exc)
-        return unified
 
     # --- Run the generic pipeline ---
     ctx = run_pipeline(
@@ -582,68 +483,147 @@ def run_quality_control(
     )
     ctx.metrics_hierarchy = metrics_hierarchy
 
-    # --- Tier 2: exact-match search on borderline branches ---
-    tier2_result = None
-    for branch_index, branch, report in borderline_branches:
-        exact_sentence = (
-            report.sentence_records[0]["sentence"]
-            if report.sentence_records
-            else report.full_pdf_text
-        )
-        if not exact_sentence:
-            continue
+    qc_cfg = config.get("quality_control", {})
+    stv_cfg = qc_cfg.get("source_text_verification", {})
+    sem_cfg = qc_cfg.get("semantic_verification", {})
+    ea_cfg = sem_cfg.get("extractor_agreement", {})
 
-        for candidate_index, candidate_branch in enumerate(branches):
-            if candidate_index == branch_index:
+    stv_enabled: bool = stv_cfg.get("enabled", True)
+    sem_enabled: bool = sem_cfg.get("enabled", False)
+    ea_enabled: bool = ea_cfg.get("enabled", False)
+
+    _SENTINEL_EVIDENCE = {
+        "found_sentence": None,
+        "page_index": None,
+        "prefix": None,
+        "suffix": None,
+        "block_bbox": None,
+        "span_bboxes": None,
+    }
+
+    # --- Source text verification ---
+    if not stv_enabled:
+        # Bypass: record a passing sentinel result
+        metrics_hierarchy["source_text_verification"].append(
+            VerificationResult(
+                check_name="source_text_presence",
+                status="skipped",
+                score=1.0,
+                evidence=dict(_SENTINEL_EVIDENCE),
+                details={},
+            )
+        )
+    elif exact_match_fn is not None:
+        stv_check = SourceTextPresenceCheck(matcher=exact_match_fn)
+        for branch_index, branch, report in borderline_branches:
+            exact_sentence = (
+                report.sentence_records[0]["sentence"]
+                if report.sentence_records
+                else report.full_pdf_text
+            )
+            if not exact_sentence:
                 continue
 
-            candidate_text, candidate_page_texts, candidate_blocks = _extract_branch_payload(
-                candidate_branch.payload
-            )
-            candidate_result = exact_match_search(
-                exact_sentence,
-                candidate_text,
-                candidate_page_texts,
-                candidate_blocks,
-            )
-            metrics_hierarchy["tier2"].append(
-                {
-                    "source_branch": branch.branch,
-                    "target_branch": candidate_branch.branch,
-                    "result": candidate_result,
-                }
-            )
-            if candidate_result is not None:
-                tier2_result = candidate_result
-                break
+            for candidate_index, candidate_branch in enumerate(branches):
+                if candidate_index == branch_index:
+                    continue
 
-        if tier2_result is not None:
+                candidate_text, candidate_page_texts, candidate_blocks = _extract_branch_payload(
+                    candidate_branch.payload
+                )
+                vr = stv_check.run(
+                    exact_sentence,
+                    candidate_text,
+                    candidate_page_texts,
+                    candidate_blocks,
+                )
+                metrics_hierarchy["source_text_verification"].append(vr)
+                if vr.status == "verified":
+                    break
+
+            else:
+                continue
             break
 
-    # --- Tier 3: semantic search (scaffolded only) ---
-    if semantic_qc_enabled and tier2_result is None and borderline_branches:
+    # --- Semantic verification ---
+    if not sem_enabled:
+        # Bypass: record a passing sentinel result
+        metrics_hierarchy["semantic_verification"]["result"] = VerificationResult(
+            check_name="semantic_source_verification",
+            status="skipped",
+            score=1.0,
+            evidence=dict(_SENTINEL_EVIDENCE),
+            details={},
+        )
+    elif semantic_search_fn is not None and borderline_branches:
+        on_index_unavailable: str = sem_cfg.get("on_index_unavailable", "skip")
+        similarity_threshold: float = sem_cfg.get("similarity_threshold", 0.85)
+
+        sem_check = SemanticSourceVerificationCheck(
+            matcher=semantic_search_fn,
+            on_index_unavailable=on_index_unavailable,
+        )
+
         branch_index, branch, report = borderline_branches[0]
-        exact_sentence = (
+        query_sentence = (
             report.sentence_records[0]["sentence"]
             if report.sentence_records
             else report.full_pdf_text
         )
-        if exact_sentence:
-            semantic_result = semantic_search(
-                exact_sentence,
-                _build_placeholder_sentence_store(report.full_pdf_text, text_processor),
-                lambda query_text, model=None, query_prefix="": None,
-                config.get("quality_control", {})
-                .get("semantic_qc", {})
-                .get("similarity_threshold", 0.85),
-                None,
+        if query_sentence:
+            sentence_store = _build_placeholder_sentence_store(
+                report.full_pdf_text, text_processor
             )
-        else:
-            semantic_result = None
+            _, candidate_page_texts, _ = _extract_branch_payload(branch.payload)
+            try:
+                sem_vr = sem_check.run(
+                    query_sentence,
+                    sentence_store,
+                    lambda query_text, model=None, query_prefix="": None,
+                    similarity_threshold,
+                    candidate_page_texts,
+                )
+            except RuntimeError as exc:
+                logger.warning(
+                    "Semantic verification failed for document_id=%s: %s",
+                    document_id,
+                    exc,
+                )
+                sem_vr = VerificationResult(
+                    check_name="semantic_source_verification",
+                    status="unavailable",
+                    score=0.0,
+                    evidence=dict(_SENTINEL_EVIDENCE),
+                    details={"error": str(exc)},
+                )
+            metrics_hierarchy["semantic_verification"]["result"] = sem_vr
 
-        metrics_hierarchy["tier3"].append(
-            {"source_branch": branch.branch, "result": semantic_result}
+    # --- Extractor agreement (optional, observational only) ---
+    if ea_enabled and exact_match_fn is not None:
+        ea_check = ExtractorAgreementCheck(
+            exact_matcher=exact_match_fn,
+            semantic_matcher=semantic_search_fn if sem_enabled else None,
         )
+        # Use the first two branches for agreement comparison
+        primary_blocks: list = []
+        candidate_blocks: list = []
+        if len(branches) >= 1:
+            _, _, primary_blocks = _extract_branch_payload(branches[0].payload)
+        if len(branches) >= 2:
+            _, _, candidate_blocks = _extract_branch_payload(branches[1].payload)
+        try:
+            ea_result = ea_check.run(primary_blocks, candidate_blocks, config)
+        except ImportError as exc:
+            logger.warning(
+                "ExtractorAgreementCheck failed for document_id=%s: %s",
+                document_id,
+                exc,
+            )
+            ea_result = {
+                "status": "error",
+                "error": str(exc),
+            }
+        metrics_hierarchy["semantic_verification"]["extractor_agreement"] = ea_result
 
     logger.info("QC pipeline complete: document_id=%s", document_id)
     return ctx

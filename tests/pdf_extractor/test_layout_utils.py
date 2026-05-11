@@ -10,7 +10,7 @@ Run with::
 
 import pytest
 
-from pdf_extractor.utils.layout_utils import detect_section_heading, location_cross_check
+from pdf_extractor.layout_utils import detect_section_heading, location_cross_check
 
 
 # ---------------------------------------------------------------------------
