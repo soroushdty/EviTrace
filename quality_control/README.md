@@ -15,7 +15,7 @@ any other branched-output use case.
 pdf_extractor.extraction.GROBID    ──► tei_xml
 pdf_extractor.extraction.PyMuPDF   ──► blocks
                                    │
-                                   ▼ BranchOutput[]
+                                   ▼ Candidate[]
 quality_control.run_quality_control(branches, document_id, config)
         │
         ├── stage 1: Artifact Generator      (canonicalise per-branch payload + SHA-256 ID)
@@ -25,7 +25,7 @@ quality_control.run_quality_control(branches, document_id, config)
         └── stage 5: Reconciler              (build UnifiedRecord)
                                    │
                                    ▼
-                          QCContext (with .unified)
+                          QCBundle (with .unified)
                                    │
                                    ▼
 pipeline.pdf_processor.process_pdf  (uses unified.content["exact_text"])
@@ -74,15 +74,15 @@ Pipeline orchestrator.
 ### `models.py`
 
 Shared dataclasses; the QC pipeline communicates through a single
-`QCContext` instance that is mutated in place rather than passed by
+`QCBundle` instance that is mutated in place rather than passed by
 value, so the full pipeline state is inspectable at any point.
 
-- `BranchOutput` holds one branch's payload, extractor name, and status.
+- `Candidate` holds one branch's payload, extractor name, and status.
 - `QualityMetrics` / `QualityReport` define the per-branch quality-check contract.
 - `InterRaterMetrics` / `InterRaterReport` define agreement computation.
 - `AdjudicationRules` / `AdjudicationDecision` define branch selection logic.
 - `UnifiedRecord` is the reconciled output.
-- `QCContext` carries the full run state across stages.
+- `QCBundle` carries the full run state across stages.
 
 ### `local_metrics.py`
 
@@ -128,13 +128,13 @@ Builds the final unified output.
 
 ```python
 from quality_control import run_pipeline, run_quality_control
-from quality_control import QCContext, BranchOutput
+from quality_control import QCBundle, Candidate
 ```
 
 | Entry point | Use when |
 | ----------- | -------- |
-| `run_pipeline(branches, *, rater_fn, iaa_fn, adjudicator_fn, reconciler_fn, config) -> QCContext` | You want to inject custom stage implementations (any domain). |
-| `run_quality_control(branches, document_id, config) -> QCContext` | You want the current PDF-extraction workflow with the built-in stages. |
+| `run_pipeline(branches, *, rater_fn, iaa_fn, adjudicator_fn, reconciler_fn, config) -> QCBundle` | You want to inject custom stage implementations (any domain). |
+| `run_quality_control(branches, document_id, config) -> QCBundle` | You want the current PDF-extraction workflow with the built-in stages. |
 
 ---
 
@@ -157,18 +157,18 @@ Pipeline orchestrator.
 ### `models.py`
 
 Shared dataclasses; the QC pipeline communicates through a single
-`QCContext` instance that is mutated in place rather than passed by
+`QCBundle` instance that is mutated in place rather than passed by
 value, so the full pipeline state is inspectable at any point.
 
 | Class | Role |
 | ----- | ---- |
-| `BranchOutput` | One branch's payload, extractor name, branch index, status. |
+| `Candidate` | One branch's payload, extractor name, branch index, status. |
 | `QualityMetrics` / `QualityReport` | Per-branch quality-check contract. Concrete `LocalQCReport` lives in `local_metrics.py`. |
 | `LocalQCMetricRecord` | One row per Tier 1 metric. |
 | `InterRaterMetrics` / `InterRaterReport` | Inter-rater agreement contract. |
 | `AdjudicationRules` / `AdjudicationDecision` | Branch-selection logic. |
 | `UnifiedRecord` | Final reconciled output (carries `document_id` and `content["exact_text"]`). |
-| `QCContext` | Full run state (branches, artifacts, observations, decision, unified, metrics_hierarchy). |
+| `QCBundle` | Full run state (branches, artifacts, observations, decision, unified, metrics_hierarchy). |
 
 ### `local_metrics.py` — `LocalQCReport`
 
@@ -239,13 +239,13 @@ is available, so downstream interfaces remain stable.
 ## Inputs and outputs
 
 - **Input:**
-  - `branches: list[BranchOutput]` — typically a GROBID `tei_xml`
+  - `branches: list[Candidate]` — typically a GROBID `tei_xml`
     branch and a PyMuPDF `blocks` branch, both for the same PDF.
   - `document_id: str` — used to namespace artifacts and the
     `UnifiedRecord`.
   - `config: dict` — the full project config; the package reads only
     the `quality_control` section.
-- **Output:** `QCContext` with `ctx.unified` populated. Downstream
+- **Output:** `QCBundle` with `ctx.unified` populated. Downstream
   code reads `ctx.unified.document_id` and
   `ctx.unified.content["exact_text"]`.
 

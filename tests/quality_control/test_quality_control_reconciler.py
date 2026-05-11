@@ -20,7 +20,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from quality_control.models import (
-    AlignmentMap,
+    DocumentAlignment,
     SemanticLayer,
     StructuralLayer,
     UnifiedRecord,
@@ -411,7 +411,7 @@ class TestConcernRouting:
         )
 
         assert result.alignment is not None
-        assert isinstance(result.alignment, AlignmentMap)
+        assert isinstance(result.alignment, DocumentAlignment)
 
     def test_reconcile_source_has_no_grobid_or_pdfplumber_literals(self) -> None:
         """inspect.getsource(reconcile) contains no literal 'grobid' or 'pdfplumber'."""
@@ -420,7 +420,7 @@ class TestConcernRouting:
         assert "pdfplumber" not in src, "reconcile() source contains literal 'pdfplumber'"
 
     def test_mock_strategies_populate_alignment_map(self) -> None:
-        """Injected concern strategies produce a populated AlignmentMap."""
+        """Injected concern strategies produce a populated DocumentAlignment."""
         primary = {
             "document_id": "doc-align",
             "blocks": [

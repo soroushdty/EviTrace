@@ -69,7 +69,7 @@ text is present). Thresholds are configurable under
 
 Calls the GROBID `processFulltextDocument` REST endpoint and returns
 `(tei_xml_str, list[BlockDict])`. The raw TEI XML string is the
-primary payload consumed by the QC pipeline as `BranchOutput.payload`
+primary payload consumed by the QC pipeline as `Candidate.payload`
 for the GROBID branch. GROBID is used on the digital path only.
 
 `extract_with_grobid` is not part of the `pdf_extractor.extraction`

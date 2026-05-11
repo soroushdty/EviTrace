@@ -177,18 +177,18 @@ Never mutate module-level globals or `_QC_DEFAULTS` in tests.
 
 ---
 
-## QCContext Construction in Tests
+## QCBundle Construction in Tests
 
-Build minimal `QCContext` instances using `BranchOutput` directly:
+Build minimal `QCBundle` instances using `Candidate` directly:
 
 ```python
-from quality_control.models import BranchOutput, QCContext
+from quality_control.models import Candidate, QCBundle
 
 branches = [
-    BranchOutput(extractor="grobid",  branch=0, payload="<TEI/>", status=None),
-    BranchOutput(extractor="pymupdf", branch=1, payload=[],        status=None),
+    Candidate(source="grobid",  index=0, payload="<TEI/>", status=None),
+    Candidate(source="pymupdf", index=1, payload=[],        status=None),
 ]
-ctx = QCContext(branches=branches)
+ctx = QCBundle(branches=branches)
 ```
 
 Import all dataclasses from `quality_control.models` — never from individual QC submodules.

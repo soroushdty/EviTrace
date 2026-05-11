@@ -39,7 +39,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from quality_control.quality_control import run_quality_control
-from quality_control import AlignmentMap, BranchOutput, QCContext, UnifiedRecord
+from quality_control import AlignmentRecord, DocumentAlignment, Candidate, QCBundle, UnifiedRecord
 from quality_control.models import SemanticLayer, StructuralLayer
 
 
@@ -59,11 +59,11 @@ def _make_minimal_config() -> dict:
     }
 
 
-def _make_branches(grobid_output: str, pymupdf_output: dict | list) -> list[BranchOutput]:
+def _make_branches(grobid_output: str, pymupdf_output: dict | list) -> list[Candidate]:
     """Build a standard two-branch list from grobid and pymupdf payloads."""
     return [
-        BranchOutput(extractor="grobid", branch=0, payload=grobid_output, status=None),
-        BranchOutput(extractor="pymupdf", branch=1, payload=pymupdf_output, status=None),
+        Candidate(source="grobid", index=0, payload=grobid_output, status=None),
+        Candidate(source="pymupdf", index=1, payload=pymupdf_output, status=None),
     ]
 
 
@@ -107,7 +107,7 @@ def test_pipeline_propagates_exceptions(module_name):
 
     with patch_target:
         config = _make_minimal_config()
-        branches = [BranchOutput(extractor="grobid", branch=0, payload="<root/>", status=None)]
+        branches = [Candidate(source="grobid", index=0, payload="<root/>", status=None)]
         with pytest.raises(RuntimeError, match="test error"):
             run_quality_control(branches, "test-doc", config)
 
@@ -170,7 +170,7 @@ class TestPipelineOrchestration:
                 content={},
                 semantic=SemanticLayer(paragraphs=[], sentences=[]),
                 structural=StructuralLayer(),
-                alignment=AlignmentMap(paragraph_to_blocks=[{"ok": True}]),
+                alignment=DocumentAlignment(paragraph_to_blocks=[{"ok": True}]),
             )
             config = _make_minimal_config()
             branches = _make_branches("<root/>", {"blocks": [{"text": "Hello", "page_index": 0}]})
@@ -192,8 +192,8 @@ class TestPipelineOrchestration:
             assert "grobid_observation" not in call_repr
 
     def test_reconciler_alignment_survives_into_qc_context(self):
-        """QCContext.unified keeps populated AlignmentMap from reconcile output."""
-        expected_alignment = AlignmentMap(paragraph_to_blocks=[{"agreement": "full"}])
+        """QCBundle.unified keeps populated DocumentAlignment from reconcile output."""
+        expected_alignment = DocumentAlignment(paragraph_to_blocks=[{"agreement": "full"}])
         with patch("quality_control.quality_control.reconciler.reconcile") as mock_reconcile:
             mock_reconcile.return_value = UnifiedRecord(
                 document_id="test-doc-id",
@@ -221,7 +221,7 @@ class TestPipelineOrchestration:
                 content={},
                 semantic=MagicMock(sentences=[]),
                 structural=MagicMock(),
-                alignment=AlignmentMap(),
+                alignment=DocumentAlignment(),
             )
             mock_project.return_value = [{"sentence_text": "s1"}]
             mock_generate_jsonld.return_value = [{"id": "anno-1"}]
@@ -240,7 +240,7 @@ class TestPipelineOrchestration:
             {"blocks": []},
         )
         result = run_quality_control(branches, "test-doc-id", config)
-        assert isinstance(result, QCContext)
+        assert isinstance(result, QCBundle)
 
     def test_type_error_for_branches_not_a_list(self):
         """run_quality_control('not a list', 'doc-id', config) must raise TypeError."""
@@ -278,7 +278,7 @@ class TestPipelineOrchestration:
             [{"text": "Hello", "page": 0}],
         )
         result = run_quality_control(branches, "test-doc-id", config)
-        assert isinstance(result, QCContext)
+        assert isinstance(result, QCBundle)
 
 
 # ---------------------------------------------------------------------------
@@ -294,7 +294,7 @@ def test_full_pipeline_integration():
     branches = _make_branches(grobid_output, pymupdf_output)
     result = run_quality_control(branches, "integration-test-doc-id", config)
 
-    assert isinstance(result, QCContext)
+    assert isinstance(result, QCBundle)
     assert result.unified is not None
 
     required_fields = [

@@ -205,12 +205,12 @@ class TestTextFidelityConcernAdjudicate:
 
     def test_adjudicate_picks_lowest_edit_distance(self):
         from quality_control.concerns import TextFidelityConcern
-        from quality_control.models import AlignmentMapEntry
+        from quality_control.models import AlignmentRecord
 
         concern = TextFidelityConcern(source_label="pdfplumber")
         entries = [
-            AlignmentMapEntry(source="grobid", edit_distance=0.5, confidence=0.5),
-            AlignmentMapEntry(source="pdfplumber", edit_distance=0.1, confidence=0.9),
+            AlignmentRecord(source="grobid", edit_distance=0.5, confidence=0.5),
+            AlignmentRecord(source="pdfplumber", edit_distance=0.1, confidence=0.9),
         ]
         result = concern.adjudicate(entries, config={})
         assert result["preferred_source"] == "pdfplumber"

@@ -4,7 +4,7 @@ import json
 from typing import Optional
 
 from agents.openai.api_client import extract_chunk, warm_pdf_cache
-from quality_control import QCContext
+from quality_control import QCBundle
 from .evidence_index import (
     attach_table_figure_crops,
     build_chunk_evidence_package,
@@ -104,7 +104,7 @@ async def _run_parallel_chunks(
 
 
 async def process_pdf(
-    qc_context: QCContext,
+    qc_context: QCBundle,
     chunk_fields: dict[int, list[dict]],
     field_lookup: dict[int, dict],
     api_semaphore: asyncio.Semaphore,

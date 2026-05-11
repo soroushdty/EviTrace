@@ -2,7 +2,7 @@ from pathlib import Path
 import importlib.util
 import sys
 
-from quality_control.models import QCContext, UnifiedRecord
+from quality_control.models import QCBundle, UnifiedRecord
 
 _EVIDENCE_PATH = Path(__file__).resolve().parents[2] / "pipeline" / "evidence_index.py"
 _SPEC = importlib.util.spec_from_file_location("pipeline_evidence_index_direct", _EVIDENCE_PATH)
@@ -15,7 +15,7 @@ build_or_load_evidence_bundle = _MODULE.build_or_load_evidence_bundle
 build_chunk_evidence_package = _MODULE.build_chunk_evidence_package
 
 
-def _qc_context_with_tei(tmp_path: Path) -> QCContext:
+def _qc_context_with_tei(tmp_path: Path) -> QCBundle:
     pdf_path = tmp_path / "paper.pdf"
     pdf_path.write_bytes(b"%PDF-1.4 fake")
     tei = """<?xml version="1.0" encoding="UTF-8"?>
@@ -45,7 +45,7 @@ def _qc_context_with_tei(tmp_path: Path) -> QCContext:
             "grobid_tei_xml": tei,
         },
     )
-    return QCContext(branches=[], unified=unified)
+    return QCBundle(branches=[], unified=unified)
 
 
 def test_build_evidence_bundle_prefills_study_fields(tmp_path: Path):

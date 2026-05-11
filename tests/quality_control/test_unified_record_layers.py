@@ -6,10 +6,10 @@ Tests for the typed data layer dataclasses introduced in Task 3.1.
 Covers Requirements: 1.1, 1.2, 1.3, 1.4
 
 Key behaviors verified:
-- All four new dataclasses (SemanticLayer, StructuralLayer, AlignmentMapEntry,
-  AlignmentMap) construct with correct defaults.
+- All four new dataclasses (SemanticLayer, StructuralLayer, AlignmentRecord,
+  DocumentAlignment) construct with correct defaults.
 - UnifiedRecord.content is accessible alongside the new typed fields.
-- AlignmentMapEntry.source is a free string — not constrained to any extractor
+- AlignmentRecord.source is a free string — not constrained to any extractor
   name set.
 - All list fields use field(default_factory=list) so instances are independent.
 """
@@ -114,22 +114,22 @@ class TestStructuralLayer:
 
 
 # ---------------------------------------------------------------------------
-# Requirement 1.3 — AlignmentMapEntry and AlignmentMap
+# Requirement 1.3 — AlignmentRecord and DocumentAlignment
 # ---------------------------------------------------------------------------
 
-class TestAlignmentMapEntry:
-    """AlignmentMapEntry — per-entry provenance and agreement (Req 1.3)."""
+class TestAlignmentRecord:
+    """AlignmentRecord — per-entry provenance and agreement (Req 1.3)."""
 
     def test_importable_from_quality_control(self):
-        from quality_control import AlignmentMapEntry  # noqa: F401
+        from quality_control import AlignmentRecord  # noqa: F401
 
     def test_is_dataclass(self):
-        from quality_control import AlignmentMapEntry
-        assert dataclasses.is_dataclass(AlignmentMapEntry)
+        from quality_control import AlignmentRecord
+        assert dataclasses.is_dataclass(AlignmentRecord)
 
     def test_default_fields(self):
-        from quality_control import AlignmentMapEntry
-        entry = AlignmentMapEntry()
+        from quality_control import AlignmentRecord
+        entry = AlignmentRecord()
         assert entry.source == "native"
         assert entry.ocr_derived is False
         assert entry.ocr_engines == []
@@ -140,65 +140,65 @@ class TestAlignmentMapEntry:
 
     def test_source_is_free_string(self):
         """Req 1.3: source must not be constrained to a fixed extractor name set."""
-        from quality_control import AlignmentMapEntry
+        from quality_control import AlignmentRecord
         for value in (
             "native", "grobid", "pdfplumber", "pymupdf",
             "paddle", "my_custom_extractor_99", "", "arbitrary",
         ):
-            entry = AlignmentMapEntry(source=value)
+            entry = AlignmentRecord(source=value)
             assert entry.source == value
 
     def test_agreement_accepted_values(self):
-        from quality_control import AlignmentMapEntry
+        from quality_control import AlignmentRecord
         for level in ("full", "partial", "divergent", "one_engine_only"):
-            entry = AlignmentMapEntry(agreement=level)
+            entry = AlignmentRecord(agreement=level)
             assert entry.agreement == level
 
     def test_edit_distance_range(self):
-        from quality_control import AlignmentMapEntry
+        from quality_control import AlignmentRecord
         for dist in (0.0, 0.5, 1.0):
-            entry = AlignmentMapEntry(edit_distance=dist)
+            entry = AlignmentRecord(edit_distance=dist)
             assert entry.edit_distance == dist
 
     def test_confidence_range(self):
-        from quality_control import AlignmentMapEntry
+        from quality_control import AlignmentRecord
         for conf in (0.0, 0.5, 1.0):
-            entry = AlignmentMapEntry(confidence=conf)
+            entry = AlignmentRecord(confidence=conf)
             assert entry.confidence == conf
 
     def test_ocr_engines_use_default_factory(self):
-        from quality_control import AlignmentMapEntry
-        a, b = AlignmentMapEntry(), AlignmentMapEntry()
+        from quality_control import AlignmentRecord
+        a, b = AlignmentRecord(), AlignmentRecord()
         a.ocr_engines.append("paddle")
         assert b.ocr_engines == []
 
     def test_preferred_reading_is_string(self):
-        from quality_control import AlignmentMapEntry
-        entry = AlignmentMapEntry(preferred_reading="The corrected text.")
+        from quality_control import AlignmentRecord
+        entry = AlignmentRecord(preferred_reading="The corrected text.")
         assert entry.preferred_reading == "The corrected text."
 
 
-class TestAlignmentMap:
-    """AlignmentMap — container for all entry lists (Req 1.3)."""
+class TestDocumentAlignment:
+    """DocumentAlignment — container for all entry lists (Req 1.3)."""
 
     def test_importable_from_quality_control(self):
-        from quality_control import AlignmentMap  # noqa: F401
+        from quality_control import DocumentAlignment  # noqa: F401
 
     def test_is_dataclass(self):
-        from quality_control import AlignmentMap
-        assert dataclasses.is_dataclass(AlignmentMap)
+        from quality_control import DocumentAlignment
+        assert dataclasses.is_dataclass(DocumentAlignment)
 
     def test_default_fields(self):
-        from quality_control import AlignmentMap
-        am = AlignmentMap()
+        from quality_control import DocumentAlignment
+        am = DocumentAlignment()
         assert am.paragraph_to_blocks == []
         assert am.sentence_to_char_range == []
         assert am.section_header_to_block == []
         assert am.reconciliation_flags == []
 
     def test_field_names(self):
-        from quality_control import AlignmentMap
-        names = {f.name for f in dataclasses.fields(AlignmentMap)}
+        from quality_control import DocumentAlignment
+        names = {f.name for f in dataclasses.fields(DocumentAlignment)}
         assert names == {
             "paragraph_to_blocks",
             "sentence_to_char_range",
@@ -207,15 +207,15 @@ class TestAlignmentMap:
         }
 
     def test_list_fields_use_default_factory(self):
-        from quality_control import AlignmentMap
-        a, b = AlignmentMap(), AlignmentMap()
+        from quality_control import DocumentAlignment
+        a, b = DocumentAlignment(), DocumentAlignment()
         a.reconciliation_flags.append("flag")
         assert b.reconciliation_flags == []
 
     def test_holds_alignment_map_entries(self):
-        from quality_control import AlignmentMap, AlignmentMapEntry
-        entry = AlignmentMapEntry(source="pdfplumber", agreement="partial", confidence=0.8)
-        am = AlignmentMap(
+        from quality_control import DocumentAlignment, AlignmentRecord
+        entry = AlignmentRecord(source="pdfplumber", agreement="partial", confidence=0.8)
+        am = DocumentAlignment(
             paragraph_to_blocks=[entry],
             section_header_to_block=[entry],
         )
@@ -253,14 +253,14 @@ class TestUnifiedRecordDefaults:
             UnifiedRecord,
             SemanticLayer,
             StructuralLayer,
-            AlignmentMap,
+            DocumentAlignment,
         )
         rec = UnifiedRecord(
             document_id="doc-99",
             content={"legacy": True},
             semantic=SemanticLayer(metadata={"title": "Paper"}),
             structural=StructuralLayer(pages=[{"index": 0}]),
-            alignment=AlignmentMap(),
+            alignment=DocumentAlignment(),
         )
         assert rec.content["legacy"] is True
         assert rec.semantic.metadata["title"] == "Paper"

@@ -26,7 +26,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from .models import LocalQCMetricRecord, QualityReport
+from .models import LocalQCMetricRecord
+from .defaults import QualityReport
 
 
 @dataclass

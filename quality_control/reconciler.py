@@ -16,8 +16,8 @@ import logging
 import re
 
 from quality_control.models import (
-    AlignmentMap,
-    AlignmentMapEntry,
+    DocumentAlignment,
+    AlignmentRecord,
     SemanticLayer,
     StructuralLayer,
     UnifiedRecord,
@@ -165,7 +165,7 @@ def _compute_sentence_to_char_range(
         start = full_text.find(sentence)
         if start == -1:
             reconciliation_flags.append(
-                AlignmentMapEntry(
+                AlignmentRecord(
                     source="reconciler",
                     agreement="one_engine_only",
                     preferred_reading=sentence,
@@ -188,9 +188,9 @@ def _route_paragraph_blocks(
     secondary_blocks: list[dict],
     text_fidelity_strategy,
     text_processor,
-) -> list[AlignmentMapEntry]:
+) -> list[AlignmentRecord]:
     """Route paragraph/block pairs through text_fidelity_strategy.reconcile()."""
-    entries: list[AlignmentMapEntry] = []
+    entries: list[AlignmentRecord] = []
 
     primary_para = [b for b in primary_blocks if _classify_block(b) == "paragraph"]
     secondary_para = [b for b in secondary_blocks if _classify_block(b) == "paragraph"]
@@ -202,7 +202,7 @@ def _route_paragraph_blocks(
 
         result = text_fidelity_strategy.reconcile(primary_text, secondary_text, text_processor)
 
-        entry = AlignmentMapEntry(
+        entry = AlignmentRecord(
             source="text_fidelity",
             edit_distance=result.get("edit_distance", 0.0),
             agreement=result.get("agreement", "full"),
@@ -219,9 +219,9 @@ def _route_section_blocks(
     secondary_blocks: list[dict],
     section_strategy,
     text_processor,
-) -> list[AlignmentMapEntry]:
+) -> list[AlignmentRecord]:
     """Route section heading pairs through section_strategy.reconcile()."""
-    entries: list[AlignmentMapEntry] = []
+    entries: list[AlignmentRecord] = []
 
     primary_sections = [b for b in primary_blocks if _classify_block(b) == "section"]
     secondary_sections = [b for b in secondary_blocks if _classify_block(b) == "section"]
@@ -239,7 +239,7 @@ def _route_section_blocks(
 
         confidence = section_strategy.reconcile(primary_section, reference_block, text_processor)
 
-        entry = AlignmentMapEntry(
+        entry = AlignmentRecord(
             source="section_verification",
             agreement="full" if confidence >= 0.8 else "partial",
             preferred_reading=reference_block["text"],
@@ -254,7 +254,7 @@ def _route_table_figure_blocks(
     primary_blocks: list[dict],
     secondary_blocks: list[dict],
     table_figure_strategy,
-) -> tuple[list[dict], list[AlignmentMapEntry]]:
+) -> tuple[list[dict], list[AlignmentRecord]]:
     """Route table/figure pairs through table_figure_strategy.merge().
 
     Returns (merged_records, alignment_entries).
@@ -262,7 +262,7 @@ def _route_table_figure_blocks(
     from quality_control.concerns import MissingContributionError
 
     merged: list[dict] = []
-    entries: list[AlignmentMapEntry] = []
+    entries: list[AlignmentRecord] = []
 
     primary_tables = [b for b in primary_blocks if _classify_block(b) in ("table", "figure")]
     secondary_tables = [b for b in secondary_blocks if _classify_block(b) in ("table", "figure")]
@@ -271,7 +271,7 @@ def _route_table_figure_blocks(
         try:
             result = table_figure_strategy.merge(p_block, s_block)
             merged.append(result)
-            entry = AlignmentMapEntry(
+            entry = AlignmentRecord(
                 source="table_figure_merge",
                 agreement=result.get("agreement", "present"),
                 preferred_reading=result.get("merged_text", ""),
@@ -279,7 +279,7 @@ def _route_table_figure_blocks(
             )
             entries.append(entry)
         except MissingContributionError:
-            entry = AlignmentMapEntry(
+            entry = AlignmentRecord(
                 source="table_figure_merge",
                 agreement="one_engine_only",
                 confidence=0.0,
@@ -405,9 +405,9 @@ def reconcile(
     )
 
     # ------------------------------------------------------------------
-    # Concern routing — collect AlignmentMapEntry objects
+    # Concern routing — collect AlignmentRecord objects
     # ------------------------------------------------------------------
-    reconciliation_flags: list[AlignmentMapEntry] = []
+    reconciliation_flags: list[AlignmentRecord] = []
 
     # 1. Text fidelity: paragraph/block pairs
     paragraph_entries = _route_paragraph_blocks(
@@ -447,9 +447,9 @@ def reconcile(
     )
 
     # ------------------------------------------------------------------
-    # Assemble AlignmentMap
+    # Assemble DocumentAlignment
     # ------------------------------------------------------------------
-    alignment = AlignmentMap(
+    alignment = DocumentAlignment(
         paragraph_to_blocks=paragraph_entries,
         sentence_to_char_range=sentence_to_char_range,
         section_header_to_block=section_entries,

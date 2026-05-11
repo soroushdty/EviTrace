@@ -21,8 +21,8 @@ from quality_control.concerns import (
     MissingContributionError,
 )
 from quality_control.models import (
-    BranchOutput,
-    QCContext,
+    Candidate,
+    QCBundle,
     QualityMetrics,
     InterRaterMetrics,
     AdjudicationRules,
@@ -57,9 +57,9 @@ class TestRunPipelineDomainIsolation:
     def test_run_pipeline_callable_with_all_mocks(self):
         """Test that run_pipeline accepts and executes all-mock callables."""
         # Create minimal mock branch (domain-agnostic)
-        mock_branch = BranchOutput(
-            extractor="mock_agent",
-            branch=0,
+        mock_branch = Candidate(
+            source="mock_agent",
+            index=0,
             payload={"blocks": [{"text": "mock text"}]},
             status=None,
         )
@@ -98,7 +98,7 @@ class TestRunPipelineDomainIsolation:
         )
 
         # Verify pipeline executed and populated context
-        assert isinstance(ctx, QCContext)
+        assert isinstance(ctx, QCBundle)
         assert len(ctx.branches) == 1
         assert len(ctx.reports) == 1
         assert ctx.iaa_metrics is not None
@@ -108,9 +108,9 @@ class TestRunPipelineDomainIsolation:
     def test_run_pipeline_with_non_pdf_branch_payload(self):
         """Test that non-PDF branch payloads do not cause pipeline to raise."""
         # Create branch with generic payload (not PDF-specific)
-        mock_branch = BranchOutput(
-            extractor="generic_agent",
-            branch=0,
+        mock_branch = Candidate(
+            source="generic_agent",
+            index=0,
             payload="Plain text content without PDF structure",  # Simple string
             status=None,
         )
@@ -157,7 +157,6 @@ class TestRunPipelineDomainIsolation:
             "PaddleOCR",
             "TEI",
             "scan",
-            "AlignmentMap",
         ]
 
         for forbidden in forbidden_strings:
@@ -442,15 +441,15 @@ class TestFullPipelineDomainAgnosticism:
         """Test run_pipeline with completely generic (non-PDF) agent outputs."""
         # Simulate LLM or multi-agent scenario
         agent_outputs = [
-            BranchOutput(
-                extractor="agent_a",
-                branch=0,
+            Candidate(
+                source="agent_a",
+                index=0,
                 payload={"extraction": "Agent A result"},
                 status=None,
             ),
-            BranchOutput(
-                extractor="agent_b",
-                branch=1,
+            Candidate(
+                source="agent_b",
+                index=1,
                 payload={"extraction": "Agent B result"},
                 status=None,
             ),

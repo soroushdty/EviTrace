@@ -101,18 +101,18 @@ quality_control:
     crop_tables: true
   addons:
     grobid_quantities:
-      enabled: false
-      url: ""
+      enabled: true
+      url: "http://localhost:8060"
       endpoint: "/service/process"
       timeout: 60
     datastet:
-      enabled: false
-      url: ""
+      enabled: true
+      url: "http://localhost:8080"
       endpoint: "/service/processDataseerSentence"
       timeout: 60
     entity_fishing:
-      enabled: false
-      url: ""
+      enabled: true
+      url: "http://localhost:8090"
       endpoint: "/service/disambiguate"
       timeout: 60
   # Semantic quality scoring

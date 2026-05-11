@@ -130,16 +130,11 @@ def _import_orchestrator():
         ):
             del sys.modules[mod_name]
 
-    # Stub the openai package and api_client so the import chain doesn't fail
-    # when openai is not installed in the test environment.
     _openai_stub = MagicMock()
     _api_client_stub = MagicMock()
     _api_client_stub.extract_chunk = MagicMock()
     _api_client_stub.warm_pdf_cache = MagicMock()
 
-    # Stub pipeline sub-modules that orchestrator imports via relative imports.
-    # This prevents pipeline/__init__.py from being triggered (which would
-    # create a circular import since orchestrator isn't fully loaded yet).
     _pipeline_pkg_stub = MagicMock()
     _pdf_processor_stub = MagicMock()
     _extraction_map_stub = MagicMock()
@@ -169,44 +164,22 @@ def _import_orchestrator():
         sys.modules["pipeline.orchestrator"] = m
         _spec.loader.exec_module(m)
 
-    # patch.dict restores sys.modules to its pre-context state, which removes
-    # "pipeline.orchestrator" (it wasn't there before).  Re-register it so
-    # that _build_qc_context can resolve sys.modules[__name__] at call time.
     sys.modules["pipeline.orchestrator"] = m
-
     return m
 
 
 # ---------------------------------------------------------------------------
-# GROBID fallback tests
+# GROBID fallback / manifest-fail tests
+# These test build_qc_bundle directly (the real extraction logic).
 # ---------------------------------------------------------------------------
 
-def test_build_qc_context_grobid_fallback():
-    """11.1 — When extract_with_grobid raises and failure_behavior='fallback',
-    _build_qc_context SHALL not re-raise and the GROBID branch SHALL have an
-    empty string payload.
-
-    Requirements: 11.1, 12.3
-    """
-    orch = _import_orchestrator()
-
-    # Build a minimal QCContext mock that run_quality_control will return.
-    from quality_control.models import BranchOutput, QCContext, UnifiedRecord
-    mock_ctx = QCContext(
-        branches=[
-            BranchOutput(extractor="grobid",  branch=0, payload="",  status=None),
-            BranchOutput(extractor="pymupdf", branch=1, payload=[], status=None),
-        ],
-        unified=UnifiedRecord(document_id="test_paper", content={}),
-    )
-
-    # Mock fitz and scan_detector so per-page scan detection succeeds without
-    # real PyMuPDF or NLP models.  All pages are classified as native so the
-    # native path (GROBID + pdfplumber) is taken.
+def _make_native_scan_setup():
+    """Return (native_cls, mock_fitz) for a single all-native page."""
     from pdf_extractor.extraction.scan_detector import PageScanClassification
     native_cls = PageScanClassification(
         page_index=0, is_native=True, triggered_stages=[],
-        stage_values={"word_count": 100.0, "alpha_ratio": 0.95, "font_count": 3.0, "image_coverage": 0.01},
+        stage_values={"word_count": 100.0, "alpha_ratio": 0.95,
+                      "font_count": 3.0, "image_coverage": 0.01},
     )
     mock_page = MagicMock()
     mock_doc = MagicMock()
@@ -214,72 +187,84 @@ def test_build_qc_context_grobid_fallback():
     mock_doc.close = MagicMock()
     mock_fitz = MagicMock()
     mock_fitz.open.return_value = mock_doc
+    return native_cls, mock_fitz
 
-    with patch.dict(sys.modules, {"fitz": mock_fitz}), \
-         patch.object(orch, "extract_with_grobid", side_effect=RuntimeError("GROBID down")), \
-         patch.object(orch, "extract_with_pdfplumber", return_value=[]), \
-         patch.object(orch, "run_quality_control", return_value=mock_ctx), \
-         patch.object(orch, "scan_detector") as mock_sd, \
-         patch.object(orch, "TextProcessor", return_value=MagicMock()):
+
+def test_build_qc_bundle_grobid_fallback():
+    """11.1 — When extract_with_grobid raises and failure_behavior='fallback',
+    build_qc_bundle SHALL not re-raise and the GROBID branch SHALL have an
+    empty string payload.
+
+    Requirements: 11.1, 12.3
+    """
+    from pdf_extractor.extraction_pipeline import build_qc_bundle
+    from quality_control.models import Candidate, QCBundle, UnifiedRecord
+
+    mock_ctx = QCBundle(
+        branches=[
+            Candidate(source="grobid",  index=0, payload="",  status=None),
+            Candidate(source="pymupdf", index=1, payload=[], status=None),
+        ],
+        unified=UnifiedRecord(document_id="test_paper", content={}),
+    )
+    native_cls, mock_fitz = _make_native_scan_setup()
+
+    with patch("pdf_extractor.extraction_pipeline.extract_with_grobid",
+               side_effect=RuntimeError("GROBID down")), \
+         patch("pdf_extractor.extraction_pipeline.extract_with_pdfplumber",
+               return_value=[]), \
+         patch("pdf_extractor.extraction_pipeline.run_quality_control",
+               return_value=mock_ctx), \
+         patch("pdf_extractor.extraction_pipeline.TextProcessor",
+               return_value=MagicMock()), \
+         patch("pdf_extractor.extraction_pipeline.scan_detector") as mock_sd, \
+         patch.dict(sys.modules, {"fitz": mock_fitz}):
+
         mock_sd.classify_page.return_value = native_cls
-
-        # Should NOT raise — failure_behavior is "fallback" in _FAKE_QC_CONFIG_FALLBACK
-        result = orch._build_qc_context(
+        result = build_qc_bundle(
             pdf_path=Path("test_paper.pdf"),
             pdf_name="test_paper",
             qc_config=_FAKE_QC_CONFIG_FALLBACK,
         )
 
-    # The GROBID branch in the context should have an empty payload (tei_xml="")
     grobid_branch = next(
-        (b for b in result.branches if b.extractor == "grobid"),
-        None,
+        (b for b in result.branches if b.extractor == "grobid"), None
     )
-    assert grobid_branch is not None, "GROBID branch should be present in context"
+    assert grobid_branch is not None, "GROBID branch should be present"
     assert grobid_branch.payload == "", (
         f"GROBID branch payload should be empty string on fallback, got {grobid_branch.payload!r}"
     )
 
 
-def test_build_qc_context_grobid_manifest_fail():
+def test_build_qc_bundle_grobid_manifest_fail():
     """11.2 — When extract_with_grobid raises and failure_behavior='manifest_fail',
-    _build_qc_context SHALL re-raise the exception.
+    build_qc_bundle SHALL re-raise the exception.
 
     Requirements: 11.2, 12.3
     """
-    orch = _import_orchestrator()
+    from pdf_extractor.extraction_pipeline import build_qc_bundle
 
-    # Mock fitz and scan_detector so per-page scan detection succeeds without
-    # real PyMuPDF or NLP models.  All pages are classified as native so the
-    # native path (GROBID + pdfplumber) is taken.
-    from pdf_extractor.extraction.scan_detector import PageScanClassification
-    native_cls = PageScanClassification(
-        page_index=0, is_native=True, triggered_stages=[],
-        stage_values={"word_count": 100.0, "alpha_ratio": 0.95, "font_count": 3.0, "image_coverage": 0.01},
-    )
-    mock_page = MagicMock()
-    mock_doc = MagicMock()
-    mock_doc.__iter__ = MagicMock(return_value=iter([mock_page]))
-    mock_doc.close = MagicMock()
-    mock_fitz = MagicMock()
-    mock_fitz.open.return_value = mock_doc
+    native_cls, mock_fitz = _make_native_scan_setup()
 
-    with patch.dict(sys.modules, {"fitz": mock_fitz}), \
-         patch.object(orch, "extract_with_grobid", side_effect=RuntimeError("GROBID down")), \
-         patch.object(orch, "extract_with_pdfplumber", return_value=[]), \
-         patch.object(orch, "run_quality_control", return_value=MagicMock()), \
-         patch.object(orch, "scan_detector") as mock_sd, \
-         patch.object(orch, "TextProcessor", return_value=MagicMock()):
+    with patch("pdf_extractor.extraction_pipeline.extract_with_grobid",
+               side_effect=RuntimeError("GROBID down")), \
+         patch("pdf_extractor.extraction_pipeline.extract_with_pdfplumber",
+               return_value=[]), \
+         patch("pdf_extractor.extraction_pipeline.run_quality_control",
+               return_value=MagicMock()), \
+         patch("pdf_extractor.extraction_pipeline.TextProcessor",
+               return_value=MagicMock()), \
+         patch("pdf_extractor.extraction_pipeline.scan_detector") as mock_sd, \
+         patch.dict(sys.modules, {"fitz": mock_fitz}):
+
         mock_sd.classify_page.return_value = native_cls
-
-        # Should re-raise — failure_behavior is "manifest_fail"
         try:
-            orch._build_qc_context(
+            build_qc_bundle(
                 pdf_path=Path("test_paper.pdf"),
                 pdf_name="test_paper",
                 qc_config=_FAKE_QC_CONFIG_MANIFEST_FAIL,
             )
-            assert False, "_build_qc_context should have raised RuntimeError"
+            assert False, "build_qc_bundle should have raised RuntimeError"
         except RuntimeError as exc:
             assert "GROBID down" in str(exc), (
                 f"Expected 'GROBID down' in exception message, got: {exc}"
@@ -292,7 +277,7 @@ def test_build_qc_context_grobid_manifest_fail():
 
 def test_run_pipeline_all_succeed():
     """11.3 — run_pipeline SHALL collect results for all PDFs when every
-    _build_qc_context and process_pdf call succeeds.
+    build_qc_bundle and process_pdf call succeeds.
 
     Requirements: 11.3
     """
@@ -302,18 +287,12 @@ def test_run_pipeline_all_succeed():
     orch = _import_orchestrator()
 
     pdf_paths = [Path("paper_a.pdf"), Path("paper_b.pdf"), Path("paper_c.pdf")]
-
-    # Minimal QCContext mock returned by _build_qc_context
     mock_qc_ctx = MagicMock()
-
-    # process_pdf returns a non-empty fields list for each PDF
     fake_fields = [{"field_index": 1, "extracted_value": "Smith 2020"}]
 
-    with patch.object(orch, "_build_qc_context", return_value=mock_qc_ctx), \
-         patch.object(
-             orch.pdf_processor, "process_pdf",
-             new=AsyncMock(return_value=fake_fields),
-         ):
+    with patch.object(orch, "build_qc_bundle", return_value=mock_qc_ctx), \
+         patch.object(orch.pdf_processor, "process_pdf",
+                      new=AsyncMock(return_value=fake_fields)):
         results = asyncio.run(orch.run_pipeline(pdf_paths, pdf_concurrency=3))
 
     assert len(results) == len(pdf_paths), (
@@ -322,7 +301,7 @@ def test_run_pipeline_all_succeed():
 
 
 def test_run_pipeline_one_qc_failure():
-    """11.4 — When _build_qc_context raises for one PDF, run_pipeline SHALL
+    """11.4 — When build_qc_bundle raises for one PDF, run_pipeline SHALL
     record status 'failed_qc_pipeline' in the manifest for that PDF and still
     process the remaining PDFs normally.
 
@@ -335,16 +314,11 @@ def test_run_pipeline_one_qc_failure():
 
     pdf_paths = [Path("good_a.pdf"), Path("bad_b.pdf"), Path("good_c.pdf")]
     failing_stem = "bad_b"
-
     mock_qc_ctx = MagicMock()
     fake_fields = [{"field_index": 1, "extracted_value": "Jones 2021"}]
-
-    # Capture the manifest dict that orchestrator uses internally so we can
-    # inspect it after the run.  The manifest stub's load_manifest returns {}
-    # by default; we replace it with a real dict and capture save_manifest calls.
     captured_manifest: dict = {}
 
-    def fake_build_qc_context(pdf_path, pdf_name, qc_config):
+    def fake_build_qc_bundle(pdf_path, pdf_name, qc_config):
         if pdf_name == failing_stem:
             raise RuntimeError("QC pipeline exploded")
         return mock_qc_ctx
@@ -352,41 +326,29 @@ def test_run_pipeline_one_qc_failure():
     def fake_save_manifest(manifest):
         captured_manifest.update(manifest)
 
-    # Patch load_manifest to return a shared mutable dict so the orchestrator's
-    # internal manifest variable starts empty and we can observe mutations.
     shared_manifest: dict = {}
 
-    with patch.object(orch, "_build_qc_context", side_effect=fake_build_qc_context), \
-         patch.object(
-             orch.pdf_processor, "process_pdf",
-             new=AsyncMock(return_value=fake_fields),
-         ), \
+    with patch.object(orch, "build_qc_bundle", side_effect=fake_build_qc_bundle), \
+         patch.object(orch.pdf_processor, "process_pdf",
+                      new=AsyncMock(return_value=fake_fields)), \
          patch.object(orch, "load_manifest", return_value=shared_manifest), \
          patch.object(orch, "save_manifest", side_effect=fake_save_manifest):
-
         results = asyncio.run(orch.run_pipeline(pdf_paths, pdf_concurrency=3))
 
-    # The failing PDF should be recorded in the manifest with failed_qc_pipeline
     assert failing_stem in captured_manifest, (
         f"Expected '{failing_stem}' in manifest, got keys: {list(captured_manifest.keys())}"
     )
     assert captured_manifest[failing_stem]["status"] == "failed_qc_pipeline", (
         f"Expected status 'failed_qc_pipeline', got: {captured_manifest[failing_stem]}"
     )
-
-    # The two good PDFs should appear in the results list
     result_pdfs = {r["pdf"] for r in results}
-    assert "good_a.pdf" in result_pdfs, f"good_a.pdf missing from results: {result_pdfs}"
-    assert "good_c.pdf" in result_pdfs, f"good_c.pdf missing from results: {result_pdfs}"
+    assert "good_a.pdf" in result_pdfs
+    assert "good_c.pdf" in result_pdfs
     assert len(results) == 2, f"Expected 2 successful results, got {len(results)}"
 
 
-# ---------------------------------------------------------------------------
-# Concurrency and config-propagation tests (task 12.3)
-# ---------------------------------------------------------------------------
-
 def test_run_pipeline_concurrency_1():
-    """11.5 — When pdf_concurrency=1, at most 1 _build_qc_context call SHALL
+    """11.5 — When pdf_concurrency=1, at most 1 build_qc_bundle call SHALL
     run concurrently at any point during run_pipeline execution.
 
     Requirements: 11.5
@@ -398,45 +360,34 @@ def test_run_pipeline_concurrency_1():
     orch = _import_orchestrator()
 
     pdf_paths = [
-        Path("paper_a.pdf"),
-        Path("paper_b.pdf"),
-        Path("paper_c.pdf"),
-        Path("paper_d.pdf"),
+        Path("paper_a.pdf"), Path("paper_b.pdf"),
+        Path("paper_c.pdf"), Path("paper_d.pdf"),
     ]
-
-    # Thread-safe concurrency tracking using a list (avoids closure rebinding).
-    counter = [0]          # counter[0] = current concurrent calls
-    max_seen = [0]         # max_seen[0] = peak concurrent calls observed
+    counter = [0]
+    max_seen = [0]
     lock = threading.Lock()
-
     mock_qc_ctx = MagicMock()
     fake_fields = [{"field_index": 1, "extracted_value": "Smith 2020"}]
 
-    def fake_build_qc_context(pdf_path, pdf_name, qc_config):
+    def fake_build_qc_bundle(pdf_path, pdf_name, qc_config):
         with lock:
             counter[0] += 1
             if counter[0] > max_seen[0]:
                 max_seen[0] = counter[0]
-        # Yield briefly so other threads have a chance to enter if the semaphore
-        # were not limiting them.
         import time
         time.sleep(0.01)
         with lock:
             counter[0] -= 1
         return mock_qc_ctx
 
-    with patch.object(orch, "_build_qc_context", side_effect=fake_build_qc_context), \
-         patch.object(
-             orch.pdf_processor, "process_pdf",
-             new=AsyncMock(return_value=fake_fields),
-         ):
+    with patch.object(orch, "build_qc_bundle", side_effect=fake_build_qc_bundle), \
+         patch.object(orch.pdf_processor, "process_pdf",
+                      new=AsyncMock(return_value=fake_fields)):
         results = asyncio.run(orch.run_pipeline(pdf_paths, pdf_concurrency=1))
 
-    assert len(results) == len(pdf_paths), (
-        f"Expected {len(pdf_paths)} results, got {len(results)}"
-    )
+    assert len(results) == len(pdf_paths)
     assert max_seen[0] <= 1, (
-        f"Expected max concurrent _build_qc_context calls == 1, got {max_seen[0]}"
+        f"Expected max concurrent build_qc_bundle calls == 1, got {max_seen[0]}"
     )
 
 
@@ -453,11 +404,8 @@ def test_run_pipeline_cache_prewarm_false_propagated():
     orch = _import_orchestrator()
 
     pdf_paths = [Path("paper_x.pdf")]
-
     mock_qc_ctx = MagicMock()
     fake_fields = [{"field_index": 1, "extracted_value": "Jones 2021"}]
-
-    # Capture the runtime_config argument passed to process_pdf.
     captured_runtime_configs: list = []
 
     async def fake_process_pdf(qc_context, chunk_fields, field_lookup,
@@ -466,18 +414,14 @@ def test_run_pipeline_cache_prewarm_false_propagated():
         captured_runtime_configs.append(runtime_config)
         return fake_fields
 
-    with patch.object(orch, "_build_qc_context", return_value=mock_qc_ctx), \
-         patch.object(orch.pdf_processor, "process_pdf", side_effect=fake_process_pdf):
+    with patch.object(orch, "build_qc_bundle", return_value=mock_qc_ctx), \
+         patch.object(orch.pdf_processor, "process_pdf",
+                      side_effect=fake_process_pdf):
         asyncio.run(orch.run_pipeline(pdf_paths, enable_cache_prewarm=False))
 
-    assert len(captured_runtime_configs) == 1, (
-        f"Expected process_pdf to be called once, got {len(captured_runtime_configs)} calls"
-    )
+    assert len(captured_runtime_configs) == 1
     runtime_config = captured_runtime_configs[0]
-    assert "enable_cache_prewarm" in runtime_config, (
-        "runtime_config should contain 'enable_cache_prewarm' key"
-    )
+    assert "enable_cache_prewarm" in runtime_config
     assert runtime_config["enable_cache_prewarm"] is False, (
-        f"Expected runtime_config['enable_cache_prewarm'] is False, "
-        f"got {runtime_config['enable_cache_prewarm']!r}"
+        f"Expected False, got {runtime_config['enable_cache_prewarm']!r}"
     )

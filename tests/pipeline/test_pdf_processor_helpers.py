@@ -193,15 +193,15 @@ from unittest.mock import AsyncMock, patch
 
 
 def _make_qc_context(pdf_name: str, exact_text: str = "sample text"):
-    """Build a minimal QCContext for pdf_processor tests."""
-    from quality_control.models import BranchOutput, QCContext, UnifiedRecord
+    """Build a minimal QCBundle for pdf_processor tests."""
+    from quality_control.models import Candidate, QCBundle, UnifiedRecord
 
     unified = UnifiedRecord(
         document_id=pdf_name,
         content={"exact_text": exact_text, "source_pdf_path": ""},
     )
-    return QCContext(
-        branches=[BranchOutput(extractor="grobid", branch=0, payload="<TEI/>", status=None)],
+    return QCBundle(
+        branches=[Candidate(source="grobid", index=0, payload="<TEI/>", status=None)],
         unified=unified,
     )
 

@@ -20,7 +20,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from quality_control.adjudicator import adjudicate, _adjudicate_concern
-from quality_control.models import AlignmentMap, AlignmentMapEntry
+from quality_control.models import DocumentAlignment, AlignmentRecord
 
 
 # ---------------------------------------------------------------------------
@@ -32,16 +32,16 @@ def _make_alignment_map(
     para_entries=None,
     section_entries=None,
     flag_entries=None,
-) -> AlignmentMap:
-    return AlignmentMap(
+) -> DocumentAlignment:
+    return DocumentAlignment(
         paragraph_to_blocks=para_entries or [],
         section_header_to_block=section_entries or [],
         reconciliation_flags=flag_entries or [],
     )
 
 
-def _make_entry(source: str = "reference", confidence: float = 0.9, edit_distance: float = 0.1) -> AlignmentMapEntry:
-    return AlignmentMapEntry(
+def _make_entry(source: str = "reference", confidence: float = 0.9, edit_distance: float = 0.1) -> AlignmentRecord:
+    return AlignmentRecord(
         source=source,
         confidence=confidence,
         edit_distance=edit_distance,

@@ -149,11 +149,11 @@ All configuration lives in `config/config.yaml`. Runtime values are loaded once 
 
 ## Data Models (quality_control/models.py)
 
-All pipeline stages communicate through a single `QCContext` instance mutated in place.
+All pipeline stages communicate through a single `QCBundle` instance mutated in place.
 
 | Class | Role |
 |---|---|
-| `BranchOutput` | One extractor branch: `extractor`, `branch` (int), `payload`, `status`. `.agent` aliases `.extractor`. |
+| `Candidate` | One contributor's output entering QC: `source`, `index` (int), `payload`, `status`. `.extractor` and `.agent` are aliases for `source`. |
 | `QualityMetrics` | ABC for per-branch quality checks. Subclass and override `passes_check()`. |
 | `QualityReport` | Default concrete report; unconditionally passes. |
 | `InterRaterMetrics` | ABC for IAA computation. Subclass and override `compute(reports)`. |
@@ -162,11 +162,11 @@ All pipeline stages communicate through a single `QCContext` instance mutated in
 | `AdjudicationDecision` | Default: elects extractor with most passing branches. |
 | `SemanticLayer` | Typed semantic layer: `metadata`, `sections`, `paragraphs`, `sentences`, `references`. |
 | `StructuralLayer` | Typed structural layer: `pages`, `blocks`, `tables`, `figures`. |
-| `AlignmentMapEntry` | One semantic-to-structural alignment: `source`, `ocr_derived`, `agreement`, `edit_distance`, `preferred_reading`, `confidence`. |
-| `AlignmentMap` | Container: `paragraph_to_blocks`, `sentence_to_char_range`, `section_header_to_block`, `reconciliation_flags`. |
+| `AlignmentRecord` | One semantic-to-structural alignment: `source`, `ocr_derived`, `agreement`, `edit_distance`, `preferred_reading`, `confidence`. |
+| `DocumentAlignment` | Container: `paragraph_to_blocks`, `sentence_to_char_range`, `section_header_to_block`, `reconciliation_flags`. |
 | `UnifiedRecord` | Final reconciled output: `document_id`, `content` (dict), `semantic`, `structural`, `alignment`. |
 | `LocalQCMetricRecord` | One Tier 1 metric result: `metric_name`, `computed_value`, `threshold`, `triggered`. |
-| `QCContext` | Full run state: `branches`, `reports`, `iaa_metrics`, `decision`, `unified`, `metrics_hierarchy`. |
+| `QCBundle` | Full run state: `branches`, `reports`, `iaa_metrics`, `decision`, `unified`, `metrics_hierarchy`. |
 
 ---
 

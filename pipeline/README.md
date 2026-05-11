@@ -20,7 +20,7 @@ main.py
 pipeline.run_pipeline(pdf_paths)
    │
    ├──► pdf_extractor.extraction.{GROBID, PyMuPDF}        # branch extraction
-   ├──► quality_control.run_quality_control               # QCContext + UnifiedRecord
+   ├──► quality_control.run_quality_control               # QCBundle + UnifiedRecord
    │
    ├──► agents.openai.warm_pdf_cache                      # optional cache prewarm
    ├──► agents.openai.extract_chunk (× N-1, parallel)     # chunked extraction
@@ -78,7 +78,7 @@ The async orchestrator.
   module-level globals is intentionally avoided).
 - `_build_qc_context(...)` (run in `asyncio.to_thread`) calls
   `extract_with_grobid` and `extract_with_pymupdf` for the same PDF,
-  packs both into `BranchOutput` records, and delegates to
+  packs both into `Candidate` records, and delegates to
   `quality_control.run_quality_control`.
 
 ### `pdf_processor.py`
@@ -89,7 +89,7 @@ Per-PDF processing.
   manifest, manifest_lock, openai_config)` is the inner async function
   called by `_bounded` in the orchestrator.
 - Steps:
-  1. Validate the input is a fully-reconciled `QCContext`
+  1. Validate the input is a fully-reconciled `QCBundle`
      (see `validator.validate_qc_context_input`).
   2. Skip the PDF if its `manifest` entry is already `complete` and
      the saved JSON exists (`_load_completed_result`).

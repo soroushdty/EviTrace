@@ -16,7 +16,8 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from quality_control.models import BranchOutput, QualityReport
+from quality_control.models import Candidate
+from quality_control.defaults import QualityReport
 from quality_control.rater import observe
 
 
@@ -24,8 +25,8 @@ from quality_control.rater import observe
 # Shared helpers
 # ---------------------------------------------------------------------------
 
-def _make_branch(extractor: str = "grobid", branch: int = 0) -> BranchOutput:
-    return BranchOutput(extractor=extractor, branch=branch, payload=None, status=None)
+def _make_branch(extractor: str = "grobid", branch: int = 0) -> Candidate:
+    return Candidate(source=extractor, index=branch, payload=None, status=None)
 
 
 def _make_config(attribute_names: list[str] | None = None) -> dict:
@@ -49,13 +50,13 @@ def test_observe_returns_quality_report_with_correct_fields(
     For any extractor name and branch index, observe SHALL return a
     QualityReport whose extractor and branch fields match the input branch.
     """
-    branch = BranchOutput(extractor=extractor, branch=branch_idx, payload=None, status=None)
+    branch = Candidate(source=extractor, index=branch_idx, payload=None, status=None)
     config = _make_config()
     result = observe(branch, config)
 
     assert isinstance(result, QualityReport)
     assert result.extractor == extractor
-    assert result.branch == branch_idx
+    assert result.index == branch_idx
 
 
 # ---------------------------------------------------------------------------
@@ -73,13 +74,13 @@ def test_observe_is_deterministic(extractor: str, branch_idx: int):
     Calling observe twice with the same branch SHALL return QualityReport
     instances with equal field values.
     """
-    branch = BranchOutput(extractor=extractor, branch=branch_idx, payload=None, status=None)
+    branch = Candidate(source=extractor, index=branch_idx, payload=None, status=None)
     config = _make_config()
     result1 = observe(branch, config)
     result2 = observe(branch, config)
 
     assert result1.extractor == result2.extractor
-    assert result1.branch == result2.branch
+    assert result1.index == result2.index
     assert result1.status == result2.status
 
 
@@ -99,7 +100,7 @@ def test_observe_always_returns_quality_report_instance(
 
     observe SHALL always return an instance of QualityReport (not a plain dict).
     """
-    branch = BranchOutput(extractor=extractor, branch=branch_idx, payload=None, status=None)
+    branch = Candidate(source=extractor, index=branch_idx, payload=None, status=None)
     config = _make_config(["attr1", "attr2"])
     result = observe(branch, config)
 
@@ -117,7 +118,7 @@ class TestRater:
         result = observe(branch, _make_config())
         assert isinstance(result, QualityReport)
         assert result.extractor == "grobid"
-        assert result.branch == 0
+        assert result.index == 0
 
     def test_observe_pymupdf_branch(self):
         """observe for a pymupdf branch returns QualityReport with extractor='pymupdf'."""
@@ -125,7 +126,7 @@ class TestRater:
         result = observe(branch, _make_config())
         assert isinstance(result, QualityReport)
         assert result.extractor == "pymupdf"
-        assert result.branch == 1
+        assert result.index == 1
 
     def test_observe_status_is_none(self):
         """observe sets status to None (not yet adjudicated)."""

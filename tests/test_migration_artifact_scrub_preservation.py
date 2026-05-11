@@ -365,10 +365,11 @@ def test_rater_observe_returns_object():
     **Validates: Requirements REQ-15**
     """
     from quality_control import rater
-    from quality_control.models import BranchOutput, QualityReport
+    from quality_control.models import Candidate
+    from quality_control.defaults import QualityReport
 
     cfg = _make_minimal_config()
-    branch = BranchOutput(extractor="grobid", branch=0, payload="<TEI/>", status=None)
+    branch = Candidate(source="grobid", index=0, payload="<TEI/>", status=None)
     result = rater.observe(branch, cfg)
 
     assert result is not None, "rater.observe() must not return None"
@@ -378,31 +379,31 @@ def test_rater_observe_returns_object():
 
 
 # ---------------------------------------------------------------------------
-# Observation: run_quality_control() returns QCContext with populated unified
+# Observation: run_quality_control() returns QCBundle with populated unified
 # ---------------------------------------------------------------------------
 
 
 def test_run_quality_control_returns_qccontext_with_unified():
-    """Observation: run_quality_control() returns a QCContext with a populated unified field.
+    """Observation: run_quality_control() returns a QCBundle with a populated unified field.
 
     **Validates: Requirements REQ-15, REQ-16**
     """
-    from quality_control.models import BranchOutput, QCContext
+    from quality_control.models import Candidate, QCBundle
     from quality_control.quality_control import run_quality_control
 
     branches = [
-        BranchOutput(extractor="grobid", branch=0, payload="<TEI/>", status=None),
-        BranchOutput(extractor="pymupdf", branch=1, payload=[], status=None),
+        Candidate(source="grobid", index=0, payload="<TEI/>", status=None),
+        Candidate(source="pymupdf", index=1, payload=[], status=None),
     ]
     cfg = _make_minimal_config()
 
     ctx = run_quality_control(branches, "doc-001", cfg)
 
-    assert isinstance(ctx, QCContext), (
-        f"run_quality_control() must return a QCContext, got {type(ctx).__name__}"
+    assert isinstance(ctx, QCBundle), (
+        f"run_quality_control() must return a QCBundle, got {type(ctx).__name__}"
     )
     assert ctx.unified is not None, (
-        "QCContext.unified must be populated after run_quality_control()"
+        "QCBundle.unified must be populated after run_quality_control()"
     )
 
 
@@ -411,19 +412,19 @@ def test_run_quality_control_unified_has_content():
 
     **Validates: Requirements REQ-15, REQ-16**
     """
-    from quality_control.models import BranchOutput
+    from quality_control.models import Candidate
     from quality_control.quality_control import run_quality_control
 
     branches = [
-        BranchOutput(extractor="grobid", branch=0, payload="<TEI/>", status=None),
-        BranchOutput(extractor="pymupdf", branch=1, payload=[], status=None),
+        Candidate(source="grobid", index=0, payload="<TEI/>", status=None),
+        Candidate(source="pymupdf", index=1, payload=[], status=None),
     ]
     cfg = _make_minimal_config()
 
     ctx = run_quality_control(branches, "doc-001", cfg)
 
     assert isinstance(ctx.unified.content, dict), (
-        "QCContext.unified.content must be a dict"
+        "QCBundle.unified.content must be a dict"
     )
 
 

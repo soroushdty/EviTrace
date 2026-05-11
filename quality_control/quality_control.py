@@ -18,8 +18,8 @@ PDF pipeline
 
 Public API
 ----------
-- run_pipeline(branches, *, rater_fn, iaa_fn, adjudicator_fn, reconciler_fn, config) -> QCContext
-- run_quality_control(branches, document_id, config) -> QCContext
+- run_pipeline(branches, *, rater_fn, iaa_fn, adjudicator_fn, reconciler_fn, config) -> QCBundle
+- run_quality_control(branches, document_id, config) -> QCBundle
 """
 
 from __future__ import annotations
@@ -31,18 +31,20 @@ from typing import Callable
 from . import rater, iaa_calculator, adjudicator, reconciler
 from .local_metrics import LocalQCReport
 from .models import (
-    AdjudicationDecision,
     AdjudicationRules,
-    AlignmentMap,
-    BranchOutput,
+    DocumentAlignment,
+    Candidate,
     InterRaterMetrics,
-    InterRaterReport,
-    QCContext,
+    QCBundle,
     QualityMetrics,
-    QualityReport,
     SemanticLayer,
     StructuralLayer,
     UnifiedRecord,
+)
+from .defaults import (
+    AdjudicationDecision,
+    InterRaterReport,
+    QualityReport,
 )
 from pdf_extractor.utils.text_utils import exact_match_search, semantic_search
 
@@ -54,14 +56,14 @@ logger = logging.getLogger("pdf_extractor")
 # ---------------------------------------------------------------------------
 
 def run_pipeline(
-    branches: list[BranchOutput],
+    branches: list[Candidate],
     *,
-    rater_fn: Callable[[BranchOutput, list[BranchOutput], int, dict], QualityMetrics],
+    rater_fn: Callable[[Candidate, list[Candidate], int, dict], QualityMetrics],
     iaa_fn: Callable[[list[QualityMetrics], dict], InterRaterMetrics],
     adjudicator_fn: Callable[[list[QualityMetrics], InterRaterMetrics, dict], AdjudicationRules],
-    reconciler_fn: Callable[[AdjudicationRules, list[BranchOutput], dict], UnifiedRecord],
+    reconciler_fn: Callable[[AdjudicationRules, list[Candidate], dict], UnifiedRecord],
     config: dict | None = None,
-) -> QCContext:
+) -> QCBundle:
     """Generic four-stage QC pipeline with injectable stage callables.
 
     Each stage callable receives the outputs of the previous stages plus the
@@ -104,7 +106,7 @@ def run_pipeline(
 
     Returns
     -------
-    QCContext
+    QCBundle
         Fully populated context with ``branches``, ``reports``,
         ``iaa_metrics``, ``decision``, and ``unified`` set.
 
@@ -117,7 +119,7 @@ def run_pipeline(
         raise TypeError(f"branches must be a list, got {type(branches).__name__!r}")
 
     config = config or {}
-    ctx = QCContext(branches=branches)
+    ctx = QCBundle(branches=branches)
 
     for i, branch in enumerate(branches):
         report = rater_fn(branch, branches, i, config)
@@ -201,7 +203,7 @@ def _extract_branch_payload(payload: object) -> tuple[str, dict[int, str], list[
     )
 
 
-def _build_native_page_texts(branches: list[BranchOutput], current_index: int) -> dict[int, str]:
+def _build_native_page_texts(branches: list[Candidate], current_index: int) -> dict[int, str]:
     """Build a best-effort native backend page-text map from the other branches."""
     native_page_texts: dict[int, list[str]] = {}
     for index, branch in enumerate(branches):
@@ -219,8 +221,8 @@ def _build_native_page_texts(branches: list[BranchOutput], current_index: int) -
 
 
 def _build_local_metrics_report(
-    branch: BranchOutput,
-    branches: list[BranchOutput],
+    branch: Candidate,
+    branches: list[Candidate],
     branch_index: int,
     config: dict,
     text_processor,
@@ -266,16 +268,16 @@ def _build_placeholder_sentence_store(full_text: str, text_processor) -> dict:
 # ---------------------------------------------------------------------------
 
 def run_quality_control(
-    branches: list[BranchOutput],
+    branches: list[Candidate],
     document_id: str,
     config: dict,
-) -> QCContext:
+) -> QCBundle:
     """PDF-specific QC pipeline built on top of ``run_pipeline``.
 
-    Accepts a list of :class:`~quality_control.models.BranchOutput` instances
+    Accepts a list of :class:`~quality_control.models.Candidate` instances
     (one per extractor branch), wires the five-module PDF pipeline into the
     generic ``run_pipeline`` orchestrator, and returns a fully populated
-    :class:`~quality_control.models.QCContext`.
+    :class:`~quality_control.models.QCBundle`.
 
     Metrics hierarchy
     -----------------
@@ -301,7 +303,7 @@ def run_quality_control(
 
     Returns
     -------
-    QCContext
+    QCBundle
         Fully populated context with ``branches``, ``reports``,
         ``iaa_metrics``, ``decision``, and ``unified`` set.
 
@@ -333,7 +335,7 @@ def run_quality_control(
         )
 
     # --- PDF-specific state captured by stage closures ---
-    borderline_branches: list[tuple[int, BranchOutput, LocalQCReport]] = []
+    borderline_branches: list[tuple[int, Candidate, LocalQCReport]] = []
     metrics_hierarchy: dict = {"local_metrics": [], "exact_match": [], "semantic_match": []}
 
     try:
@@ -344,8 +346,8 @@ def run_quality_control(
 
     # --- Stage 1: PDF rater (Tier 1 LocalQCReport) ---
     def _pdf_rater_fn(
-        branch: BranchOutput,
-        all_branches: list[BranchOutput],
+        branch: Candidate,
+        all_branches: list[Candidate],
         index: int,
         cfg: dict,
     ) -> QualityMetrics:
@@ -353,7 +355,7 @@ def run_quality_control(
         passed = not any(m.triggered for m in report.metric_records)
         report.status = "pass" if passed else "fail"
         metrics_hierarchy["local_metrics"].append(
-            {"extractor": branch.extractor, "branch": branch.branch, "report": report}
+            {"source": branch.source, "index": branch.index, "report": report}
         )
         triggered_count = sum(1 for m in report.metric_records if m.triggered)
         if 0 < triggered_count <= 2:
@@ -378,14 +380,14 @@ def run_quality_control(
         return decision
 
     # --- Stage 4: Reconciliation (strategy-driven, extractor-agnostic call site) ---
-    def _build_reconciler_artifact(branch: BranchOutput | None) -> dict:
+    def _build_reconciler_artifact(branch: Candidate | None) -> dict:
         if branch is None:
             return {"document_id": document_id, "blocks": []}
         full_text, _page_texts, blocks = _extract_branch_payload(branch.payload)
         return {
             "document_id": document_id,
-            "extractor": branch.extractor,
-            "branch": branch.branch,
+            "source": branch.source,
+            "index": branch.index,
             "text": full_text,
             "blocks": blocks,
         }
@@ -411,7 +413,7 @@ def run_quality_control(
 
     def _pdf_reconciler_fn(
         decision: AdjudicationRules,
-        all_branches: list[BranchOutput],
+        all_branches: list[Candidate],
         cfg: dict,
     ) -> UnifiedRecord:
         from quality_control.concerns import (
@@ -430,7 +432,7 @@ def run_quality_control(
             (
                 b
                 for b in all_branches
-                if str(b.branch).lower() in {"pdfplumber", "pymupdf"}
+                if str(b.index).lower() in {"pdfplumber", "pymupdf"}
             ),
             None,
         )
@@ -485,7 +487,7 @@ def run_quality_control(
             if updated_unified.structural is None:
                 updated_unified.structural = StructuralLayer()
             if updated_unified.alignment is None:
-                updated_unified.alignment = AlignmentMap()
+                updated_unified.alignment = DocumentAlignment()
 
         return updated_unified
 
@@ -526,8 +528,8 @@ def run_quality_control(
             )
             metrics_hierarchy["exact_match"].append(
                 {
-                    "source_branch": branch.branch,
-                    "target_branch": candidate_branch.branch,
+                    "source_index": branch.index,
+                    "target_index": candidate_branch.index,
                     "result": candidate_result,
                 }
             )
@@ -560,7 +562,7 @@ def run_quality_control(
             semantic_result = None
 
         metrics_hierarchy["semantic_match"].append(
-            {"source_branch": branch.branch, "result": semantic_result}
+            {"source_index": branch.index, "result": semantic_result}
         )
 
     logger.info("QC pipeline complete: document_id=%s", document_id)

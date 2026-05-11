@@ -93,7 +93,7 @@ def test_rater_no_extractor_name_param():
         pytest.fail(
             "ARTIFACT PRESENT (Category B hardcoded extractor name): "
             "rater.observe() source contains 'extractor_name' as a parameter. "
-            "The signature must be changed to observe(branch: BranchOutput, config: dict) (REQ-4). "
+            "The signature must be changed to observe(branch: Candidate, config: dict) (REQ-4). "
             f"Counterexample: found 'extractor_name' in rater.observe source."
         )
 

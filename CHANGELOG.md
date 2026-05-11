@@ -9,6 +9,54 @@ Format: `## [date] — title` followed by a short description of what changed
 and why. No need to be exhaustive — just enough for a future reader to
 understand what happened and where to look.
 
+## [2026-05] — Rename `BranchOutput` → `Candidate`; generalize fields
+
+`BranchOutput` was renamed to `Candidate` to reflect that the QC pipeline is domain-agnostic — the contributor can be an extractor, an LLM agent, a human annotator, or anything else.
+
+Field changes on `Candidate`:
+- `extractor: str` → `source: str` (canonical field name)
+- `branch: int` → `index: int`
+- `.extractor` and `.agent` are now both read-only properties aliasing `source`
+
+`QualityReport` in `quality_control/defaults/` updated to match: `extractor` → `source`, `branch` → `index`, with `.extractor` and `.agent` as aliases.
+
+Updated across all call sites: `extraction_pipeline.py`, `pdf_extractor.py`, `quality_control/`, `pipeline/`, all tests, steering docs.
+
+## [2026-05] — Rename `QCContext` → `QCBundle`
+
+`QCContext` was renamed to `QCBundle` across the entire codebase. The new name better reflects what the object is — the bundled outputs of one QC pipeline run (branches, reports, IAA metrics, adjudication decision, unified record, metrics hierarchy) — rather than the vague "context" suffix.
+
+- Renamed in: `quality_control/models.py`, `quality_control/quality_control.py`, `quality_control/__init__.py`
+- Updated all call sites: `pipeline/orchestrator.py`, `pipeline/pdf_processor.py`, `pipeline/validator.py`
+- Updated all test files under `tests/`
+- Updated steering docs and READMEs
+
+## [2026-05] — Extract concrete QC defaults to `quality_control/defaults/`; self-sufficient `pdf_extractor.py` CLI
+
+**QC model split:** Moved the three concrete default implementations out of `quality_control/models.py` into a new `quality_control/defaults/` subpackage. `models.py` now contains only ABCs and pure data containers.
+
+- `quality_control/defaults/quality_report.py` — `QualityReport` (default always-pass rater)
+- `quality_control/defaults/inter_rater_report.py` — `InterRaterReport` (pairwise pass/fail IAA)
+- `quality_control/defaults/adjudication_decision.py` — `AdjudicationDecision` (majority-vote election)
+- `quality_control/__init__.py` re-exports all three for backwards compatibility
+- Updated `quality_control/rater.py`, `quality_control/local_metrics.py`, `quality_control/quality_control.py` to import from `defaults/`
+
+**Shared extraction pipeline:** Extracted `_build_qc_context` logic from `pipeline/orchestrator.py` into `pdf_extractor/extraction_pipeline.py` (`build_qc_bundle`). Both the orchestrator and the standalone CLI now share the same scan-detection → backend-routing → QC pipeline code.
+
+**Self-sufficient `pdf_extractor.py` CLI:** Rewrote `pdf_extractor/pdf_extractor.py` to run the full multi-backend extraction pipeline (GROBID + pdfplumber for native pages; PaddleOCR + PyMuPDF for scanned pages) and write `UnifiedRecord`-based JSON artifacts. No OpenAI API key required.
+
+## [2026-05] — Rename `AlignmentMapEntry` → `AlignmentRecord`, `AlignmentMap` → `DocumentAlignment`
+
+The old names implied a subclass relationship that didn't exist. Renamed to clarify
+that `AlignmentRecord` is a single provenance record and `DocumentAlignment` is the
+document-level container that holds lists of them.
+
+- `quality_control/models.py`: class renames
+- `quality_control/__init__.py`: updated imports and `__all__`
+- `quality_control/reconciler.py`, `quality_control/quality_control.py`, `quality_control/concerns/text_fidelity.py`: updated all references
+- All affected test files updated accordingly
+- `.kiro/steering/product.md`: data model table updated
+
 ---
 
 ## [2026-05] — Migration Artifact Scrub (`bugfix/migration-artifact-scrub`)
@@ -37,7 +85,7 @@ described in `product.md`.
   `grobid_observation` → `primary_observation`, `pymupdf_observation` →
   `secondary_observation`
 - `rater.observe()` refactored from `observe(extractor_name, canonical_artifact,
-  document_id, config)` to `observe(branch: BranchOutput, config: dict) ->
+  document_id, config)` to `observe(branch: Candidate, config: dict) ->
   QualityReport`
 - `metrics_hierarchy` keys: `"tier1"` → `"local_metrics"`, `"tier2"` →
   `"exact_match"`, `"tier3"` → `"semantic_match"`
@@ -80,9 +128,9 @@ scanned pages.
 **What changed:**
 - `_build_qc_context` now runs `scan_detector.classify_page()` on every page
   before invoking any extraction backend
-- Native pages → `BranchOutput(extractor="grobid")` + `BranchOutput(extractor="pdfplumber")`
-- Scanned pages with `ocr: true` → `BranchOutput(extractor="paddleocr")` +
-  `BranchOutput(extractor="pymupdf")` (built-in OCR cross-validator)
+- Native pages → `Candidate(extractor="grobid")` + `Candidate(extractor="pdfplumber")`
+- Scanned pages with `ocr: true` → `Candidate(extractor="paddleocr")` +
+  `Candidate(extractor="pymupdf")` (built-in OCR cross-validator)
 - PyMuPDF font metadata stored outside `branches` as comparison signals
 - `extract_pdf()` removed from `pdf_extractor/extraction/__init__.py` (dead
   legacy cascade function)
