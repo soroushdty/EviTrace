@@ -59,6 +59,12 @@ from .defaults import (
 
 from .local_metrics import LocalQCReport
 
+from .structure_validator import StructureSchemaLoadError, StructureSchemaValidator
+
+from .validator import ValidationResult, Validator
+
+from .validate_context import ValidationError, validate_qc_context_input
+
 __all__ = [
     # pipeline entry points
     "run_pipeline",
@@ -82,4 +88,13 @@ __all__ = [
     "AdjudicationDecision",
     # local metrics
     "LocalQCReport",
+    # structure validator
+    "StructureSchemaLoadError",
+    "StructureSchemaValidator",
+    # generic validator engine
+    "ValidationResult",
+    "Validator",
+    # context validation
+    "ValidationError",
+    "validate_qc_context_input",
 ]

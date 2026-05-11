@@ -46,7 +46,6 @@ from .defaults import (
     InterRaterReport,
     QualityReport,
 )
-from pdf_extractor.utils.text_utils import exact_match_search, semantic_search
 
 logger = logging.getLogger("pdf_extractor")
 
@@ -271,6 +270,9 @@ def run_quality_control(
     branches: list[Candidate],
     document_id: str,
     config: dict,
+    *,
+    exact_match_fn: "Callable | None" = None,
+    semantic_search_fn: "Callable | None" = None,
 ) -> QCBundle:
     """PDF-specific QC pipeline built on top of ``run_pipeline``.
 
@@ -286,11 +288,11 @@ def run_quality_control(
 
     - **Tier 1** (Local_QC_Metrics) — cheap heuristics, always run.
     - **Tier 2** (exact/fuzzy text comparison) — run on borderline Tier 1
-      results (1–2 triggered metrics).
+      results (1–2 triggered metrics).  Requires ``exact_match_fn`` to be
+      provided; skipped when ``None``.
     - **Tier 3** (FAISS semantic comparison) — scaffolded; not yet wired into
-      adjudication.
-
-    Results from all tiers are stored in ``ctx.metrics_hierarchy``.
+      adjudication.  Requires ``semantic_search_fn`` to be provided; skipped
+      when ``None``.
 
     Parameters
     ----------
@@ -300,6 +302,12 @@ def run_quality_control(
         Stable document identifier (non-empty string).
     config:
         Loaded pipeline config dict.
+    exact_match_fn:
+        Optional callable ``(sentence, full_text, page_texts, blocks) -> result``
+        used for Tier 2 exact-match search.  When ``None``, Tier 2 is skipped.
+    semantic_search_fn:
+        Optional callable used for Tier 3 semantic search.  When ``None``,
+        Tier 3 is skipped even when ``semantic_qc.enabled`` is ``True``.
 
     Returns
     -------
@@ -421,8 +429,6 @@ def run_quality_control(
             DEFAULT_TABLE_FIGURE_MERGE,
             DEFAULT_TEXT_FIDELITY,
         )
-        from pdf_extractor.annotation import w3c_annotation
-        from pdf_extractor.annotation import artifact_generator as annotation_artifact_generator
 
         grobid_branch = next(
             (b for b in all_branches if b.extractor == "grobid"),
@@ -473,13 +479,6 @@ def run_quality_control(
                         }
                     )
 
-        # Wire annotation chain: project and generate JSON-LD, store on record.
-        annotation_records = w3c_annotation.project(updated_unified)
-        jsonld = annotation_artifact_generator.generate_w3c_jsonld(annotation_records)
-        if not isinstance(updated_unified.content, dict):
-            updated_unified.content = {}
-        updated_unified.content["annotations"] = jsonld
-
         # If any branch exists, enforce non-None typed layers.
         if all_branches:
             if updated_unified.semantic is None:
@@ -504,44 +503,45 @@ def run_quality_control(
 
     # --- Tier 2: exact-match search on borderline branches ---
     tier2_result = None
-    for branch_index, branch, report in borderline_branches:
-        exact_sentence = (
-            report.sentence_records[0]["sentence"]
-            if report.sentence_records
-            else report.full_pdf_text
-        )
-        if not exact_sentence:
-            continue
-
-        for candidate_index, candidate_branch in enumerate(branches):
-            if candidate_index == branch_index:
+    if exact_match_fn is not None:
+        for branch_index, branch, report in borderline_branches:
+            exact_sentence = (
+                report.sentence_records[0]["sentence"]
+                if report.sentence_records
+                else report.full_pdf_text
+            )
+            if not exact_sentence:
                 continue
 
-            candidate_text, candidate_page_texts, candidate_blocks = _extract_branch_payload(
-                candidate_branch.payload
-            )
-            candidate_result = exact_match_search(
-                exact_sentence,
-                candidate_text,
-                candidate_page_texts,
-                candidate_blocks,
-            )
-            metrics_hierarchy["exact_match"].append(
-                {
-                    "source_index": branch.index,
-                    "target_index": candidate_branch.index,
-                    "result": candidate_result,
-                }
-            )
-            if candidate_result is not None:
-                tier2_result = candidate_result
+            for candidate_index, candidate_branch in enumerate(branches):
+                if candidate_index == branch_index:
+                    continue
+
+                candidate_text, candidate_page_texts, candidate_blocks = _extract_branch_payload(
+                    candidate_branch.payload
+                )
+                candidate_result = exact_match_fn(
+                    exact_sentence,
+                    candidate_text,
+                    candidate_page_texts,
+                    candidate_blocks,
+                )
+                metrics_hierarchy["exact_match"].append(
+                    {
+                        "source_index": branch.index,
+                        "target_index": candidate_branch.index,
+                        "result": candidate_result,
+                    }
+                )
+                if candidate_result is not None:
+                    tier2_result = candidate_result
+                    break
+
+            if tier2_result is not None:
                 break
 
-        if tier2_result is not None:
-            break
-
     # --- Tier 3: semantic search (scaffolded only) ---
-    if semantic_qc_enabled and tier2_result is None and borderline_branches:
+    if semantic_qc_enabled and tier2_result is None and borderline_branches and semantic_search_fn is not None:
         branch_index, branch, report = borderline_branches[0]
         exact_sentence = (
             report.sentence_records[0]["sentence"]
@@ -549,7 +549,7 @@ def run_quality_control(
             else report.full_pdf_text
         )
         if exact_sentence:
-            semantic_result = semantic_search(
+            semantic_result = semantic_search_fn(
                 exact_sentence,
                 _build_placeholder_sentence_store(report.full_pdf_text, text_processor),
                 lambda query_text, model=None, query_prefix="": None,

@@ -1,0 +1,282 @@
+{
+  "version": "1.0.0",
+  "type": "structure",
+  "$defs": {
+    "ValidationResult": {
+      "type": "object",
+      "required": ["is_valid", "errors", "validated_object"],
+      "additionalProperties": false,
+      "properties": {
+        "is_valid": {
+          "type": "boolean"
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "validated_object": {
+          "type": "object"
+        }
+      }
+    },
+    "Candidate": {
+      "type": "object",
+      "required": ["source", "index", "payload"],
+      "additionalProperties": true,
+      "properties": {
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "index": {
+          "type": "integer"
+        },
+        "payload": {},
+        "status": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "UnifiedRecord": {
+      "type": "object",
+      "required": ["document_id", "content"],
+      "additionalProperties": true,
+      "properties": {
+        "document_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "content": {
+          "type": "object",
+          "required": ["exact_text"],
+          "additionalProperties": true,
+          "properties": {
+            "exact_text": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "QCBundle": {
+      "type": "object",
+      "required": ["branches", "unified"],
+      "additionalProperties": true,
+      "properties": {
+        "branches": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Candidate"
+          }
+        },
+        "reports": {
+          "type": "array"
+        },
+        "iaa_metrics": {
+          "type": ["object", "null"]
+        },
+        "decision": {
+          "type": ["object", "null"]
+        },
+        "unified": {
+          "$ref": "#/$defs/UnifiedRecord"
+        },
+        "metrics_hierarchy": {
+          "type": "object"
+        }
+      }
+    },
+    "StudyContext": {
+      "type": "object",
+      "required": ["review_topic", "study_title"],
+      "additionalProperties": false,
+      "properties": {
+        "review_topic": {
+          "type": "string",
+          "minLength": 1
+        },
+        "study_title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "study_identifier": {
+          "type": ["string", "null"]
+        },
+        "source_type": {
+          "type": ["string", "null"]
+        },
+        "study_scope_note": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "ProcessedPdfSentence": {
+      "type": "object",
+      "required": ["sid", "text"],
+      "additionalProperties": true,
+      "properties": {
+        "sid": {
+          "type": "string",
+          "minLength": 1
+        },
+        "loc": {
+          "type": ["string", "null"]
+        },
+        "sec": {
+          "type": ["string", "null"]
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "w": {
+          "type": ["number", "null"]
+        }
+      }
+    },
+    "StudyJson": {
+      "type": "object",
+      "required": ["study_context", "evidence_package"],
+      "additionalProperties": false,
+      "properties": {
+        "study_context": {
+          "$ref": "#/$defs/StudyContext"
+        },
+        "evidence_package": {
+          "type": "object",
+          "required": ["sentences"],
+          "additionalProperties": true,
+          "properties": {
+            "sentences": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ProcessedPdfSentence"
+              }
+            }
+          }
+        }
+      }
+    },
+    "ExtractionMapEntry": {
+      "type": "object",
+      "required": [
+        "field_index",
+        "domain_group",
+        "field_name",
+        "definition",
+        "reviewer_question",
+        "format"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "field_index": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "domain_group": {
+          "type": "string",
+          "minLength": 1
+        },
+        "field_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "definition": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reviewer_question": {
+          "type": "string",
+          "minLength": 1
+        },
+        "format": {
+          "type": "string",
+          "minLength": 1
+        },
+        "categories_or_examples": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "ExtractionMap": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/ExtractionMapEntry"
+      }
+    },
+    "ExtractionFieldDict": {
+      "type": "object",
+      "required": ["id", "v", "e", "s", "c", "ra", "note"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "v": {
+          "type": ["string", "number", "boolean", "array", "object", "null"]
+        },
+        "e": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "s": {
+          "type": "string",
+          "enum": [
+            "reported_explicitly",
+            "inferred_from_text",
+            "not_reported",
+            "not_applicable",
+            "unclear"
+          ]
+        },
+        "c": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5
+        },
+        "ra": {
+          "type": "string"
+        },
+        "note": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "ChunkOutput": {
+      "type": "object",
+      "required": ["extractions"],
+      "additionalProperties": false,
+      "properties": {
+        "extractions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ExtractionFieldDict"
+          }
+        }
+      }
+    },
+    "PdfProcessorOutput": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ExtractionFieldDict"
+      }
+    }
+  },
+  "validator_targets": {
+    "validate_candidate": "#/$defs/Candidate",
+    "validate_qc_bundle": "#/$defs/QCBundle",
+    "validate_pdf_processor_output": "#/$defs/PdfProcessorOutput",
+    "validate_extraction_map": "#/$defs/ExtractionMap",
+    "validate_chunk_output": "#/$defs/ChunkOutput",
+    "validate_study_json": "#/$defs/StudyJson"
+  }
+}

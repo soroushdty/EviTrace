@@ -52,7 +52,7 @@ def test_load_completed_result_complete_with_file(tmp_path):
     """Manifest status 'complete' + output file present → returns the fields list."""
     pdf_name = "paper_alpha"
     fields = [
-        {"field_index": 1, "extracted_value": "Smith 2020", "confidence": "h"},
+        {"field_index": 1, "extracted_value": "Smith", "confidence": "h"},
         {"field_index": 2, "extracted_value": "2020", "confidence": "h"},
     ]
     # Write the expected output file
@@ -298,7 +298,7 @@ def test_process_pdf_cache_hit_skips_extract_chunk(tmp_path):
     """When manifest is 'complete' and output file exists, extract_chunk is never called."""
     pdf_name = "paper_cached"
     fields = [
-        {"field_index": 1, "extracted_value": "Smith 2020", "confidence": "h"},
+        {"field_index": 1, "extracted_value": "Smith", "confidence": "h"},
         {"field_index": 2, "extracted_value": "2020", "confidence": "h"},
     ]
 

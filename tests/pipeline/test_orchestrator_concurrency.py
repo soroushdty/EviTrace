@@ -197,7 +197,7 @@ def test_build_qc_bundle_grobid_fallback():
 
     Requirements: 11.1, 12.3
     """
-    from pdf_extractor.extraction_pipeline import build_qc_bundle
+    from pipeline.extraction_pipeline import build_qc_bundle
     from quality_control.models import Candidate, QCBundle, UnifiedRecord
 
     mock_ctx = QCBundle(
@@ -209,15 +209,15 @@ def test_build_qc_bundle_grobid_fallback():
     )
     native_cls, mock_fitz = _make_native_scan_setup()
 
-    with patch("pdf_extractor.extraction_pipeline.extract_with_grobid",
+    with patch("pipeline.extraction_pipeline.extract_with_grobid",
                side_effect=RuntimeError("GROBID down")), \
-         patch("pdf_extractor.extraction_pipeline.extract_with_pdfplumber",
+         patch("pipeline.extraction_pipeline.extract_with_pdfplumber",
                return_value=[]), \
-         patch("pdf_extractor.extraction_pipeline.run_quality_control",
+         patch("pipeline.extraction_pipeline.run_quality_control",
                return_value=mock_ctx), \
-         patch("pdf_extractor.extraction_pipeline.TextProcessor",
+         patch("pipeline.extraction_pipeline.TextProcessor",
                return_value=MagicMock()), \
-         patch("pdf_extractor.extraction_pipeline.scan_detector") as mock_sd, \
+         patch("pipeline.extraction_pipeline.scan_detector") as mock_sd, \
          patch.dict(sys.modules, {"fitz": mock_fitz}):
 
         mock_sd.classify_page.return_value = native_cls
@@ -242,19 +242,19 @@ def test_build_qc_bundle_grobid_manifest_fail():
 
     Requirements: 11.2, 12.3
     """
-    from pdf_extractor.extraction_pipeline import build_qc_bundle
+    from pipeline.extraction_pipeline import build_qc_bundle
 
     native_cls, mock_fitz = _make_native_scan_setup()
 
-    with patch("pdf_extractor.extraction_pipeline.extract_with_grobid",
+    with patch("pipeline.extraction_pipeline.extract_with_grobid",
                side_effect=RuntimeError("GROBID down")), \
-         patch("pdf_extractor.extraction_pipeline.extract_with_pdfplumber",
+         patch("pipeline.extraction_pipeline.extract_with_pdfplumber",
                return_value=[]), \
-         patch("pdf_extractor.extraction_pipeline.run_quality_control",
+         patch("pipeline.extraction_pipeline.run_quality_control",
                return_value=MagicMock()), \
-         patch("pdf_extractor.extraction_pipeline.TextProcessor",
+         patch("pipeline.extraction_pipeline.TextProcessor",
                return_value=MagicMock()), \
-         patch("pdf_extractor.extraction_pipeline.scan_detector") as mock_sd, \
+         patch("pipeline.extraction_pipeline.scan_detector") as mock_sd, \
          patch.dict(sys.modules, {"fitz": mock_fitz}):
 
         mock_sd.classify_page.return_value = native_cls
@@ -288,7 +288,7 @@ def test_run_pipeline_all_succeed():
 
     pdf_paths = [Path("paper_a.pdf"), Path("paper_b.pdf"), Path("paper_c.pdf")]
     mock_qc_ctx = MagicMock()
-    fake_fields = [{"field_index": 1, "extracted_value": "Smith 2020"}]
+    fake_fields = [{"field_index": 1, "extracted_value": "Smith"}]
 
     with patch.object(orch, "build_qc_bundle", return_value=mock_qc_ctx), \
          patch.object(orch.pdf_processor, "process_pdf",
@@ -367,7 +367,7 @@ def test_run_pipeline_concurrency_1():
     max_seen = [0]
     lock = threading.Lock()
     mock_qc_ctx = MagicMock()
-    fake_fields = [{"field_index": 1, "extracted_value": "Smith 2020"}]
+    fake_fields = [{"field_index": 1, "extracted_value": "Smith"}]
 
     def fake_build_qc_bundle(pdf_path, pdf_name, qc_config):
         with lock:

@@ -2,11 +2,11 @@
   {
     "field_index": 1,
     "domain_group": "1. Study identification",
-    "field_name": "First author + year",
-    "definition": "Standard author-year citation handle used as a human-readable identifier.",
-    "reviewer_question": "Who is first author and what year was it published?",
+    "field_name": "First author",
+    "definition": "Family name of the first author, used as part of the citation handle.",
+    "reviewer_question": "Who is the first author?",
     "format": "Free text",
-    "categories_or_examples": "Examples: Shahn 2015; Carvalho 2024"
+    "categories_or_examples": "Examples: Shahn; Carvalho"
   },
   {
     "field_index": 2,

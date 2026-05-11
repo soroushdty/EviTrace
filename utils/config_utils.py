@@ -178,8 +178,8 @@ def _load_config_yaml(config_path: str | None = None) -> dict:
         Parsed YAML config dict.
     """
     if config_path is None:
-        # Prefer config/config.yaml when present, fall back to repo-root config.yaml
-        default1 = Path(__file__).parent.parent / "config" / "config.yaml"
+        # Prefer configs/config.yaml when present, fall back to repo-root config.yaml
+        default1 = Path(__file__).parent.parent / "configs" / "config.yaml"
         default2 = Path(__file__).parent.parent / "config.yaml"
         if default1.exists():
             config_path = default1

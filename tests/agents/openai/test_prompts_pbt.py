@@ -17,7 +17,22 @@ from hypothesis import strategies as st
 # regardless of how pytest resolves sys.path (--import-mode=importlib).
 # This mirrors the pattern used in test_prompts_builders.py.
 # ---------------------------------------------------------------------------
-_PROMPTS_PATH = Path(__file__).resolve().parents[3] / "agents" / "openai" / "prompts.py"
+_AGENTS_ROOT = Path(__file__).resolve().parents[3]
+
+# Ensure the real `agents` package is registered before loading prompts.py.
+if "agents" not in sys.modules or not hasattr(sys.modules["agents"], "agent_schema_validator"):
+    import importlib as _importlib
+    _agents_spec = _importlib.util.spec_from_file_location(
+        "agents",
+        _AGENTS_ROOT / "agents" / "__init__.py",
+        submodule_search_locations=[str(_AGENTS_ROOT / "agents")],
+    )
+    assert _agents_spec is not None and _agents_spec.loader is not None
+    _agents_mod = _importlib.util.module_from_spec(_agents_spec)
+    sys.modules["agents"] = _agents_mod
+    _agents_spec.loader.exec_module(_agents_mod)
+
+_PROMPTS_PATH = _AGENTS_ROOT / "agents" / "openai" / "prompts.py"
 _SPEC = importlib.util.spec_from_file_location("agents.openai.prompts", _PROMPTS_PATH)
 assert _SPEC is not None and _SPEC.loader is not None
 _PROMPTS_MODULE = importlib.util.module_from_spec(_SPEC)

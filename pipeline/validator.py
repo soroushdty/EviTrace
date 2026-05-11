@@ -3,8 +3,6 @@ import json
 import re
 from typing import Any
 
-from quality_control import QCBundle
-
 # Validation constants
 ALLOWED_CONFIDENCE = {"h", "m", "l", "nr"}
 REQUIRED_KEYS = {"i", "v", "loc", "c"}
@@ -13,33 +11,6 @@ REQUIRED_KEYS = {"i", "v", "loc", "c"}
 class ValidationError(Exception):
     """Raised when a subagent's output fails schema validation."""
     pass
-
-
-def validate_qc_context_input(ctx: object) -> None:
-    """Guard: verify ctx is a fully-reconciled QCBundle before field extraction."""
-    if not isinstance(ctx, QCBundle):
-        raise TypeError(
-            f"pdf_processor input must be a QCBundle, got {type(ctx).__name__!r}"
-        )
-    if ctx.unified is None:
-        raise ValueError(
-            "QCBundle.unified is None — reconciler has not run yet"
-        )
-    if not isinstance(ctx.unified.document_id, str) or not ctx.unified.document_id:
-        raise ValueError(
-            f"QCBundle.unified.document_id must be a non-empty str, "
-            f"got {ctx.unified.document_id!r}"
-        )
-    if not isinstance(ctx.unified.content, dict):
-        raise TypeError(
-            f"QCBundle.unified.content must be a dict, "
-            f"got {type(ctx.unified.content).__name__!r}"
-        )
-    exact_text = ctx.unified.content.get("exact_text")
-    if not isinstance(exact_text, str) or not exact_text.strip():
-        raise ValueError(
-            "QCBundle.unified.content['exact_text'] must be a non-empty string"
-        )
 
 
 def clean_json_string(raw: str) -> str:

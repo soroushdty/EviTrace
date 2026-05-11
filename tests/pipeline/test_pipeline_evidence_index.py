@@ -52,7 +52,7 @@ def test_build_evidence_bundle_prefills_study_fields(tmp_path: Path):
     ctx = _qc_context_with_tei(tmp_path)
     cfg = {"evidence_cache_dir": str(tmp_path / "cache"), "addons": {}}
     bundle = build_or_load_evidence_bundle(ctx, cfg)
-    assert bundle.prefilled_fields[1] == "Smith 2021"
+    assert bundle.prefilled_fields[1] == "Smith"
     assert bundle.prefilled_fields[2] == "2021"
     assert any(item["section_path"] == "Abstract" for item in bundle.evidence_items)
 

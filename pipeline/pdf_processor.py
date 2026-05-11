@@ -10,7 +10,8 @@ from .evidence_index import (
     build_chunk_evidence_package,
     build_or_load_evidence_bundle,
 )
-from .validator import reconstruct_fields, validate_qc_context_input
+from quality_control.validate_context import validate_qc_context_input
+from .validator import reconstruct_fields, validate_chunk_output, ValidationError
 from utils.logging_utils import get_logger
 from utils.path_utils import OUTPUT_DIR
 from .manifest import save_manifest
@@ -197,10 +198,32 @@ async def process_pdf(
     if raw_results is None:
         return None
 
-    # Step 3: reconstruct prior-context for synthesis.
+    # Step 3: validate and reconstruct prior-context for synthesis.
+    # raw_results is a list of raw API response strings (one per extraction chunk).
+    extraction_chunks = sorted(
+        i for i in range(1, num_chunks) if i in chunk_fields_for_llm
+    )
     prior_context: list[dict] = list(prefilled_fields)
-    for chunk_result in raw_results:
-        prior_context.extend(reconstruct_fields(chunk_result, field_lookup, bundle.evidence_map))  # type: ignore[arg-type]
+    for chunk_idx, raw_text in zip(extraction_chunks, raw_results):
+        expected_idx = sorted(
+            f["field_index"] for f in chunk_fields_for_llm[chunk_idx]
+        )
+        try:
+            validated = validate_chunk_output(
+                raw_text,
+                expected_idx,
+                valid_location_ids=valid_location_ids,
+            )
+        except ValidationError as exc:
+            logger.error(f"FAIL  {pdf_name} -- chunk {chunk_idx} validation: {exc}")
+            async with manifest_lock:
+                manifest[pdf_name] = {
+                    "status": "failed_chunks",
+                    "failed_chunks": [chunk_idx],
+                }
+                save_manifest(manifest)
+            return None
+        prior_context.extend(reconstruct_fields(validated, field_lookup, bundle.evidence_map))
     prior_context.sort(key=lambda x: x["field_index"])
 
     # Step 4: run synthesis chunk.
@@ -209,7 +232,7 @@ async def process_pdf(
         final_fields: list[dict] = []
         synthesis_fields = chunk_fields_for_llm.get(synthesis_chunk, [])
         if synthesis_fields:
-            final_compact = await extract_chunk(
+            synthesis_raw = await extract_chunk(
                 synthesis_chunk,
                 chunk_sources.get(synthesis_chunk, json.dumps({"paper_id": pdf_name, "evidence": []})),
                 synthesis_fields,
@@ -217,6 +240,14 @@ async def process_pdf(
                 valid_location_ids=valid_location_ids,
                 prior_context=prior_context,
                 pdf_name=pdf_name,
+            )
+            synthesis_expected_idx = sorted(
+                f["field_index"] for f in synthesis_fields
+            )
+            final_compact = validate_chunk_output(
+                synthesis_raw,
+                synthesis_expected_idx,
+                valid_location_ids=valid_location_ids,
             )
             final_fields = reconstruct_fields(final_compact, field_lookup, bundle.evidence_map)
     except Exception as exc:

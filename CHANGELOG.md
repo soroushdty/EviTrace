@@ -9,6 +9,50 @@ Format: `## [date] — title` followed by a short description of what changed
 and why. No need to be exhaustive — just enough for a future reader to
 understand what happened and where to look.
 
+## [2026-05] — schema-validator-split spec complete
+
+All tasks for the `schema-validator-split` spec are now implemented and all tests pass (787 passed, 2 pre-existing failures unrelated to this spec). The full validation architecture refactor is complete:
+
+- Generic `Validator` base class + `ValidationResult` frozen dataclass in `quality_control/validator.py`
+- `StructureSchemaValidator` in `quality_control/structure_validator.py` (sole reader of `structure_schema.json`)
+- `validate_qc_context_input` migrated to `quality_control/validate_context.py`
+- `PDFValidationError` + `validate_pdf` standalone function in `pdf_extractor/pdf_validator.py`
+- `SYSTEM_PROMPT` constant removed from `agents/openai/prompts.py`; replaced with `get_system_prompt()` callable
+- `validate_qc_context_input` hard-removed from `pipeline/validator.py`
+- Static AST dependency-direction test in `tests/test_dependency_directions.py` (8 tests, all pass)
+- All forbidden cross-package import violations resolved
+
+## [2026-05] — schema-validator-split task 11.1: static AST dependency-direction test + architectural fixes
+
+Implemented `tests/test_dependency_directions.py` (already existed) and fixed all 7 forbidden cross-package import violations it detected. The test enforces Requirements 9.1–9.6 by recursively inspecting AST of all `.py` files in each package.
+
+Architectural changes to eliminate violations:
+- Moved `pdf_extractor/extraction_pipeline.py` → `pipeline/extraction_pipeline.py` (resolves `pdf_extractor` → `quality_control` violation)
+- Removed `from pdf_extractor.utils.text_utils import exact_match_search, semantic_search` from `quality_control/quality_control.py`; made these injectable via `exact_match_fn`/`semantic_search_fn` keyword args on `run_quality_control`
+- Moved annotation chain (`w3c_annotation.project`, `generate_w3c_jsonld`) from `quality_control/quality_control.py` into `pipeline/extraction_pipeline.py`
+- Removed `from pipeline.validator import ValidationError, validate_chunk_output` from `agents/openai/api_client.py`; `extract_chunk` now returns raw text; validation moved to `pipeline/pdf_processor.py`
+- Removed `from quality_control.models import UnifiedRecord` from `pdf_extractor/annotation/w3c_annotation.py`; replaced with `Any` type hint
+- Removed `_structure_validator.validate_chunk_output` call from `pipeline/validator.py` (schema mismatch with compact LLM format)
+- Updated `pipeline/orchestrator.py` to use relative import for `extraction_pipeline`
+- Updated tests to match new API: `extract_chunk` returns `str`, annotation chain no longer in `run_quality_control`
+
+## [2026-05] — schema-validator-split task 9.1: refactor `pipeline/validator.py` — delegate to `StructureSchemaValidator`, remove `validate_qc_context_input`
+
+`pipeline/validator.py` now imports `StructureSchemaValidator` from `quality_control.structure_validator` and creates a module-level `_structure_validator` singleton. `validate_chunk_output` delegates structural field validation to `_structure_validator.validate_chunk_output({"extractions": data}, lambda x: x)` after existing JSON parsing and raises `ValidationError` when `result.is_valid` is `False`. `validate_qc_context_input` has been hard-removed (no shim, no re-export). Satisfies Requirements 8.1, 8.2, 8.3, 8.6, 10.2, 10.4.
+
+- Added: `from quality_control.structure_validator import StructureSchemaValidator`
+- Added: `_structure_validator = StructureSchemaValidator()` module-level singleton
+- Modified: `validate_chunk_output` — structural delegation after field-level checks
+- Removed: `validate_qc_context_input` (hard removal)
+- Removed: `from quality_control import QCBundle` (no longer needed)
+
+## [2026-05] — schema-validator-split task 8.1: replace `SYSTEM_PROMPT` with `get_system_prompt()` in `agents/openai/prompts.py`
+
+The module-level constant `SYSTEM_PROMPT` has been removed from `agents/openai/prompts.py` and replaced with a `get_system_prompt() -> str` callable that delegates to the `agent_schema_validator` singleton from `agents`. This satisfies Requirements 5.3, 5.4, 10.1, and 10.3 (hard removal — no re-export, no alias).
+
+- Removed: `SYSTEM_PROMPT: str = agent_schema_validator.get_system_prompt()`
+- Added: `def get_system_prompt() -> str` (delegates to `agent_schema_validator.get_system_prompt()`)
+
 ## [2026-05] — Rename `BranchOutput` → `Candidate`; generalize fields
 
 `BranchOutput` was renamed to `Candidate` to reflect that the QC pipeline is domain-agnostic — the contributor can be an extractor, an LLM agent, a human annotator, or anything else.
@@ -182,3 +226,15 @@ unit tests: `agents/openai/api_client.py`, `agents/openai/prompts.py`,
 - Orchestrator PDF-level concurrency and GROBID failure-handling tests
 - All tests mock external dependencies (OpenAI API, GROBID, file I/O) — no
   real credentials or services required
+
+## [2026-05] — schema-validator-split: task 3.1 — `StructureSchemaValidator` (`schema-validator-split`)
+
+Added `quality_control/structure_validator.py` as the sole reader of `configs/structure_schema.json`. Provides `StructureSchemaLoadError` and `StructureSchemaValidator` with five typed validation methods (`validate_candidate`, `validate_qc_bundle`, `validate_pdf_processor_output`, `validate_extraction_map`, `validate_chunk_output`). Each method resolves its target via `validator_targets` in the schema, builds a wrapper schema that carries the full `$defs` block for correct `$ref` resolution, and delegates to the generic `Validator`. Both names are re-exported from `quality_control/__init__.py`.
+
+## [2026-05] — schema-validator-split: task 4.1 — migrate `validate_qc_context_input` to `quality_control/`
+
+Created `quality_control/validate_context.py` as part of the `schema-validator-split` spec. The `validate_qc_context_input` function is now defined in `quality_control/` (migrated from `pipeline/validator.py`), respecting the dependency-direction rule that `quality_control` must not import from `pipeline`.
+
+- Added `quality_control/validate_context.py` with `ValidationError` (defined locally, not imported from `pipeline`) and `validate_qc_context_input`.
+- The function performs five pre-flight checks (isinstance QCBundle, unified not None, document_id non-empty str, content is dict, exact_text non-empty str) then delegates to `_structure_validator.validate_qc_bundle`.
+- Module-level `_structure_validator = StructureSchemaValidator()` singleton instantiated at import time.

@@ -89,21 +89,20 @@ def test_document_id_derivation_deterministic(pymupdf_output):
 # ---------------------------------------------------------------------------
 
 # Feature: quality-control-module, Property 14: Pipeline propagates sub-module exceptions
-@given(st.sampled_from(["reconciler", "annotation_projection", "annotation_generation"]))
+@given(st.sampled_from(["reconciler"]))
 @settings(max_examples=10)
 def test_pipeline_propagates_exceptions(module_name):
-    """Validates: Requirements 1.7"""
+    """Validates: Requirements 1.7
+    Note: annotation chain (w3c_annotation.project, generate_w3c_jsonld) was moved
+    to pipeline/extraction_pipeline.py and is no longer called by run_quality_control.
+    Only reconciler exceptions propagate through run_quality_control.
+    """
     error = RuntimeError("test error")
 
     if module_name == "reconciler":
         patch_target = patch("quality_control.quality_control.reconciler.reconcile", side_effect=error)
-    elif module_name == "annotation_projection":
-        patch_target = patch("pdf_extractor.annotation.w3c_annotation.project", side_effect=error)
     else:
-        patch_target = patch(
-            "pdf_extractor.annotation.artifact_generator.generate_w3c_jsonld",
-            side_effect=error,
-        )
+        patch_target = patch("quality_control.quality_control.reconciler.reconcile", side_effect=error)
 
     with patch_target:
         config = _make_minimal_config()
@@ -208,13 +207,14 @@ class TestPipelineOrchestration:
             assert ctx.unified.alignment is expected_alignment
 
     def test_annotation_chain_writes_jsonld_to_unified_content(self):
-        """w3c projection + JSON-LD generation result is stored in UnifiedRecord content."""
+        """w3c projection + JSON-LD generation result is stored in UnifiedRecord content.
+        Note: annotation chain was moved to pipeline/extraction_pipeline.py.
+        run_quality_control no longer adds annotations; that step happens in build_qc_bundle.
+        This test verifies that run_quality_control returns a unified record without
+        annotations (the caller is responsible for adding them).
+        """
         with (
             patch("quality_control.quality_control.reconciler.reconcile") as mock_reconcile,
-            patch("pdf_extractor.annotation.w3c_annotation.project") as mock_project,
-            patch(
-                "pdf_extractor.annotation.artifact_generator.generate_w3c_jsonld"
-            ) as mock_generate_jsonld,
         ):
             mock_reconcile.return_value = UnifiedRecord(
                 document_id="test-doc-id",
@@ -223,14 +223,14 @@ class TestPipelineOrchestration:
                 structural=MagicMock(),
                 alignment=DocumentAlignment(),
             )
-            mock_project.return_value = [{"sentence_text": "s1"}]
-            mock_generate_jsonld.return_value = [{"id": "anno-1"}]
 
             config = _make_minimal_config()
             branches = _make_branches("<root/>", {"blocks": [{"text": "Hello", "page_index": 0}]})
             ctx = run_quality_control(branches, "test-doc-id", config)
 
-            assert ctx.unified.content["annotations"] == [{"id": "anno-1"}]
+            # run_quality_control no longer adds annotations — that's build_qc_bundle's job
+            assert ctx.unified is not None
+            assert "annotations" not in ctx.unified.content
 
     def test_accepts_minimal_valid_inputs(self):
         """run_quality_control with a non-empty TEI XML string and dict should not raise."""

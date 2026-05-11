@@ -1,5 +1,5 @@
 """
-pdf_extractor/utils/layout_utils.py
+pdf_extractor/layout_utils.py
 =====================
 Layout-aware utilities for section heading detection and location cross-check.
 

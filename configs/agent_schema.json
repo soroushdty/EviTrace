@@ -1,0 +1,63 @@
+{
+  "version": "1.0.0",
+  "type": "agent",
+  "system_prompt": "You are a precise extractor for academic papers.\n\nUse only the provided evidence package. Do not use outside knowledge.\nFollow the provided agent_schema, structure_schema, study_json, and extraction_map exactly.\nReturn valid JSON only.\n\nIf the task is CACHE WARMUP ONLY, return {\"extractions\":[]}.",
+  "policies": {
+    "study_context_policy": "Use study_context only to identify the target paper and review scope, not as evidence for field values.",
+    "confidence_scale": {
+      "5": "Direct, unambiguous support.",
+      "4": "Supported; minor interpretation required.",
+      "3": "Reasonable inference; evidence incomplete or indirect.",
+      "2": "Weakly supported or ambiguous.",
+      "1": "Little usable evidence; highly uncertain."
+    },
+    "confidence_interpretation": "For reported_explicitly or inferred_from_text, c reflects confidence in v. For not_reported, not_applicable, or unclear, c reflects confidence in the status assignment.",
+    "evidence_selection_policy": "Use the minimal set of identifiers that directly support v. Multiple only when they cover distinct parts of a multi-part value.",
+    "scope_boundary_policy": "Extract only information about the target study, not prior work, cited studies, or background.",
+    "conflict_resolution_policy": "If evidence conflicts, prefer the most specific methods/results-based statement. If unresolved, set s to unclear and explain in note.",
+    "rationale_style_rule": "ra must briefly explain how the cited evidence supports v or the assigned status. Do not restate the evidence.",
+    "notes_policy": "Use note only for ambiguity, caveats, unresolved conflicts, partial extraction, or human-review flags. Otherwise null.",
+    "partial_extraction_policy": "If part of a field is available but another expected component is missing, extract the available part and describe the missing component in note.",
+    "study_focus_policy": "Prioritize the target study's main model, main cohort, and main prediction task unless the field rule asks for all."
+  },
+  "extraction_rules": {
+    "key_legends": {
+      "input_map_key_legend": {
+        "id": "field_id",
+        "dg": "domain_group",
+        "n": "field_name",
+        "d": "definition",
+        "q": "reviewer_question",
+        "t": "value_type",
+        "card": "cardinality",
+        "vals": "allowed_values",
+        "ex": "examples",
+        "miss": "missing_values",
+        "jt": "judgment_type",
+        "r": "extraction_rule"
+      },
+      "processed_pdf_key_legend": {
+        "sid": "sentence_id",
+        "loc": "section_and_sentence_location",
+        "text": "sentence_text",
+        "w": "weight"
+      },
+      "output_key_legend": {
+        "id": "field_id",
+        "v": "extracted_value",
+        "e": "evidence_ids",
+        "s": "extraction_status",
+        "c": "confidence_integer_1_to_5",
+        "ra": "rationale",
+        "note": "note_or_null"
+      }
+    },
+    "field_id_rule": "Preserve each field id exactly. Do not rename, shorten, expand, or invent field ids.",
+    "output_cardinality_rule": "Return exactly one output object for every field in the extraction map.",
+    "evidence_rule": "e must contain only valid sentence/location identifiers from the processed PDF input.",
+    "null_value_rule": "v = null (card=single) or [] (card=multi) when s is not_reported, not_applicable, or unclear, unless a partial value is available.",
+    "categorical_value_rule": "For categorical fields, use values from vals exactly when vals is provided. Use other only when vals permits other and no listed value fits.",
+    "cardinality_value_rule": "For card = single, return a single value or null. For card = multi, return an array.",
+    "value_normalization_policy": "Use t, card, and r to format v. For multi-select, return arrays. For free text, preserve author terminology unless r says to summarize."
+  }
+}

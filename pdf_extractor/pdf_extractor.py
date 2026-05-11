@@ -28,7 +28,7 @@ from utils.config_utils import load_local_config, load_qc_config
 from utils.logging_utils import setup_logging
 from utils.grobid_manager import GrobidServerManager
 
-from .extraction_pipeline import build_qc_bundle
+from pipeline.extraction_pipeline import build_qc_bundle
 
 
 def _unified_to_artifact(pdf_name: str, pdf_info: dict, ctx) -> dict:
@@ -148,9 +148,9 @@ def main() -> None:
     )
     parser.add_argument(
         "--config",
-        default=path_utils.resolve_project_path("config/config.yaml"),
+        default=path_utils.resolve_project_path("configs/config.yaml"),
         metavar="PATH",
-        help="Path to the pipeline config file (default: config/config.yaml)",
+        help="Path to the pipeline config file (default: configs/config.yaml)",
     )
     args = parser.parse_args()
 

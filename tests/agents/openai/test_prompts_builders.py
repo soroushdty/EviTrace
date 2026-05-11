@@ -9,14 +9,31 @@ from pathlib import Path
 
 # Load agents.openai.prompts directly from its file path so the test works
 # regardless of how pytest resolves sys.path (--import-mode=importlib).
-_PROMPTS_PATH = Path(__file__).resolve().parents[3] / "agents" / "openai" / "prompts.py"
+_AGENTS_ROOT = Path(__file__).resolve().parents[3]
+
+# Ensure the real `agents` package is registered before loading prompts.py,
+# so `from agents import agent_schema_validator` resolves correctly and not
+# to the test-side `tests/agents/` package.
+if "agents" not in sys.modules or not hasattr(sys.modules["agents"], "agent_schema_validator"):
+    import importlib
+    _agents_spec = importlib.util.spec_from_file_location(
+        "agents",
+        _AGENTS_ROOT / "agents" / "__init__.py",
+        submodule_search_locations=[str(_AGENTS_ROOT / "agents")],
+    )
+    assert _agents_spec is not None and _agents_spec.loader is not None
+    _agents_mod = importlib.util.module_from_spec(_agents_spec)
+    sys.modules["agents"] = _agents_mod
+    _agents_spec.loader.exec_module(_agents_mod)
+
+_PROMPTS_PATH = _AGENTS_ROOT / "agents" / "openai" / "prompts.py"
 _SPEC = importlib.util.spec_from_file_location("agents.openai.prompts", _PROMPTS_PATH)
 assert _SPEC is not None and _SPEC.loader is not None
 _PROMPTS_MODULE = importlib.util.module_from_spec(_SPEC)
 sys.modules["agents.openai.prompts"] = _PROMPTS_MODULE
 _SPEC.loader.exec_module(_PROMPTS_MODULE)
 
-SYSTEM_PROMPT = _PROMPTS_MODULE.SYSTEM_PROMPT
+SYSTEM_PROMPT = _PROMPTS_MODULE.get_system_prompt()
 _shared_paper_prefix = _PROMPTS_MODULE._shared_paper_prefix
 build_cache_warmup_message = _PROMPTS_MODULE.build_cache_warmup_message
 build_user_message = _PROMPTS_MODULE.build_user_message
@@ -37,9 +54,8 @@ def test_system_prompt_contains_cache_warmup_instruction():
 
 
 def test_system_prompt_contains_confidence_tiers():
-    """SYSTEM_PROMPT must define all four confidence tiers: h, m, l, nr."""
-    for tier in ("h", "m", "l", "nr"):
-        assert tier in SYSTEM_PROMPT, f"Confidence tier '{tier}' not found in SYSTEM_PROMPT"
+    """SYSTEM_PROMPT must instruct the model to follow the agent_schema (which defines confidence scale)."""
+    assert "agent_schema" in SYSTEM_PROMPT
 
 
 # ---------------------------------------------------------------------------

@@ -129,12 +129,9 @@ def _build_items_from_tei(tei_xml: str, paper_id: str, source_pdf: str) -> tuple
         m = re.search(r"(19|20)\d{2}", candidate)
         if m:
             year = m.group(0)
-    author_year = ""
     author = _safe_text("".join(first_author.itertext())) if first_author is not None else ""
-    if author and year:
-        author_year = f"{author} {year}"
 
-    prefilled = {1: author_year or paper_id, 2: year or "nr"}
+    prefilled = {1: author or paper_id, 2: year or "nr"}
 
     section_path = "body"
     body = root.find(f".//{_NS}body")

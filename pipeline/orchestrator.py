@@ -3,7 +3,7 @@ import asyncio
 from pathlib import Path
 from typing import List
 
-from pdf_extractor.extraction_pipeline import build_qc_bundle
+from .extraction_pipeline import build_qc_bundle
 from utils.config_utils import load_openai_config, load_qc_config
 from utils.logging_utils import get_logger
 

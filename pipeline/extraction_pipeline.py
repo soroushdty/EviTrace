@@ -1,5 +1,5 @@
 """
-pdf_extractor/extraction_pipeline.py
+pipeline/extraction_pipeline.py
 --------------------------------------
 Shared extraction logic: per-page scan detection, backend routing, and QC
 pipeline for a single PDF.
@@ -26,6 +26,8 @@ from pdf_extractor.extraction.PyMuPDF import extract_with_pymupdf
 from pdf_extractor.extraction.pdfplumber import extract_with_pdfplumber
 from pdf_extractor.extraction.PaddleOCR import extract_with_paddleocr
 from pdf_extractor.extraction import scan_detector
+from pdf_extractor.annotation import w3c_annotation
+from pdf_extractor.annotation import artifact_generator as annotation_artifact_generator
 from quality_control import QCBundle, run_quality_control
 from quality_control.models import Candidate
 from utils.text_processor import TextProcessor
@@ -143,9 +145,26 @@ def build_qc_bundle(
     # ------------------------------------------------------------------
     # Step 3 — QC pipeline
     # ------------------------------------------------------------------
-    ctx = run_quality_control(branches, pdf_name, qc_config)
+    from pdf_extractor.utils.text_utils import exact_match_search, semantic_search  # noqa: PLC0415
+    ctx = run_quality_control(
+        branches,
+        pdf_name,
+        qc_config,
+        exact_match_fn=exact_match_search,
+        semantic_search_fn=semantic_search,
+    )
     if ctx.unified is not None and isinstance(ctx.unified.content, dict):
         ctx.unified.content["source_pdf_path"] = str(pdf_path)
         ctx.unified.content["grobid_tei_xml"] = tei_xml
+
+    # ------------------------------------------------------------------
+    # Step 4 — Annotation chain (project W3C JSON-LD from unified record)
+    # ------------------------------------------------------------------
+    if ctx.unified is not None:
+        annotation_records = w3c_annotation.project(ctx.unified)
+        jsonld = annotation_artifact_generator.generate_w3c_jsonld(annotation_records)
+        if not isinstance(ctx.unified.content, dict):
+            ctx.unified.content = {}
+        ctx.unified.content["annotations"] = jsonld
 
     return ctx

@@ -297,8 +297,8 @@ import json as _json
 
 
 def test_extract_chunk_happy_path():
-    """Requirement 1.5: mock returns valid JSON on first attempt; assert returned list
-    has correct field_index values.
+    """Requirement 1.5: mock returns valid JSON on first attempt; assert returned
+    raw text is a non-empty string.
     """
     api_client_mod = _import_api_client()
 
@@ -329,14 +329,17 @@ def test_extract_chunk_happy_path():
             )
         )
 
-    returned_indices = sorted(item["i"] for item in result)
-    assert returned_indices == [3, 4]
+    # extract_chunk now returns raw text; validation is the caller's responsibility
+    assert isinstance(result, str)
+    assert valid_json in result or "extractions" in result
     mock_client.responses.create.assert_called_once()
 
 
 def test_extract_chunk_validation_failure_retries():
     """Requirement 1.6: mock returns invalid JSON every time; assert RuntimeError
-    after MAX_RETRIES.
+    after MAX_RETRIES when the API itself fails (not validation).
+    Note: validation is now the caller's responsibility (pipeline/pdf_processor.py).
+    extract_chunk returns raw text and retries only on API errors.
     """
     api_client_mod = _import_api_client()
 
@@ -344,17 +347,13 @@ def test_extract_chunk_validation_failure_retries():
         {"field_index": 1, "field_name": "Field 1", "definition": "def1"},
         {"field_index": 2, "field_name": "Field 2", "definition": "def2"},
     ]
-    # Wrong field indices — validator will reject (expected [1,2], got [99,100])
-    invalid_json = _json.dumps({
-        "extractions": [
-            {"i": 99, "v": "wrong", "loc": [], "c": "h"},
-            {"i": 100, "v": "wrong", "loc": [], "c": "h"},
-        ]
-    })
 
+    from openai import RateLimitError
     mock_client = MagicMock()
     mock_client.responses = MagicMock()
-    mock_client.responses.create = AsyncMock(return_value=_make_response(invalid_json))
+    mock_client.responses.create = AsyncMock(
+        side_effect=RateLimitError("rate limited", response=MagicMock(status_code=429), body=None)
+    )
     api_client_mod._client = mock_client
 
     with patch("asyncio.sleep", new_callable=AsyncMock):
@@ -368,7 +367,7 @@ def test_extract_chunk_validation_failure_retries():
                 )
             )
 
-    # Should have been called MAX_RETRIES times (validation failure retries)
+    # Should have been called MAX_RETRIES times (API error retries)
     assert mock_client.responses.create.call_count == api_client_mod.MAX_RETRIES
 
 

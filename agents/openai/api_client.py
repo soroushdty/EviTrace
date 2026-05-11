@@ -7,8 +7,7 @@ from typing import Any, Optional
 from openai import APIConnectionError, APIStatusError, APITimeoutError, AsyncOpenAI, RateLimitError
 
 from utils.config_utils import load_openai_config
-from .prompts import SYSTEM_PROMPT, build_cache_warmup_message, build_user_message
-from pipeline.validator import ValidationError, validate_chunk_output
+from .prompts import get_system_prompt, build_cache_warmup_message, build_user_message
 from utils.logging_utils import get_logger, log_cache_usage
 
 _openai_config = load_openai_config()
@@ -121,7 +120,7 @@ def _base_request_kwargs(model: str, source_package: str, user_msg: str, max_out
     request_kwargs: dict[str, Any] = {
         "model": model,
         "input": [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": get_system_prompt()},
             {"role": "user", "content": user_msg},
         ],
         "max_output_tokens": max_output_tokens,
@@ -236,7 +235,7 @@ async def extract_chunk(
     valid_location_ids: set[str] | None = None,
     prior_context: Optional[list[dict]] = None,
     pdf_name: str = "unknown",
-) -> list[dict]:
+) -> str:
     """
     Call OpenAI for a single chunk with up to MAX_RETRIES attempts.
 
@@ -249,10 +248,9 @@ async def extract_chunk(
         pdf_name:      Used in log messages only.
 
     Returns:
-        Validated list of extraction dicts for this chunk's fields.
+        Raw response text from the API (validation is the caller's responsibility).
     """
     model, max_tokens = _chunk_model_and_tokens(chunk_num)
-    expected_idx = _expected_indices(chunk_fields)
     user_msg = build_user_message(source_package, chunk_fields, prior_context)
     tag = f"[{pdf_name} | chunk {chunk_num} | {model}]"
 
@@ -272,9 +270,8 @@ async def extract_chunk(
 
             log_cache_usage(response, tag)
             raw = _response_text(response)
-            result = validate_chunk_output(raw, expected_idx, valid_location_ids=valid_location_ids)
             logger.info(f"{tag} ok (attempt {attempt})")
-            return result
+            return raw
 
         except RateLimitError as exc:
             delay = RETRY_BASE_DELAY * (2 ** (attempt - 1))
@@ -290,15 +287,6 @@ async def extract_chunk(
             status = getattr(exc, "status_code", "connection")
             logger.warning(
                 f"{tag} OpenAI API error {status} (attempt {attempt}/{MAX_RETRIES}), "
-                f"sleeping {delay}s -- {exc}"
-            )
-            await asyncio.sleep(delay)
-            last_exc = exc
-
-        except ValidationError as exc:
-            delay = RETRY_BASE_DELAY * (2 ** (attempt - 1))
-            logger.warning(
-                f"{tag} validation failed (attempt {attempt}/{MAX_RETRIES}), "
                 f"sleeping {delay}s -- {exc}"
             )
             await asyncio.sleep(delay)

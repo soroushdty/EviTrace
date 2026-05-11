@@ -45,7 +45,7 @@ retry:
 # Paths
 pdfs_path: "input"
 output_folder_path: "outputs"
-extraction_map_path: "extraction_map.json"
+extraction_map_path: "config/extraction_map.json"
 
 # Logging configuration
 log_file: "run.log"
