@@ -245,11 +245,21 @@ def _extract_tei_payload(tei_xml: str) -> tuple[str, dict[int, str], list[dict]]
     if body is not None:
         sentences = list(body.findall(f".//{ns}s"))
         if sentences:
+            # Build a sentence→page map from parent <p> coords so that sentences
+            # without their own coords (when 's' is absent from teiCoordinates)
+            # still get the right page instead of defaulting to 0.
+            sent_page: dict[int, int] = {}
+            for p in body.findall(f".//{ns}p"):
+                p_page = _page_from_coords(p.attrib.get("coords", ""))
+                for s in p.findall(f"{ns}s"):
+                    sent_page[id(s)] = p_page
+
             for s in sentences:
                 t = _text(s)
                 if not t:
                     continue
-                page = _page_from_coords(s.attrib.get("coords", ""))
+                coord = s.attrib.get("coords", "")
+                page = _page_from_coords(coord) if coord else sent_page.get(id(s), 0)
                 blocks.append({"text": t, "page_index": page, "block_bbox": None, "spans": []})
                 page_texts.setdefault(page, []).append(t)
                 text_parts.append(t)

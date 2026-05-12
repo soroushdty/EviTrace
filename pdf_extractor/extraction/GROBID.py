@@ -381,8 +381,10 @@ def extract_with_grobid(
         Assign stable ``xml:id`` attributes to elements, enabling
         citation-to-reference linking within the document.
     segment_sentences:
-        Wrap sentences in ``<s>`` elements inside ``<p>``. When combined
-        with *tei_coordinates*, each sentence receives its own PDF coordinates.
+        Wrap sentences in ``<s>`` elements inside ``<p>``. Enables finer-
+        grained per-sentence page routing in the QC pipeline; sentence-level
+        coordinates are not requested (see *tei_coordinates*) so the QC
+        layer falls back to the parent paragraph's page for routing.
     include_raw_citations:
         Attach verbatim citation strings as ``<note type="raw_reference">``
         inside each ``<biblStruct>``.
@@ -417,7 +419,12 @@ def extract_with_grobid(
         "includeRawAffiliations": "1" if include_raw_affiliations else "0",
     }
     if tei_coordinates:
-        form_data["teiCoordinates"] = "p,s,ref,biblStruct,figure,formula,head"
+        # Request coords only for elements we actually consume. Omitting 's'
+        # (sentences) avoids hundreds of per-sentence layout lookups per PDF;
+        # the QC pipeline falls back to parent-paragraph page when sentence
+        # coords are absent. Omitting 'ref' (inline citations) avoids
+        # coordinate work for elements we never query individually.
+        form_data["teiCoordinates"] = "p,figure,formula,head,biblStruct"
 
     logger.info("GROBID extraction start: %s", pdf_path)
     tei_xml_str = _call_grobid_api(

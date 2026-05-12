@@ -245,6 +245,8 @@ class GrobidServerManager:
             cmd += ["--cpus", self.cpus]
         if self.java_opts:
             cmd += ["-e", f"JAVA_OPTS={self.java_opts}"]
+        if self.concurrency:
+            cmd += ["-e", f"GROBID_NB_THREADS={self.concurrency}"]
         cmd += ["-p", "8070:8070", self.image]
         logger.debug("docker run command: %s", " ".join(cmd))
         try:
