@@ -445,3 +445,24 @@ def extract_with_grobid(
         "GROBID extraction complete: %d blocks, pdf=%s", len(blocks), pdf_path
     )
     return tei_xml_str, blocks
+
+
+def parse_grobid_tei(tei_xml_str: str, tei_coordinates: bool = True) -> list[dict]:
+    """Parse a previously-cached TEI XML string into BlockDict objects.
+
+    Used by the GROBID disk-cache hit path to avoid the HTTP round-trip
+    while reusing the same parsing logic as ``extract_with_grobid``.
+
+    Raises
+    ------
+    RuntimeError
+        If the XML cannot be parsed or yields no text blocks.
+    """
+    try:
+        blocks = _parse_tei_to_blocks(tei_xml_str, tei_coordinates)
+    except ET.ParseError as exc:
+        raise RuntimeError(f"Failed to parse cached GROBID TEI XML: {exc}") from exc
+    if not blocks:
+        raise RuntimeError("Cached GROBID TEI XML contains no extractable text blocks")
+    schemas.validate_blocks(blocks)
+    return blocks

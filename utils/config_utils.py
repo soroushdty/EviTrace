@@ -94,6 +94,10 @@ _QC_DEFAULTS: dict = {
                 "title": "EviTrace warmup",
                 "text": "Warmup document for GROBID model loading.",
             },
+            # Content-addressed disk cache for GROBID TEI XML responses.
+            # Keyed by PDF SHA-256; survives interrupted runs and repeated
+            # processing of the same PDF. Set to "" to disable.
+            "tei_cache_dir": "grobid_tei_cache",
             "consolidate_header": 0,
             "consolidate_citations": 0,
             "generate_ids": False,
