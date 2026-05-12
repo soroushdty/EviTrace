@@ -62,7 +62,7 @@ async def run_pipeline(
     # Load local config for sanitization settings
     from utils.config_utils import load_local_config  # noqa: PLC0415
     _local_config = load_local_config()
-    
+
     # Propagate runtime overrides into the config dict passed to each PDF worker.
     runtime_config = {**_openai_config, "enable_cache_prewarm": effective_prewarm}
     runtime_config.update(_qc_config.get("quality_control", {}).get("grobid_integration", {}))

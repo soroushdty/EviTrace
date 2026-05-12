@@ -21,10 +21,10 @@ logger = get_logger(__name__)
 
 def _get_normalizer(normalizer_name: str):
     """Get a normalizer instance by class name from text_processing.normalizers.
-    
+
     Args:
         normalizer_name: Name of the normalizer class (e.g., 'FullNormalizer')
-        
+
     Returns:
         Normalizer instance or None if not found
     """
@@ -42,7 +42,7 @@ def _get_normalizer(normalizer_name: str):
 
 def _save_pdf_output(pdf_name: str, fields: list[dict], normalizer=None) -> None:
     """Save extracted fields to JSON, optionally sanitizing extracted_value with a normalizer.
-    
+
     Args:
         pdf_name: PDF identifier
         fields: List of extracted field dicts
@@ -50,13 +50,13 @@ def _save_pdf_output(pdf_name: str, fields: list[dict], normalizer=None) -> None
     """
     OUTPUT_DIR.mkdir(exist_ok=True)
     out = OUTPUT_DIR / f"{pdf_name}.extracted.json"
-    
+
     # Apply normalizer if provided
     if normalizer is not None:
         for field in fields:
             if "extracted_value" in field and isinstance(field["extracted_value"], str):
                 field["extracted_value"] = normalizer.normalize(field["extracted_value"])
-    
+
     with open(out, "w", encoding="utf-8") as f:
         json.dump(fields, f, indent=2)
     logger.info(f"Saved -> {out.name}")
