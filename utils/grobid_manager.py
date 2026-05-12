@@ -33,6 +33,11 @@ import time
 
 logger = logging.getLogger("pdf_extractor")
 
+# Disable proxies on every localhost call. A stray HTTP_PROXY / HTTPS_PROXY env
+# var (common on corporate-managed dev machines) otherwise routes loopback
+# traffic through the corp proxy, which usually hangs or refuses.
+_NO_PROXY: dict[str, str | None] = {"http": None, "https": None}
+
 
 def _escape_pdf_text(text: str) -> str:
     return text.replace("\\", "\\\\").replace("(", r"\(").replace(")", r"\)")
@@ -233,8 +238,41 @@ class GrobidServerManager:
     # Container management helpers
     # ------------------------------------------------------------------
 
+    def _ensure_image_local(self) -> None:
+        """Pre-pull the GROBID image with streamed progress.
+
+        ``docker run`` will silently pull a missing image, capturing the
+        progress output behind ``subprocess.run(capture_output=True)`` so the
+        user just sees "Starting GROBID container..." and a multi-minute
+        silence on first run. We detect the missing-image case explicitly and
+        stream ``docker pull`` so progress is visible.
+        """
+        try:
+            inspect = subprocess.run(
+                ["docker", "image", "inspect", self.image],
+                capture_output=True, text=True,
+            )
+        except FileNotFoundError:
+            # Docker CLI missing; let the caller's docker-run path surface it.
+            return
+        if inspect.returncode == 0:
+            return
+        print(f"GROBID image {self.image!r} not present locally; pulling (one-time, ~1.5GB)...")
+        logger.info("docker pull %s (image not local)", self.image)
+        try:
+            # Stream stdout/stderr directly so the user sees pull progress.
+            pull = subprocess.run(["docker", "pull", self.image])
+        except FileNotFoundError:
+            return
+        if pull.returncode != 0:
+            print(f"docker pull {self.image} returned {pull.returncode}; will retry via docker run.")
+            logger.warning("docker pull %s failed (rc=%d); falling back to implicit pull in docker run", self.image, pull.returncode)
+
     def _create_new_container(self) -> None:
         """Create a new named, persistent GROBID container."""
+        # Surface image pulls explicitly so first-run users don't think the
+        # warmup is hung when Docker is actually pulling ~1.5GB silently.
+        self._ensure_image_local()
         print(f"Starting GROBID container {self.container_name!r} ({self.image})...")
         cmd: list[str] = [
             "docker", "run", "-d",
@@ -286,7 +324,7 @@ class GrobidServerManager:
         We absorb that cost here so the user's actual documents process at
         normal speed (~10-60s).
         """
-        import requests
+        import requests  # noqa: PLC0415 — lazy
         import io
 
         warmup_cfg = self.config.get("warmup", {}) if isinstance(self.config, dict) else {}
@@ -329,6 +367,7 @@ class GrobidServerManager:
                     files={"input": ("warmup.pdf", io.BytesIO(warmup_pdf), "application/pdf")},
                     data={"consolidateHeader": "0", "consolidateCitations": "0"},
                     timeout=timeout,
+                    proxies=_NO_PROXY,
                 )
                 result["status"] = resp.status_code
             except requests.exceptions.Timeout:
@@ -338,7 +377,13 @@ class GrobidServerManager:
 
         thread = threading.Thread(target=_do_post, daemon=True)
         thread.start()
-        while thread.is_alive():
+        # Enforce the wall-clock deadline ourselves: requests' timeout is a
+        # read-gap timeout, not a total wall-clock cap, and there are pathological
+        # combinations (slow streaming, proxy interception, hung TLS) where the
+        # daemon thread never exits. Add a 5s grace so a request that timed out
+        # right at the edge still gets to record its result.
+        deadline = t_start + timeout + 5
+        while thread.is_alive() and time.time() < deadline:
             elapsed = int(time.time() - t_start)
             remaining = max(0, timeout - elapsed)
             print(f"\r  Warming up GROBID... {elapsed}s / {timeout}s (timeout in {remaining}s)", end="", flush=True)
@@ -346,7 +391,16 @@ class GrobidServerManager:
         print()
 
         dt = time.time() - t_start
-        if "error" in result:
+        if thread.is_alive():
+            # Deadline tripped before the request returned. Leave the daemon
+            # thread to die with the process and move on; real extraction has
+            # its own working timeout.
+            logger.warning(
+                "GROBID warmup watchdog tripped after %.1fs (timeout=%ds); "
+                "abandoning warmup and proceeding.", dt, timeout,
+            )
+            print(f"GROBID warmup did not complete in {timeout}s; proceeding without confirmation.")
+        elif "error" in result:
             if result["error"] == "timeout":
                 logger.warning("GROBID warmup timed out after %.1fs; proceeding anyway.", dt)
                 print(f"GROBID warmup timed out ({dt:.0f}s); proceeding.")
@@ -465,9 +519,13 @@ class GrobidServerManager:
         return False
 
     def _is_server_alive(self) -> bool:
-        import requests
+        import requests  # noqa: PLC0415 — lazy
         try:
-            resp = requests.get(f"{self.url.rstrip('/')}/api/isalive", timeout=2)
+            resp = requests.get(
+                f"{self.url.rstrip('/')}/api/isalive",
+                timeout=2,
+                proxies=_NO_PROXY,
+            )
             return resp.status_code == 200
         except requests.exceptions.RequestException:
             return False

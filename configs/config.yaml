@@ -141,7 +141,9 @@ quality_control:
     #   container; matches the worker pool size reserved by GROBID.
     # - cpus: optional docker --cpus limit. Leave empty to let the container
     #   use all available CPUs (recommended).
-    java_opts: "-Xms1g -Xmx4g -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
+    # -Xms2g matches the CRF-model working set so we don't pay young-gen
+    # churn during the warm phase; -Xmx4g caps a runaway extraction.
+    java_opts: "-Xms2g -Xmx4g -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:+UseStringDeduplication"
     concurrency: 10
     cpus: ""
     url: "http://127.0.0.1:8070"

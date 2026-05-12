@@ -33,6 +33,35 @@ _GROBID_ENDPOINT = "/api/processFulltextDocument"
 _TEI_NS = "http://www.tei-c.org/ns/1.0"
 _NS = f"{{{_TEI_NS}}}"
 
+# Disable env-proxy detection on every GROBID call so a stray HTTP_PROXY /
+# HTTPS_PROXY can't route loopback traffic through a corp proxy.
+_NO_PROXY: dict[str, str | None] = {"http": None, "https": None}
+
+# Lazily-built process-wide Session. Keeps a small connection pool open so
+# back-to-back PDF extractions to localhost reuse the TCP socket. Tests can
+# patch requests.post without going through this object because the module
+# falls back to requests.post when no session has been built yet.
+_session = None  # type: ignore[assignment]
+_session_lock_pid: int | None = None
+
+
+def _get_session():
+    """Return a process-wide ``requests.Session`` for GROBID calls.
+
+    Re-creates the Session if the PID changes (forked worker) so child
+    processes don't share parent's socket pool.
+    """
+    global _session, _session_lock_pid
+    import os as _os  # noqa: PLC0415
+    pid = _os.getpid()
+    if _session is None or _session_lock_pid != pid:
+        import requests  # noqa: PLC0415
+        s = requests.Session()
+        s.trust_env = False  # ignore HTTP(S)_PROXY / NO_PROXY env vars
+        _session = s
+        _session_lock_pid = pid
+    return _session
+
 
 # ---------------------------------------------------------------------------
 # Private helpers
@@ -69,16 +98,18 @@ def _call_grobid_api(
         pdf_name, timeout, max_retries + 1, endpoint,
     )
 
+    session = _get_session()
     with open(pdf_path, "rb") as fh:
         for attempt in range(max_retries + 1):
             fh.seek(0)
             t_start = time.monotonic()
             try:
-                response = requests.post(
+                response = session.post(
                     endpoint,
                     files={"input": (pdf_name, fh, "application/pdf")},
                     data=form_data,
                     timeout=timeout,
+                    proxies=_NO_PROXY,
                 )
             except requests.exceptions.ConnectionError as exc:
                 raise RuntimeError(
@@ -349,12 +380,13 @@ def extract_with_grobid(
     timeout: int = 120,
     consolidate_header: int = 0,
     consolidate_citations: int = 0,
-    generate_ids: bool = True,
+    generate_ids: bool = False,
     segment_sentences: bool = True,
     include_raw_citations: bool = True,
     include_raw_affiliations: bool = False,
     tei_coordinates: bool = True,
     max_retries: int = 2,
+    parse_blocks: bool = True,
 ) -> tuple:
     """Extract text from *pdf_path* using the GROBID REST API.
 
@@ -431,6 +463,15 @@ def extract_with_grobid(
         pdf_path, grobid_url, form_data, timeout, max_retries
     )
     logger.debug("GROBID returned %d bytes of TEI XML", len(tei_xml_str))
+
+    if not parse_blocks:
+        # The QC pipeline re-parses the TEI for its own page-routing needs and
+        # discards this function's blocks. Skipping the parse here saves a
+        # full xml.etree walk + validate_blocks pass per cache-miss PDF.
+        logger.info(
+            "GROBID extraction complete (parse_blocks=False): pdf=%s", pdf_path
+        )
+        return tei_xml_str, []
 
     try:
         blocks = _parse_tei_to_blocks(tei_xml_str, tei_coordinates)

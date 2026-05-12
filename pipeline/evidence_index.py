@@ -521,9 +521,21 @@ def _enrich_with_addons(items: list[dict[str, Any]], cfg: dict) -> None:
         return
 
     # Preflight each enabled addon ONCE so we know which services to even try.
-    q_live = _preflight_addon(requests_mod, "grobid_quantities", addon_cfg.get("grobid_quantities", {}))
-    d_live = _preflight_addon(requests_mod, "datastet", addon_cfg.get("datastet", {}))
-    e_live = _preflight_addon(requests_mod, "entity_fishing", addon_cfg.get("entity_fishing", {}))
+    # Run preflights in parallel: each has up to ~2s timeout, and 3 sequential
+    # probes against down services would burn 6s per PDF before any real work.
+    from concurrent.futures import ThreadPoolExecutor  # noqa: PLC0415
+
+    preflight_specs = [
+        ("grobid_quantities", addon_cfg.get("grobid_quantities", {})),
+        ("datastet", addon_cfg.get("datastet", {})),
+        ("entity_fishing", addon_cfg.get("entity_fishing", {})),
+    ]
+    with ThreadPoolExecutor(max_workers=len(preflight_specs)) as _pool:
+        live_results = list(_pool.map(
+            lambda spec: _preflight_addon(requests_mod, spec[0], spec[1]),
+            preflight_specs,
+        ))
+    q_live, d_live, e_live = live_results
     logger.info(
         "Addon preflight: quantities=%s datastet=%s entity_fishing=%s",
         q_live, d_live, e_live,
@@ -604,11 +616,10 @@ def build_or_load_evidence_bundle(qc_context, config: dict) -> EvidenceBundle:
     cache_root = _cache_dir(config)
     pdf_hash = _pdf_hash(source_pdf_path) if source_pdf_path and Path(source_pdf_path).exists() else "nohash"
     cache_key = f"{paper_id}_{pdf_hash}"
-    tei_path = cache_root / f"{cache_key}.tei.xml"
     idx_path = cache_root / f"{cache_key}.evidence.json"
     logger.debug(
-        "Evidence cache: root=%s, key=%s, tei_exists=%s, idx_exists=%s",
-        cache_root, cache_key, tei_path.exists(), idx_path.exists(),
+        "Evidence cache: root=%s, key=%s, idx_exists=%s",
+        cache_root, cache_key, idx_path.exists(),
     )
 
     if idx_path.exists():
@@ -619,16 +630,13 @@ def build_or_load_evidence_bundle(qc_context, config: dict) -> EvidenceBundle:
             if isinstance(items, list):
                 evidence_map = {item["id"]: item for item in items if isinstance(item, dict) and item.get("id")}
                 logger.info("Evidence index cache hit: %s (%d items)", idx_path.name, len(evidence_map))
-                # Parens matter: the ternary binds tighter than ``or`` in
-                # Python, so the previous version was parsed as
-                # ``tei_xml or (read_text() if exists else "")`` which was
-                # correct but fragile. Make it explicit.
-                cached_tei_xml = tei_xml or (
-                    tei_path.read_text(encoding="utf-8") if tei_path.exists() else ""
-                )
+                # The TEI XML is already cached upstream by extraction_pipeline
+                # (content-addressed by SHA-256 in grobid_tei_cache/). We don't
+                # duplicate it here anymore. content["grobid_tei_xml"] is the
+                # canonical in-memory copy for this run.
                 return EvidenceBundle(
                     paper_id=paper_id,
-                    tei_xml=cached_tei_xml,
+                    tei_xml=tei_xml,
                     evidence_items=items,
                     evidence_map=evidence_map,
                     prefilled_fields={int(k): str(v) for k, v in prefilled.items()},
@@ -636,9 +644,6 @@ def build_or_load_evidence_bundle(qc_context, config: dict) -> EvidenceBundle:
                 )
         except Exception:
             logger.warning("Ignoring corrupted evidence cache for %s", paper_id)
-
-    if not tei_xml and tei_path.exists():
-        tei_xml = tei_path.read_text(encoding="utf-8")
 
     if not tei_xml.strip():
         # Fallback: build sentence-only index from exact text.
@@ -679,8 +684,7 @@ def build_or_load_evidence_bundle(qc_context, config: dict) -> EvidenceBundle:
     _enrich_with_addons(items, config)
     evidence_map = {item["id"]: item for item in items if item.get("id")}
 
-    if tei_xml.strip():
-        tei_path.write_text(tei_xml, encoding="utf-8")
+    # TEI XML is cached upstream by extraction_pipeline; no need to mirror it here.
     idx_path.write_text(
         json.dumps(
             {"paper_id": paper_id, "source_pdf_path": source_pdf_path, "evidence_items": items, "prefilled_fields": prefilled},
