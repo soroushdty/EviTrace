@@ -86,7 +86,7 @@ export_csv: true
 sanitize_extracted_values: true
 # Normalizer class to apply. Choose from:
 #   - OULNormalizer: OcrCleaner → UnicodeNormalizer(NFKC) → LineHealingNormalizer (default)
-#   - FullNormalizer: strips non-word chars, collapses whitespace, lowercases
+#   - AggressiveNormalizer: strips non-word chars, collapses whitespace, lowercases
 #   - WhitespaceNormalizer: collapses whitespace, lowercases
 #   - OcrCleaner: strips C0 control chars only
 #   - UnicodeNormalizer: Unicode normalization (NFC/NFKC)

@@ -8,7 +8,7 @@ import pytest
 
 from text_processing.normalizers import (
     WhitespaceNormalizer,
-    FullNormalizer,
+    AggressiveNormalizer,
     LineHealingNormalizer,
     UnicodeNormalizer,
     OcrCleaner,
@@ -55,13 +55,13 @@ class TestWhitespaceNormalizer:
 
 
 # ---------------------------------------------------------------------------
-# FullNormalizer
+# AggressiveNormalizer
 # ---------------------------------------------------------------------------
 
-class TestFullNormalizer:
+class TestAggressiveNormalizer:
     @pytest.fixture
     def norm(self):
-        return FullNormalizer()
+        return AggressiveNormalizer()
 
     def test_empty_string(self, norm):
         assert norm.normalize("") == ""

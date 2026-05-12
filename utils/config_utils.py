@@ -206,7 +206,7 @@ _LOCAL_DEFAULTS: dict = {
     "ocr": True,
     "export_csv": False,
     "sanitize_extracted_values": False,
-    "exported_value_normalizer": "FullNormalizer",
+    "exported_value_normalizer": "AggressiveNormalizer",
     "output_folder_path": "outputs/",
 }
 

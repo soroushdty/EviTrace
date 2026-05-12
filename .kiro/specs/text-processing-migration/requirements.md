@@ -10,7 +10,7 @@ This file specifies the TextProcessor and domain-agnostic text-processing migrat
 - `text_processing/` root package (new)
 - `TextProcessor` pure ABC and `SentenceSegment` ABC
 - Five concrete sentence segmentation backends (preserved names)
-- Text normalizer subclasses (`WhitespaceNormalizer`, `FullNormalizer`, `LineHealingNormalizer`, `UnicodeNormalizer`, `OcrCleaner`)
+- Text normalizer subclasses (`WhitespaceNormalizer`, `AggressiveNormalizer`, `LineHealingNormalizer`, `UnicodeNormalizer`, `OcrCleaner`)
 - `SimpleWordTokenizer` subclass
 - `LexicalMatcher` and `SemanticMatcher` subclasses
 - `EmbeddingProcessor` subclass
@@ -97,12 +97,12 @@ This file specifies the TextProcessor and domain-agnostic text-processing migrat
 #### Acceptance Criteria
 
 1. `text_processing/normalizers.py` SHALL provide `WhitespaceNormalizer` (current `normalise_ws` logic: collapse whitespace, lowercase).
-2. `text_processing/normalizers.py` SHALL provide `FullNormalizer` (current `normalise_full` logic: whitespace + strip non-word chars).
+2. `text_processing/normalizers.py` SHALL provide `AggressiveNormalizer` (current `normalise_full` logic: whitespace + strip non-word chars).
 3. `text_processing/normalizers.py` SHALL provide `LineHealingNormalizer` (current `normalise_text` logic from `sentence_processor.py`: heal mid-sentence line breaks, collapse newlines/spaces).
 4. `text_processing/normalizers.py` SHALL provide `UnicodeNormalizer` (current `TextProcessor.normalize` logic: Unicode NFC/NFKC + whitespace collapse).
 5. `text_processing/normalizers.py` SHALL provide `OcrCleaner` (current `TextProcessor.clean_ocr` logic: strip C0 controls and U+FFFD).
 6. `text_processing/tokenizers.py` SHALL provide `SimpleWordTokenizer` (normalize then split on whitespace).
-7. All four normalizers (`WhitespaceNormalizer`, `FullNormalizer`, `LineHealingNormalizer`, `UnicodeNormalizer`) SHALL be idempotent: `n(n(s)) == n(s)`.
+7. All four normalizers (`WhitespaceNormalizer`, `AggressiveNormalizer`, `LineHealingNormalizer`, `UnicodeNormalizer`) SHALL be idempotent: `n(n(s)) == n(s)`.
 8. All normalizers SHALL return empty string for empty string input.
 9. Normalizer and tokenizer classes SHALL NOT define QC output statuses, QC evidence structures, or QC report schemas.
 
@@ -116,7 +116,7 @@ This file specifies the TextProcessor and domain-agnostic text-processing migrat
 
 1. `LexicalMatcher` SHALL be a subclass of `TextProcessor` in `text_processing/matchers.py`.
 2. `LexicalMatcher` SHALL implement `search(needle, full_text, page_texts, blocks) -> dict | None`.
-3. The method SHALL preserve the existing two-pass normalization logic: Pass 1 via `WhitespaceNormalizer`, Pass 2 via `FullNormalizer` (only attempted when Pass 1 fails).
+3. The method SHALL preserve the existing two-pass normalization logic: Pass 1 via `WhitespaceNormalizer`, Pass 2 via `AggressiveNormalizer` (only attempted when Pass 1 fails).
 4. The method SHALL preserve cross-page span recovery via `SequenceMatcher`.
 5. The method SHALL preserve 64-character prefix and suffix extraction.
 6. The method SHALL preserve block and span bounding-box attribution.

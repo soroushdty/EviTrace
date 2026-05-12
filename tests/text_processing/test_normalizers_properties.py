@@ -9,7 +9,7 @@ from hypothesis import strategies as st
 
 from text_processing.normalizers import (
     WhitespaceNormalizer,
-    FullNormalizer,
+    AggressiveNormalizer,
     LineHealingNormalizer,
     UnicodeNormalizer,
     OcrCleaner,
@@ -18,7 +18,7 @@ from text_processing.normalizers import (
 
 
 _ws = WhitespaceNormalizer()
-_full = FullNormalizer()
+_full = AggressiveNormalizer()
 _line = LineHealingNormalizer()
 _unicode_nfkc = UnicodeNormalizer(form="NFKC")
 _oul = OULNormalizer()
@@ -36,7 +36,7 @@ def test_whitespace_normalizer_idempotent(s: str):
 @settings(max_examples=100)
 @given(st.text())
 def test_full_normalizer_idempotent(s: str):
-    """FullNormalizer.normalize is idempotent."""
+    """AggressiveNormalizer.normalize is idempotent."""
     assert _full.normalize(_full.normalize(s)) == _full.normalize(s)
 
 

@@ -62,10 +62,10 @@ class WhitespaceNormalizer(TextProcessor):
 
 
 # ---------------------------------------------------------------------------
-# FullNormalizer
+# AggressiveNormalizer
 # ---------------------------------------------------------------------------
 
-class FullNormalizer(TextProcessor):
+class AggressiveNormalizer(TextProcessor):
     """Whitespace + strip non-word characters.
 
     Operations:
@@ -85,27 +85,27 @@ class FullNormalizer(TextProcessor):
 
     def tokenize_words(self, text: str) -> list[str]:
         raise NotImplementedError(
-            "FullNormalizer does not implement tokenize_words()."
+            "AggressiveNormalizer does not implement tokenize_words()."
         )
 
     def tokenize_sentences(self, text: str) -> list[str]:
         raise NotImplementedError(
-            "FullNormalizer does not implement tokenize_sentences()."
+            "AggressiveNormalizer does not implement tokenize_sentences()."
         )
 
     def clean_ocr(self, text: str) -> str:
         raise NotImplementedError(
-            "FullNormalizer does not implement clean_ocr()."
+            "AggressiveNormalizer does not implement clean_ocr()."
         )
 
     def compare(self, a: str, b: str) -> float:
         raise NotImplementedError(
-            "FullNormalizer does not implement compare()."
+            "AggressiveNormalizer does not implement compare()."
         )
 
     def extract_keywords(self, text: str) -> list[str]:
         raise NotImplementedError(
-            "FullNormalizer does not implement extract_keywords()."
+            "AggressiveNormalizer does not implement extract_keywords()."
         )
 
 

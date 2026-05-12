@@ -20,7 +20,7 @@ Extracted all text processing utilities into a standalone `text_processing/` pac
 
 **New package: `text_processing/`**
 - `base.py` — `TextProcessor` ABC (6 abstract methods), `SentenceSegment` ABC, and 5 concrete sentence-segmentation backends (ScispaCy, WtpSplit, NLTKPunkt, SpacySentencizer, Stanza)
-- `normalizers.py` — `WhitespaceNormalizer`, `FullNormalizer`, `LineHealingNormalizer`, `UnicodeNormalizer`, `OcrCleaner`
+- `normalizers.py` — `WhitespaceNormalizer`, `AggressiveNormalizer`, `LineHealingNormalizer`, `UnicodeNormalizer`, `OcrCleaner`
 - `tokenizers.py` — `SimpleWordTokenizer`
 - `matchers.py` — `LexicalMatcher` (two-pass exact string match), `SemanticMatcher` (FAISS-based)
 - `embedding.py` — `EmbeddingProcessor` (lazy-loaded sentence-transformers + FAISS)

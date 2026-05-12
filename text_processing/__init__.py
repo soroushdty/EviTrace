@@ -20,7 +20,7 @@ from text_processing.embedding import EmbeddingProcessor
 from text_processing.composite import DefaultTextProcessor
 from text_processing.normalizers import (
     WhitespaceNormalizer,
-    FullNormalizer,
+    AggressiveNormalizer,
     LineHealingNormalizer,
     UnicodeNormalizer,
     OcrCleaner,
@@ -40,7 +40,7 @@ __all__ = [
     "EmbeddingProcessor",
     "DefaultTextProcessor",
     "WhitespaceNormalizer",
-    "FullNormalizer",
+    "AggressiveNormalizer",
     "LineHealingNormalizer",
     "UnicodeNormalizer",
     "OcrCleaner",

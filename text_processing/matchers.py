@@ -10,7 +10,7 @@ import logging
 from difflib import SequenceMatcher
 
 from text_processing.base import TextProcessor
-from text_processing.normalizers import WhitespaceNormalizer, FullNormalizer
+from text_processing.normalizers import WhitespaceNormalizer, AggressiveNormalizer
 
 logger = logging.getLogger("pdf_extractor")
 
@@ -23,14 +23,14 @@ class LexicalMatcher(TextProcessor):
     """Two-pass exact string match against full PDF text.
 
     Pass 1 uses :class:`WhitespaceNormalizer` (score 1.0).
-    Pass 2 uses :class:`FullNormalizer` (score 0.9), only when Pass 1 fails.
+    Pass 2 uses :class:`AggressiveNormalizer` (score 0.9), only when Pass 1 fails.
 
     Returns ``None`` when both passes fail or pre-checks fail.
     """
 
     def __init__(self) -> None:
         self._ws_normalizer = WhitespaceNormalizer()
-        self._full_normalizer = FullNormalizer()
+        self._aggressive_normalizer = AggressiveNormalizer()
 
     def search(
         self,
@@ -76,8 +76,8 @@ class LexicalMatcher(TextProcessor):
         # Pass 2: full normalisation (only if Pass 1 fails)
         use_full_norm = False
         if not pass1_hit:
-            needle_full = self._full_normalizer.normalize(needle)
-            haystack_full = self._full_normalizer.normalize(full_text)
+            needle_full = self._aggressive_normalizer.normalize(needle)
+            haystack_full = self._aggressive_normalizer.normalize(full_text)
             if needle_full in haystack_full:
                 use_full_norm = True
             else:
@@ -85,8 +85,8 @@ class LexicalMatcher(TextProcessor):
 
         # Determine the active normaliser for page attribution
         if use_full_norm:
-            normalise = self._full_normalizer.normalize
-            active_needle = self._full_normalizer.normalize(needle)
+            normalise = self._aggressive_normalizer.normalize
+            active_needle = self._aggressive_normalizer.normalize(needle)
             score = 0.9
         else:
             normalise = self._ws_normalizer.normalize

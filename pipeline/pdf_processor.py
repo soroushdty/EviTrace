@@ -23,7 +23,7 @@ def _get_normalizer(normalizer_name: str):
     """Get a normalizer instance by class name from text_processing.normalizers.
 
     Args:
-        normalizer_name: Name of the normalizer class (e.g., 'FullNormalizer')
+        normalizer_name: Name of the normalizer class (e.g., 'AggressiveNormalizer')
 
     Returns:
         Normalizer instance or None if not found
@@ -400,7 +400,7 @@ async def process_pdf(
     # Apply sanitization if enabled
     normalizer = None
     if openai_config.get("sanitize_extracted_values", False):
-        normalizer_name = openai_config.get("exported_value_normalizer", "FullNormalizer")
+        normalizer_name = openai_config.get("exported_value_normalizer", "AggressiveNormalizer")
         normalizer = _get_normalizer(normalizer_name)
 
     _save_pdf_output(pdf_name, all_fields, normalizer=normalizer)
