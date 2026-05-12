@@ -174,6 +174,18 @@ class TestQCSubNamespaceDefaults:
         cfg = self._load(tmp_path)
         assert cfg["quality_control"]["reconciler"]["enable_annotation_export"] is False
 
+    def test_export_csv_defaults_to_false_when_omitted(self, tmp_path):
+        cfg = self._load(tmp_path)
+        assert cfg["export_csv"] is False
+
+    def test_export_csv_can_be_enabled_at_top_level(self, tmp_path):
+        cfg_file = _write_config(tmp_path, {
+            "pdfs_path": "data/pdfs",
+            "export_csv": True,
+        })
+        cfg = load_local_config(cfg_file)
+        assert cfg["export_csv"] is True
+
 
 # ---------------------------------------------------------------------------
 # Unit tests: deep merge — user-supplied values override defaults

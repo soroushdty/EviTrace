@@ -137,6 +137,8 @@ def _import_orchestrator():
 
     _pipeline_pkg_stub = MagicMock()
     _pdf_processor_stub = MagicMock()
+    _extraction_pipeline_stub = MagicMock()
+    _extraction_pipeline_stub.build_qc_bundle = MagicMock()
     _extraction_map_stub = MagicMock()
     _manifest_stub = MagicMock()
     _manifest_stub.load_manifest = MagicMock(return_value={})
@@ -148,6 +150,7 @@ def _import_orchestrator():
         "agents.openai": MagicMock(),
         "agents.openai.api_client": _api_client_stub,
         "pipeline": _pipeline_pkg_stub,
+        "pipeline.extraction_pipeline": _extraction_pipeline_stub,
         "pipeline.pdf_processor": _pdf_processor_stub,
         "pipeline.extraction_map": _extraction_map_stub,
         "pipeline.manifest": _manifest_stub,
@@ -159,7 +162,8 @@ def _import_orchestrator():
 
     with patch.dict(sys.modules, extra_stubs), \
          patch("utils.config_utils.load_openai_config", return_value=_FAKE_OPENAI_CONFIG), \
-         patch("utils.config_utils.load_qc_config", return_value=_FAKE_QC_CONFIG_FALLBACK):
+         patch("utils.config_utils.load_qc_config", return_value=_FAKE_QC_CONFIG_FALLBACK), \
+         patch("utils.config_utils.load_local_config", return_value={"sanitize_extracted_values": False, "exported_value_normalizer": "FullNormalizer"}):
         m = importlib.util.module_from_spec(_spec)
         sys.modules["pipeline.orchestrator"] = m
         _spec.loader.exec_module(m)
@@ -425,3 +429,32 @@ def test_run_pipeline_cache_prewarm_false_propagated():
     assert runtime_config["enable_cache_prewarm"] is False, (
         f"Expected False, got {runtime_config['enable_cache_prewarm']!r}"
     )
+
+
+def test_run_pipeline_optional_csv_export_hook():
+    """When export_csv=True, run_pipeline SHALL invoke the combined CSV exporter after processing."""
+    import asyncio
+    from unittest.mock import AsyncMock
+
+    orch = _import_orchestrator()
+
+    pdf_paths = [Path("paper_x.pdf")]
+    mock_qc_ctx = MagicMock()
+    fake_fields = [{"field_index": 1, "extracted_value": "Jones 2021"}]
+
+    with patch.object(orch, "build_qc_bundle", return_value=mock_qc_ctx), \
+         patch.object(orch.pdf_processor, "process_pdf",
+                      new=AsyncMock(return_value=fake_fields)), \
+         patch.object(orch, "export_all_extracted_jsons_to_csv") as mock_export:
+        asyncio.run(
+            orch.run_pipeline(
+                pdf_paths,
+                export_csv=True,
+                csv_output_path=Path("combined.csv"),
+            )
+        )
+
+    mock_export.assert_called_once()
+    args, _kwargs = mock_export.call_args
+    assert args[0] == orch.OUTPUT_DIR
+    assert args[1] == Path("combined.csv")

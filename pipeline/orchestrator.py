@@ -8,6 +8,8 @@ from typing import List
 from .extraction_pipeline import build_qc_bundle
 from utils.config_utils import load_openai_config, load_qc_config
 from utils.logging_utils import get_logger
+from artifact_generation.csv_exporter import export_all_extracted_jsons_to_csv
+from utils.path_utils import OUTPUT_DIR
 
 from .extraction_map import load_chunk_fields, _build_field_lookup
 from . import pdf_processor
@@ -33,6 +35,8 @@ async def run_pipeline(
     *,
     pdf_concurrency: int | None = None,
     enable_cache_prewarm: bool | None = None,
+    export_csv: bool = False,
+    csv_output_path: Path | None = None,
 ) -> List[dict]:
     """Process all PDFs with parallel workers.
 
@@ -40,6 +44,8 @@ async def run_pipeline(
         pdf_paths:           PDFs to process.
         pdf_concurrency:     Override PDF_CONCURRENCY from config. None = use config.
         enable_cache_prewarm: Override ENABLE_CACHE_PREWARM from config. None = use config.
+        export_csv:          Combine all extracted JSON outputs into one CSV after processing.
+        csv_output_path:     Optional destination path for the combined CSV.
 
     Returns:
         List of {"pdf": filename, "fields": [...]} for every successful paper.
@@ -53,10 +59,17 @@ async def run_pipeline(
         GLOBAL_API_LIMIT, NUM_CHUNKS,
     )
 
+    # Load local config for sanitization settings
+    from utils.config_utils import load_local_config  # noqa: PLC0415
+    _local_config = load_local_config()
+    
     # Propagate runtime overrides into the config dict passed to each PDF worker.
     runtime_config = {**_openai_config, "enable_cache_prewarm": effective_prewarm}
     runtime_config.update(_qc_config.get("quality_control", {}).get("grobid_integration", {}))
     runtime_config["addons"] = _qc_config.get("quality_control", {}).get("addons", {})
+    # Add sanitization settings from local config
+    runtime_config["sanitize_extracted_values"] = _local_config.get("sanitize_extracted_values", False)
+    runtime_config["exported_value_normalizer"] = _local_config.get("exported_value_normalizer", "FullNormalizer")
     logger.debug(
         "Runtime config keys: %s; addons enabled: %s",
         sorted(runtime_config.keys()),
@@ -123,5 +136,10 @@ async def run_pipeline(
         "run_pipeline done: %d/%d PDFs produced output",
         len(output), len(pdf_paths),
     )
+
+    if export_csv:
+        combined_csv_path = csv_output_path if csv_output_path is not None else OUTPUT_DIR / "combined_extracted.csv"
+        logger.info("Exporting combined CSV from %s to %s", OUTPUT_DIR, combined_csv_path)
+        export_all_extracted_jsons_to_csv(OUTPUT_DIR, combined_csv_path)
 
     return output

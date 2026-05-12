@@ -13,7 +13,12 @@ generate_w3c_jsonld
     Sole producer of W3C JSON-LD annotation dicts.
 """
 
-from artifact_generation import generate_w3c_jsonld
 from pdf_extractor.annotation.w3c_annotation import AnnotationRecord, project
+
+
+def generate_w3c_jsonld(*args, **kwargs):
+    from artifact_generation.w3c_annotation import generate_w3c_jsonld as _generate_w3c_jsonld
+
+    return _generate_w3c_jsonld(*args, **kwargs)
 
 __all__ = ["AnnotationRecord", "generate_w3c_jsonld", "project"]

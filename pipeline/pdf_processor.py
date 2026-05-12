@@ -19,9 +19,44 @@ from .manifest import save_manifest
 logger = get_logger(__name__)
 
 
-def _save_pdf_output(pdf_name: str, fields: list[dict]) -> None:
+def _get_normalizer(normalizer_name: str):
+    """Get a normalizer instance by class name from text_processing.normalizers.
+    
+    Args:
+        normalizer_name: Name of the normalizer class (e.g., 'FullNormalizer')
+        
+    Returns:
+        Normalizer instance or None if not found
+    """
+    try:
+        from text_processing import normalizers
+        normalizer_class = getattr(normalizers, normalizer_name, None)
+        if normalizer_class is None:
+            logger.warning(f"Normalizer '{normalizer_name}' not found, skipping sanitization")
+            return None
+        return normalizer_class()
+    except Exception as e:
+        logger.warning(f"Failed to load normalizer '{normalizer_name}': {e}, skipping sanitization")
+        return None
+
+
+def _save_pdf_output(pdf_name: str, fields: list[dict], normalizer=None) -> None:
+    """Save extracted fields to JSON, optionally sanitizing extracted_value with a normalizer.
+    
+    Args:
+        pdf_name: PDF identifier
+        fields: List of extracted field dicts
+        normalizer: Optional text normalizer to apply to extracted_value fields
+    """
     OUTPUT_DIR.mkdir(exist_ok=True)
     out = OUTPUT_DIR / f"{pdf_name}.extracted.json"
+    
+    # Apply normalizer if provided
+    if normalizer is not None:
+        for field in fields:
+            if "extracted_value" in field and isinstance(field["extracted_value"], str):
+                field["extracted_value"] = normalizer.normalize(field["extracted_value"])
+    
     with open(out, "w", encoding="utf-8") as f:
         json.dump(fields, f, indent=2)
     logger.info(f"Saved -> {out.name}")
@@ -362,7 +397,13 @@ async def process_pdf(
     all_fields.sort(key=lambda x: x["field_index"])
     attach_table_figure_crops(all_fields, bundle, openai_config)
 
-    _save_pdf_output(pdf_name, all_fields)
+    # Apply sanitization if enabled
+    normalizer = None
+    if openai_config.get("sanitize_extracted_values", False):
+        normalizer_name = openai_config.get("exported_value_normalizer", "FullNormalizer")
+        normalizer = _get_normalizer(normalizer_name)
+
+    _save_pdf_output(pdf_name, all_fields, normalizer=normalizer)
 
     async with manifest_lock:
         manifest[pdf_name] = {"status": "complete"}

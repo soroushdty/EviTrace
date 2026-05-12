@@ -31,27 +31,30 @@ from __future__ import annotations
 
 # Canonical artifacts
 from artifact_generation.canonical import (
-    canonicalize_grobid_xml,
-    canonicalize_pymupdf_json,
-    build_canonical_artifacts,
-    export_canonical_artifacts,
+  canonicalize_grobid_xml,
+  canonicalize_pymupdf_json,
+  build_canonical_artifacts,
+  export_canonical_artifacts,
 )
 
-# W3C annotations
-from artifact_generation.w3c_annotation import (
-    generate_w3c_jsonld,
-)
+
+def generate_w3c_jsonld(*args, **kwargs):
+  from artifact_generation.w3c_annotation import generate_w3c_jsonld as _generate_w3c_jsonld
+
+  return _generate_w3c_jsonld(*args, **kwargs)
+
 
 # CSV export
 from artifact_generation.csv_exporter import (
-    extract_to_csv,
-    process_folder,
+  extract_to_csv,
+  export_all_extracted_jsons_to_csv,
+  process_folder,
 )
 
 # Extraction artifacts
 from artifact_generation.extraction_artifact import (
-    unified_to_artifact,
-    save_artifact,
+  unified_to_artifact,
+  save_artifact,
 )
 
 __all__ = [
@@ -64,6 +67,7 @@ __all__ = [
     "generate_w3c_jsonld",
     # CSV
     "extract_to_csv",
+    "export_all_extracted_jsons_to_csv",
     "process_folder",
     # Extraction
     "unified_to_artifact",

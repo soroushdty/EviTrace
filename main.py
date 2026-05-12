@@ -48,6 +48,18 @@ def parse_args() -> argparse.Namespace:
         help="Disable one-call-per-PDF cache warmup; extraction still works",
     )
     parser.add_argument(
+        "--export-csv",
+        action="store_true",
+        default=None,
+        help="Combine all extracted JSON outputs into one CSV at the end of the run",
+    )
+    parser.add_argument(
+        "--csv-output",
+        type=Path,
+        default=None,
+        help="Optional destination path for the combined CSV output",
+    )
+    parser.add_argument(
         "--tear-down-grobid",
         action="store_true",
         help=(
@@ -81,6 +93,14 @@ async def main() -> None:
         logger.info(f"PDF concurrency overridden to {args.concurrency}")
     if args.no_cache_prewarm:
         logger.info("Cache prewarm disabled by CLI flag")
+    if args.export_csv is None:
+        effective_export_csv = bool(local_cfg.get("export_csv", False))
+    else:
+        effective_export_csv = args.export_csv
+    if effective_export_csv:
+        logger.info("Combined CSV export enabled")
+        if args.csv_output is not None:
+            logger.info(f"Combined CSV output path: {args.csv_output}")
 
     # Validate API key.
     if not cfg["api_key"]:
@@ -131,6 +151,8 @@ async def main() -> None:
             pdf_paths,
             pdf_concurrency=args.concurrency,
             enable_cache_prewarm=False if args.no_cache_prewarm else None,
+            export_csv=effective_export_csv,
+            csv_output_path=args.csv_output,
         )
 
     if not results:

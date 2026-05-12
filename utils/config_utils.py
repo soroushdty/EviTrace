@@ -204,6 +204,9 @@ _LOCAL_DEFAULTS: dict = {
     "log_level": "INFO",
     "len_filter": 40,
     "ocr": True,
+    "export_csv": False,
+    "sanitize_extracted_values": False,
+    "exported_value_normalizer": "FullNormalizer",
     "output_folder_path": "outputs/",
 }
 
@@ -497,6 +500,18 @@ def load_local_config(config_path: str | None = None) -> dict:
     if not isinstance(cfg["ocr"], bool):
         raise TypeError(
             f"Config 'ocr' must be a boolean, got {type(cfg['ocr']).__name__}"
+        )
+    if not isinstance(cfg["export_csv"], bool):
+        raise TypeError(
+            f"Config 'export_csv' must be a boolean, got {type(cfg['export_csv']).__name__}"
+        )
+    if not isinstance(cfg["sanitize_extracted_values"], bool):
+        raise TypeError(
+            f"Config 'sanitize_extracted_values' must be a boolean, got {type(cfg['sanitize_extracted_values']).__name__}"
+        )
+    if not isinstance(cfg["exported_value_normalizer"], str):
+        raise TypeError(
+            f"Config 'exported_value_normalizer' must be a string, got {type(cfg['exported_value_normalizer']).__name__}"
         )
 
     main_output_dir = cfg.get("main_output_dir", "outputs")

@@ -75,6 +75,22 @@ log_file: "run.log"
 # long batch runs. Set to "DEBUG" when debugging a pipeline issue.
 log_level: "DEBUG"
 
+# CSV export configuration
+# When true, the pipeline writes one combined CSV from all extracted JSONs
+# at the end of the run. The --export-csv CLI flag still overrides this.
+export_csv: true
+
+# Extracted value sanitization
+# When true, sanitize extracted_value fields using the configured normalizer.
+# This ensures the canonical JSON has clean values.
+sanitize_extracted_values: true
+# Normalizer class to apply. Choose from:
+#   - FullNormalizer: strips non-word chars, collapses whitespace
+#   - WhitespaceNormalizer: collapses whitespace, lowercases
+#   - OcrCleaner: strips C0 control chars
+#   - UnicodeNormalizer: Unicode normalization (NFC/NFKC)
+exported_value_normalizer: "FullNormalizer"
+
 # Extraction and OCR settings
 len_filter: 40
 ocr: false
