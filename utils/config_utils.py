@@ -77,7 +77,7 @@ _QC_DEFAULTS: dict = {
             # holding the whole batch open for 10+ minutes per retry.
             "timeout": 300,
             "docker_image": "lfoppiano/grobid:0.8.2-crf",
-            "java_opts": "-Xms1g -Xmx4g -XX:+UseG1GC -XX:MaxGCPauseMillis=200",
+            "java_opts": "-Xms2g -Xmx4g -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:+UseStringDeduplication",
             "concurrency": 10,
             "cpus": "",
             "auto_start": True,

@@ -220,7 +220,7 @@ def build_qc_bundle(
     )
 
     # ------------------------------------------------------------------
-    # Step 1 — Per-page scan detection
+    # Step 1 — Resolve text processor + GROBID cache + dispatch parallel work
     # ------------------------------------------------------------------
     tp_cfg = qc_config.get(
         "text_processor",
@@ -231,75 +231,88 @@ def build_qc_bundle(
     tp = _get_text_processor(_tp_class_path, tp_cfg)
     logger.debug("text_processor instance: %s (cached)", type(tp).__name__)
 
-    import fitz as _fitz  # noqa: PLC0415 — lazy; not installed in all envs
-    doc = _fitz.open(str(pdf_path))
-    try:
-        pages = list(doc)
-        logger.debug("%s opened with fitz: %d pages", pdf_name, len(pages))
-        scan_cfg = qc_config.get("quality_control", {})
-        page_classifications = [
-            scan_detector.classify_page(page, tp, scan_cfg, page_index=i)
-            for i, page in enumerate(pages)
-        ]
-        for cls in page_classifications:
-            logger.debug(
-                "  scan page %d: native=%s, triggered_stages=%s, values=%s",
-                cls.page_index, cls.is_native, cls.triggered_stages, cls.stage_values,
-            )
-    finally:
-        doc.close()
+    grobid_cfg = qc_config.get("quality_control", {}).get("grobid", {})
+    scan_cfg = qc_config.get("quality_control", {})
 
-    all_native = all(c.is_native for c in page_classifications)
-    has_scanned = not all_native
-    logger.debug(
-        "scan summary: all_native=%s, has_scanned=%s, native_pages=%d/%d",
-        all_native, has_scanned,
-        sum(1 for c in page_classifications if c.is_native),
-        len(page_classifications),
-    )
+    # Resolve GROBID TEI disk cache directory (empty string = disabled).
+    _cache_dir_str = str(grobid_cfg.get("tei_cache_dir", "") or "").strip()
+    tei_cache_dir: Path | None = Path(_cache_dir_str).resolve() if _cache_dir_str else None
 
-    # ------------------------------------------------------------------
-    # Step 2 — Route to correct extractors based on page classifications
-    # ------------------------------------------------------------------
+    # Check the cache BEFORE running scan_detector. A cache hit implies the PDF
+    # is native (GROBID would have errored on a fully-scanned PDF the first time
+    # round), so we can short-circuit scan_detector entirely. This saves
+    # 1-5s per cache-hit PDF (scan_detector reads every page + runs clean_ocr).
+    cached_tei, pdf_digest = _grobid_cache_read(pdf_path, tei_cache_dir)
+
     tei_xml = ""
     branches: list[Candidate] = []
+    page_classifications: list = []
 
-    if all_native:
-        # Native path: GROBID (semantic) + pdfplumber (structural)
-        logger.debug("Routing %s: native path (GROBID + pdfplumber)", pdf_name)
-        grobid_cfg = qc_config.get("quality_control", {}).get("grobid", {})
+    if cached_tei is not None:
+        # Cache hit: skip scan_detector AND the GROBID HTTP call.
+        logger.info("GROBID cache hit for %s (%s); skipping API + scan_detector", pdf_name, pdf_digest[:12])
+        tei_xml = cached_tei
+        plumber_blocks = extract_with_pdfplumber(str(pdf_path))
+        logger.debug("pdfplumber returned %d blocks (cache-hit path)", len(plumber_blocks))
+        branches = [
+            Candidate(source="grobid",     index=0, payload=tei_xml,        status=None),
+            Candidate(source="pdfplumber", index=1, payload=plumber_blocks, status=None),
+        ]
+    else:
+        # Cache miss: run scan_detector concurrently with GROBID + pdfplumber.
+        # scan_detector blocks GROBID dispatch in the old design even though it
+        # only routes downstream — overlap them. If scan_detector says "scanned",
+        # GROBID's response is discarded (rare in scientific corpora).
+        grobid_kwargs: dict = dict(
+            grobid_url=grobid_cfg.get("url", "http://localhost:8070"),
+            timeout=int(grobid_cfg.get("timeout", 300)),
+            consolidate_header=int(grobid_cfg.get("consolidate_header", 0)),
+            consolidate_citations=int(grobid_cfg.get("consolidate_citations", 0)),
+            generate_ids=bool(grobid_cfg.get("generate_ids", False)),
+            segment_sentences=bool(grobid_cfg.get("segment_sentences", True)),
+            include_raw_citations=bool(grobid_cfg.get("include_raw_citations", True)),
+            include_raw_affiliations=bool(grobid_cfg.get("include_raw_affiliations", False)),
+            tei_coordinates=bool(grobid_cfg.get("tei_coordinates", True)),
+            max_retries=int(grobid_cfg.get("max_retries", 2)),
+            # The QC pipeline + evidence_index re-parse the TEI for their
+            # own consumers; the blocks computed in extract_with_grobid
+            # would be discarded immediately. Skip the parse.
+            parse_blocks=False,
+        )
 
-        # Resolve GROBID TEI disk cache directory (empty string = disabled).
-        _cache_dir_str = str(grobid_cfg.get("tei_cache_dir", "") or "").strip()
-        tei_cache_dir: Path | None = Path(_cache_dir_str).resolve() if _cache_dir_str else None
+        def _run_scan_detector() -> list:
+            import fitz as _fitz  # noqa: PLC0415 — lazy; not installed in all envs
+            d = _fitz.open(str(pdf_path))
+            try:
+                return [
+                    scan_detector.classify_page(page, tp, scan_cfg, page_index=i)
+                    for i, page in enumerate(d)
+                ]
+            finally:
+                d.close()
 
-        cached_tei, pdf_digest = _grobid_cache_read(pdf_path, tei_cache_dir)
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            grobid_future = pool.submit(extract_with_grobid, str(pdf_path), **grobid_kwargs)
+            plumber_future = pool.submit(extract_with_pdfplumber, str(pdf_path))
+            scan_future = pool.submit(_run_scan_detector)
 
-        if cached_tei is not None:
-            # Cache hit: skip the GROBID HTTP call entirely.
-            logger.info("GROBID cache hit for %s (%s); skipping API call", pdf_name, pdf_digest[:12])
-            tei_xml = cached_tei
-            plumber_blocks = extract_with_pdfplumber(str(pdf_path))
-            logger.debug("pdfplumber returned %d blocks (cache-hit path)", len(plumber_blocks))
-        else:
-            # Cache miss: run GROBID and pdfplumber concurrently — they are
-            # fully independent (different libraries, same read-only PDF file).
-            grobid_kwargs: dict = dict(
-                grobid_url=grobid_cfg.get("url", "http://localhost:8070"),
-                timeout=int(grobid_cfg.get("timeout", 300)),
-                consolidate_header=int(grobid_cfg.get("consolidate_header", 0)),
-                consolidate_citations=int(grobid_cfg.get("consolidate_citations", 0)),
-                generate_ids=bool(grobid_cfg.get("generate_ids", False)),
-                segment_sentences=bool(grobid_cfg.get("segment_sentences", True)),
-                include_raw_citations=bool(grobid_cfg.get("include_raw_citations", True)),
-                include_raw_affiliations=bool(grobid_cfg.get("include_raw_affiliations", False)),
-                tei_coordinates=bool(grobid_cfg.get("tei_coordinates", True)),
-                max_retries=int(grobid_cfg.get("max_retries", 2)),
+            page_classifications = scan_future.result()
+            for cls in page_classifications:
+                logger.debug(
+                    "  scan page %d: native=%s, triggered_stages=%s, values=%s",
+                    cls.page_index, cls.is_native, cls.triggered_stages, cls.stage_values,
+                )
+
+            all_native = all(c.is_native for c in page_classifications)
+            has_scanned = not all_native
+            logger.debug(
+                "scan summary: all_native=%s, has_scanned=%s, native_pages=%d/%d",
+                all_native, has_scanned,
+                sum(1 for c in page_classifications if c.is_native),
+                len(page_classifications),
             )
-            with ThreadPoolExecutor(max_workers=2) as pool:
-                grobid_future = pool.submit(extract_with_grobid, str(pdf_path), **grobid_kwargs)
-                plumber_future = pool.submit(extract_with_pdfplumber, str(pdf_path))
 
+            if all_native:
                 try:
                     tei_xml, _ = grobid_future.result()
                     logger.debug("GROBID returned TEI XML: %d chars", len(tei_xml))
@@ -315,35 +328,42 @@ def build_qc_bundle(
 
                 plumber_blocks = plumber_future.result()
                 logger.debug("pdfplumber returned %d blocks", len(plumber_blocks))
-        branches = [
-            Candidate(source="grobid",     index=0, payload=tei_xml,        status=None),
-            Candidate(source="pdfplumber",  index=1, payload=plumber_blocks, status=None),
-        ]
+                branches = [
+                    Candidate(source="grobid",     index=0, payload=tei_xml,        status=None),
+                    Candidate(source="pdfplumber", index=1, payload=plumber_blocks, status=None),
+                ]
+            else:
+                # Scanned: GROBID + pdfplumber results are speculative; let them
+                # finish in the background but ignore. (Their HTTP / file work
+                # was wasted, but this branch is rare for scientific PDFs.)
+                logger.debug("scan_detector flagged scanned pages; discarding speculative GROBID + pdfplumber results")
+                for _f in (grobid_future, plumber_future):
+                    _f.cancel()  # best-effort; HTTP in flight may continue
 
-    elif has_scanned and not ocr_enabled:
-        # Scanned path with ocr=false: skip extraction, log WARNING
-        logger.debug("Routing %s: scanned pages present + ocr=false -> skipping", pdf_name)
-        for cls in page_classifications:
-            if not cls.is_native:
-                logger.warning(
-                    "Skipping scanned page %d in '%s' — OCR is disabled (ocr=false)",
-                    cls.page_index,
-                    pdf_name,
+        if not branches:
+            if has_scanned and not ocr_enabled:
+                # Scanned path with ocr=false: skip extraction, log WARNING
+                logger.debug("Routing %s: scanned pages present + ocr=false -> skipping", pdf_name)
+                for cls in page_classifications:
+                    if not cls.is_native:
+                        logger.warning(
+                            "Skipping scanned page %d in '%s' — OCR is disabled (ocr=false)",
+                            cls.page_index,
+                            pdf_name,
+                        )
+            else:
+                # Scanned path with ocr=true: PaddleOCR (primary) + PyMuPDF OCR (secondary)
+                logger.debug("Routing %s: OCR path (PaddleOCR + PyMuPDF)", pdf_name)
+                paddle_blocks = extract_with_paddleocr(str(pdf_path))
+                pymupdf_blocks, _ = extract_with_pymupdf(str(pdf_path))
+                logger.debug(
+                    "paddleocr=%d blocks, pymupdf=%d blocks",
+                    len(paddle_blocks), len(pymupdf_blocks),
                 )
-
-    else:
-        # Scanned path with ocr=true: PaddleOCR (primary) + PyMuPDF OCR (secondary)
-        logger.debug("Routing %s: OCR path (PaddleOCR + PyMuPDF)", pdf_name)
-        paddle_blocks = extract_with_paddleocr(str(pdf_path))
-        pymupdf_blocks, _ = extract_with_pymupdf(str(pdf_path))
-        logger.debug(
-            "paddleocr=%d blocks, pymupdf=%d blocks",
-            len(paddle_blocks), len(pymupdf_blocks),
-        )
-        branches = [
-            Candidate(source="paddleocr", index=0, payload=paddle_blocks,  status=None),
-            Candidate(source="pymupdf",   index=1, payload=pymupdf_blocks, status=None),
-        ]
+                branches = [
+                    Candidate(source="paddleocr", index=0, payload=paddle_blocks,  status=None),
+                    Candidate(source="pymupdf",   index=1, payload=pymupdf_blocks, status=None),
+                ]
 
     # ------------------------------------------------------------------
     # Step 3 — QC pipeline
