@@ -64,6 +64,11 @@ def _call_grobid_api(
     endpoint = url.rstrip("/") + _GROBID_ENDPOINT
     pdf_name = pdf_path.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
 
+    logger.info(
+        "GROBID request start: pdf=%s timeout=%ds retries=%d endpoint=%s",
+        pdf_name, timeout, max_retries + 1, endpoint,
+    )
+
     with open(pdf_path, "rb") as fh:
         for attempt in range(max_retries + 1):
             fh.seek(0)
@@ -82,14 +87,16 @@ def _call_grobid_api(
             except requests.exceptions.Timeout as exc:
                 dt = time.monotonic() - t_start
                 logger.warning(
-                    "GROBID request timed out after %.1fs (limit=%ds) on attempt %d/%d",
+                    "GROBID request timed out after %.1fs (limit=%ds) on attempt %d/%d for %s; "
+                    "GROBID was still processing or stalled on this PDF",
                     dt, timeout, attempt + 1, max_retries + 1,
+                    pdf_name,
                 )
                 if attempt < max_retries:
                     time.sleep(2**attempt)
                     continue
                 raise RuntimeError(
-                    f"GROBID request timed out after {timeout}s"
+                    f"GROBID request timed out after {timeout}s for {pdf_name}"
                 ) from exc
 
             dt = time.monotonic() - t_start

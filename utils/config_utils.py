@@ -72,7 +72,10 @@ _QC_DEFAULTS: dict = {
         },
         "grobid": {
             "url": "http://localhost:8070",
-            "timeout": 600,
+            # Per-request HTTP timeout for GROBID's processFulltextDocument call.
+            # Lowered from 600s so a slow or wedged PDF fails faster instead of
+            # holding the whole batch open for 10+ minutes per retry.
+            "timeout": 300,
             "docker_image": "lfoppiano/grobid:0.8.2-crf",
             "java_opts": "-Xmx4g -XX:+UseG1GC",
             "concurrency": 10,
@@ -80,6 +83,17 @@ _QC_DEFAULTS: dict = {
             "auto_start": True,
             "container_name": "evi-grobid",
             "stop_on_exit": False,
+            # Warmup runs once after GROBID becomes reachable. Choose one of:
+            # - disabled: skip warmup entirely
+            # - synthetic_minimal_pdf: legacy 1-page empty PDF (may be rejected)
+            # - tiny_real_pdf: generated 1-page PDF with visible text (default)
+            "warmup": {
+                "enabled": True,
+                "mode": "tiny_real_pdf",
+                "timeout": 600,
+                "title": "EviTrace warmup",
+                "text": "Warmup document for GROBID model loading.",
+            },
             "consolidate_header": 0,
             "consolidate_citations": 0,
             "generate_ids": True,

@@ -726,6 +726,23 @@ class TestConfigDefaults:
         cfg = load_qc_config(cfg_file)
         assert cfg["quality_control"]["grobid"]["url"] == "http://localhost:8070"
 
+    def test_grobid_timeout_default_is_300_seconds(self, tmp_path):
+        """New configs should inherit the shorter GROBID timeout default."""
+        cfg_file = self._minimal_cfg_file(tmp_path)
+        cfg = load_qc_config(cfg_file)
+        assert cfg["quality_control"]["grobid"]["timeout"] == 300
+
+    def test_grobid_warmup_defaults_are_present(self, tmp_path):
+        """New configs should expose configurable GROBID warmup settings."""
+        cfg_file = self._minimal_cfg_file(tmp_path)
+        cfg = load_qc_config(cfg_file)
+        warmup = cfg["quality_control"]["grobid"]["warmup"]
+        assert warmup["enabled"] is True
+        assert warmup["mode"] == "tiny_real_pdf"
+        assert warmup["timeout"] == 600
+        assert warmup["title"] == "EviTrace warmup"
+        assert "Warmup document" in warmup["text"]
+
 
 # ---------------------------------------------------------------------------
 # Task 4.1: TextProcessor() with empty config dict does not raise

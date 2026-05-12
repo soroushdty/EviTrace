@@ -133,7 +133,19 @@ quality_control:
     # EVI_GROBID_STOP_ON_EXIT=1, or flip this to true for CI teardown.
     container_name: "evi-grobid"
     stop_on_exit: false
-    timeout: 600
+    # Per-request timeout for /api/processFulltextDocument.
+    # Lowered to 300s so stalled PDFs fail faster and free the batch.
+    timeout: 300
+    # Warmup strategy after GROBID becomes reachable. Choose one of:
+    # - disabled: skip warmup entirely
+    # - synthetic_minimal_pdf: legacy 1-page empty PDF (may be rejected)
+    # - tiny_real_pdf: generated 1-page PDF with visible text (default)
+    warmup:
+      enabled: true
+      mode: "tiny_real_pdf"
+      timeout: 600
+      title: "EviTrace warmup"
+      text: "Warmup document for GROBID model loading."
     consolidate_header: 0
     consolidate_citations: 0
     generate_ids: true

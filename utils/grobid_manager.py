@@ -33,6 +33,68 @@ import time
 logger = logging.getLogger("pdf_extractor")
 
 
+def _escape_pdf_text(text: str) -> str:
+    return text.replace("\\", "\\\\").replace("(", r"\(").replace(")", r"\)")
+
+
+def _build_tiny_real_pdf(title: str, text: str) -> bytes:
+    title = title.strip() or "EviTrace warmup"
+    text = text.strip() or "Warmup document for GROBID model loading."
+    escaped_title = _escape_pdf_text(title)
+    escaped_text = _escape_pdf_text(text)
+
+    content_stream = (
+        "BT\n"
+        "/F1 18 Tf\n"
+        "72 740 Td\n"
+        f"({escaped_title}) Tj\n"
+        "0 -28 Td\n"
+        f"({escaped_text}) Tj\n"
+        "ET\n"
+    )
+    stream_bytes = content_stream.encode("latin-1")
+
+    objects = [
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        f"<< /Length {len(stream_bytes)} >>\nstream\n{content_stream}endstream",
+    ]
+
+    parts: list[bytes] = [b"%PDF-1.4\n"]
+    offsets = [0]
+    for index, obj in enumerate(objects, start=1):
+        offsets.append(sum(len(part) for part in parts))
+        parts.append(f"{index} 0 obj\n{obj}\nendobj\n".encode("latin-1"))
+
+    xref_offset = sum(len(part) for part in parts)
+    xref_lines = [b"xref\n0 6\n", b"0000000000 65535 f \n"]
+    for offset in offsets[1:]:
+        xref_lines.append(f"{offset:010d} 00000 n \n".encode("latin-1"))
+    trailer = (
+        "trailer\n<< /Size 6 /Root 1 0 R >>\n"
+        f"startxref\n{xref_offset}\n%%EOF\n"
+    ).encode("latin-1")
+    return b"".join(parts + xref_lines + [trailer])
+
+
+def _build_synthetic_minimal_pdf() -> bytes:
+    return (
+        b"%PDF-1.0\n"
+        b"1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
+        b"2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n"
+        b"3 0 obj<</Type/Page/MediaBox[0 0 612 792]/Parent 2 0 R>>endobj\n"
+        b"xref\n0 4\n"
+        b"0000000000 65535 f \n"
+        b"0000000009 00000 n \n"
+        b"0000000058 00000 n \n"
+        b"0000000115 00000 n \n"
+        b"trailer<</Size 4/Root 1 0 R>>\n"
+        b"startxref\n190\n%%EOF\n"
+    )
+
+
 class GrobidServerManager:
     """Context manager to automate the local GROBID server lifecycle."""
 
@@ -236,51 +298,68 @@ class GrobidServerManager:
         logger.debug("GROBID container id=%s", self.container_id)
 
     def _warmup_models(self) -> None:
-        """Send a minimal PDF to GROBID to trigger CRF model loading.
+        """Send a configurable warmup PDF to GROBID to trigger CRF model loading.
 
         The /api/isalive endpoint returns 200 before GROBID's CRF models
         are fully loaded. The first processFulltextDocument request pays a
         heavy penalty (~120-300s) for model deserialization and JIT warmup.
-        We absorb that cost here with a tiny synthetic PDF so the user's
-        actual documents process at normal speed (~10-60s).
+        We absorb that cost here so the user's actual documents process at
+        normal speed (~10-60s).
         """
         import requests
         import io
 
-        # Minimal valid PDF (1 page, no content — just enough for GROBID to
-        # accept and trigger its model pipeline).
-        minimal_pdf = (
-            b"%PDF-1.0\n"
-            b"1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
-            b"2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n"
-            b"3 0 obj<</Type/Page/MediaBox[0 0 612 792]/Parent 2 0 R>>endobj\n"
-            b"xref\n0 4\n"
-            b"0000000000 65535 f \n"
-            b"0000000009 00000 n \n"
-            b"0000000058 00000 n \n"
-            b"0000000115 00000 n \n"
-            b"trailer<</Size 4/Root 1 0 R>>\n"
-            b"startxref\n190\n%%EOF\n"
-        )
+        warmup_cfg = self.config.get("warmup", {}) if isinstance(self.config, dict) else {}
+        enabled = bool(warmup_cfg.get("enabled", True))
+        mode = str(warmup_cfg.get("mode", "tiny_real_pdf") or "tiny_real_pdf").strip()
+        timeout = int(warmup_cfg.get("timeout", 600) or 600)
+        title = str(warmup_cfg.get("title", "EviTrace warmup") or "EviTrace warmup")
+        text = str(warmup_cfg.get("text", "Warmup document for GROBID model loading.") or "Warmup document for GROBID model loading.")
+
+        if not enabled or mode == "disabled":
+            logger.info("GROBID warmup disabled by config; skipping model warmup.")
+            print("GROBID warmup disabled; proceeding.")
+            return
+
+        if mode == "synthetic_minimal_pdf":
+            warmup_pdf = _build_synthetic_minimal_pdf()
+        elif mode == "tiny_real_pdf":
+            warmup_pdf = _build_tiny_real_pdf(title=title, text=text)
+        else:
+            logger.warning(
+                "Unknown GROBID warmup mode %r; falling back to tiny_real_pdf.",
+                mode,
+            )
+            warmup_pdf = _build_tiny_real_pdf(title=title, text=text)
 
         endpoint = self.url.rstrip("/") + "/api/processFulltextDocument"
-        print("Warming up GROBID models (first-time initialization)...")
-        logger.debug("Sending warmup PDF to %s", endpoint)
+        print(f"Warming up GROBID models (mode={mode})...")
+        logger.debug(
+            "Sending warmup PDF to %s (mode=%s, timeout=%ds, title=%r, text_len=%d)",
+            endpoint, mode, timeout, title, len(text),
+        )
         t_start = time.time()
         try:
             resp = requests.post(
                 endpoint,
-                files={"input": ("warmup.pdf", io.BytesIO(minimal_pdf), "application/pdf")},
+                files={"input": ("warmup.pdf", io.BytesIO(warmup_pdf), "application/pdf")},
                 data={"consolidateHeader": "0", "consolidateCitations": "0"},
-                timeout=600,
+                timeout=timeout,
             )
             dt = time.time() - t_start
-            # Any response (even 4xx/5xx) means models are loaded.
-            logger.info(
-                "GROBID warmup completed in %.1fs (status=%d).",
-                dt, resp.status_code,
-            )
-            print(f"GROBID models loaded ({dt:.0f}s).")
+            if resp.status_code >= 400 and mode == "tiny_real_pdf":
+                logger.warning(
+                    "GROBID warmup returned HTTP %d in %.1fs; this may still be fine if the server is loaded.",
+                    resp.status_code, dt,
+                )
+                print(f"GROBID warmup returned {resp.status_code} ({dt:.0f}s); proceeding.")
+            else:
+                # Any response (even 4xx/5xx) means the server reached the endpoint.
+                logger.info(
+                    "GROBID warmup completed in %.1fs (status=%d).",
+                    dt, resp.status_code,
+                )
+                print(f"GROBID models loaded ({dt:.0f}s).")
         except requests.exceptions.Timeout:
             dt = time.time() - t_start
             logger.warning(
