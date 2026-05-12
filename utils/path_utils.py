@@ -90,8 +90,8 @@ OUTPUT_DIR: Path = resolve_run_output_path(_LOCAL_SETTINGS.get("output_folder_pa
 MANIFEST_FILE: Path = BASE_DIR / "manifest.json"
 """Manifest file tracking which PDFs have been processed."""
 
-QC_REPORT_FILE: Path = OUTPUT_DIR / "qc_report.csv"
-"""QC report file for flagged inconsistencies."""
+FLAGGED_FIELDS_FILE: Path = OUTPUT_DIR / "flagged_fields.csv"
+"""Report of flagged fields (low confidence or not reported) requiring manual review."""
 
 
 def is_url(value: str) -> bool:

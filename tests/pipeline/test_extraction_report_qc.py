@@ -1,12 +1,12 @@
-"""Unit tests for pipeline/extraction_report.py — QC data collection and CSV output.
+"""Unit tests for pipeline/extraction_report.py — flagged fields collection and CSV output.
 
 Imports extraction_report directly from its file to avoid triggering
 pipeline/__init__.py, which imports orchestrator → api_client → openai.
 
 Covers:
   - _collect_qc_data: flagging, exclusion, not_reported counts, sort order
-  - _write_qc_csv: CSV header correctness
-  - generate_qc_report: end-to-end row count
+  - _write_flagged_fields_csv: CSV header correctness
+  - generate_flagged_fields_report: end-to-end row count
 
 Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6
 """
@@ -31,8 +31,8 @@ sys.modules["pipeline.extraction_report"] = _ER_MODULE
 _SPEC.loader.exec_module(_ER_MODULE)
 
 _collect_qc_data = _ER_MODULE._collect_qc_data
-_write_qc_csv = _ER_MODULE._write_qc_csv
-generate_qc_report = _ER_MODULE.generate_qc_report
+_write_flagged_fields_csv = _ER_MODULE._write_flagged_fields_csv
+generate_flagged_fields_report = _ER_MODULE.generate_flagged_fields_report
 
 
 # ---------------------------------------------------------------------------
@@ -51,7 +51,7 @@ def _make_results(entries):
     -------
     list[dict]
         A list of result dicts in the format consumed by ``_collect_qc_data``
-        and ``generate_qc_report``.
+        and ``generate_flagged_fields_report``.
     """
     return [
         {
@@ -156,9 +156,9 @@ def test_collect_qc_data_sort_order():
 # _write_qc_csv tests
 # ---------------------------------------------------------------------------
 
-def test_write_qc_csv_header(tmp_path):
-    """CSV written by _write_qc_csv must have exactly the expected header columns."""
-    qc_csv = tmp_path / "qc_report.csv"
+def test_write_flagged_fields_csv_header(tmp_path):
+    """CSV written by _write_flagged_fields_csv must have exactly the expected header columns."""
+    flagged_csv = tmp_path / "flagged_fields.csv"
 
     flagged_rows = [
         {
@@ -174,11 +174,11 @@ def test_write_qc_csv_header(tmp_path):
 
     with (
         patch.object(_ER_MODULE, "OUTPUT_DIR", tmp_path),
-        patch.object(_ER_MODULE, "QC_REPORT_FILE", qc_csv),
+        patch.object(_ER_MODULE, "FLAGGED_FIELDS_FILE", flagged_csv),
     ):
-        _write_qc_csv(flagged_rows)
+        _write_flagged_fields_csv(flagged_rows)
 
-    assert qc_csv.exists(), "QC CSV file was not created"
+    assert flagged_csv.exists(), "Flagged fields CSV file was not created"
 
     with open(qc_csv, newline="", encoding="utf-8") as f:
         reader = csv.reader(f)
@@ -192,12 +192,12 @@ def test_write_qc_csv_header(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# generate_qc_report tests
+# generate_flagged_fields_report tests
 # ---------------------------------------------------------------------------
 
-def test_generate_qc_report_row_count(tmp_path):
+def test_generate_flagged_fields_report_row_count(tmp_path):
     """Data rows in the CSV must equal the number of flagged (l/nr) fields."""
-    qc_csv = tmp_path / "qc_report.csv"
+    flagged_csv = tmp_path / "flagged_fields.csv"
 
     # 3 flagged fields (l or nr), 2 non-flagged (h, m)
     results = _make_results([
@@ -214,13 +214,13 @@ def test_generate_qc_report_row_count(tmp_path):
 
     with (
         patch.object(_ER_MODULE, "OUTPUT_DIR", tmp_path),
-        patch.object(_ER_MODULE, "QC_REPORT_FILE", qc_csv),
+        patch.object(_ER_MODULE, "FLAGGED_FIELDS_FILE", flagged_csv),
     ):
-        generate_qc_report(results)
+        generate_flagged_fields_report(results)
 
-    assert qc_csv.exists(), "QC CSV file was not created by generate_qc_report"
+    assert flagged_csv.exists(), "Flagged fields CSV file was not created by generate_flagged_fields_report"
 
-    with open(qc_csv, newline="", encoding="utf-8") as f:
+    with open(flagged_csv, newline="", encoding="utf-8") as f:
         reader = csv.reader(f)
         next(reader)  # skip header
         data_rows = list(reader)

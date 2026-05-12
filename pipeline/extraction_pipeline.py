@@ -30,7 +30,7 @@ from pdf_extractor.extraction.pdfplumber import extract_with_pdfplumber
 from pdf_extractor.extraction.PaddleOCR import extract_with_paddleocr
 from pdf_extractor.extraction import scan_detector
 from pdf_extractor.annotation import w3c_annotation
-from pdf_extractor.annotation import artifact_generator as annotation_artifact_generator
+from artifact_generation import generate_w3c_jsonld
 from quality_control import QCBundle, run_quality_control
 from quality_control.models import Candidate
 from text_processing.base import TextProcessor
@@ -308,7 +308,7 @@ def build_qc_bundle(
             "W3C annotation projection produced %d records for %s",
             len(annotation_records), pdf_name,
         )
-        jsonld = annotation_artifact_generator.generate_w3c_jsonld(annotation_records)
+        jsonld = generate_w3c_jsonld(annotation_records)
         if not isinstance(ctx.unified.content, dict):
             ctx.unified.content = {}
         ctx.unified.content["annotations"] = jsonld

@@ -146,8 +146,8 @@ class TestRater:
         assert result1.extractor == "pymupdf"
 
     def test_observe_does_not_call_artifacts_module(self, monkeypatch):
-        """observe must not call any function from the artifact_generator module."""
-        import pdf_extractor.artifact_generator as artifact_generator_mod
+        """observe must not call any function from the artifact_generation module."""
+        import artifact_generation as artifact_generator_mod
 
         called = []
 

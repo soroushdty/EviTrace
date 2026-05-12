@@ -19,7 +19,7 @@ import logging
 import os
 import xml.etree.ElementTree as ET
 
-logger = logging.getLogger("pdf_extractor")
+logger = logging.getLogger("artifact_generation")
 
 
 def canonicalize_grobid_xml(tei_xml_str: str) -> str:

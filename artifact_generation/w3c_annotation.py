@@ -1,10 +1,8 @@
 """
-pdf_extractor/annotation/artifact_generator.py
------------------------------------------------
 Sole producer of W3C JSON-LD annotation dicts.
 
 This module is the ONLY place in EviTrace that constructs W3C JSON-LD
-annotation dicts.  All other modules must call ``generate_w3c_jsonld()``
+annotation dicts. All other modules must call ``generate_w3c_jsonld()``
 rather than building annotation dicts themselves.
 
 Functions

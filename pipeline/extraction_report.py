@@ -2,7 +2,7 @@
 import csv
 from collections import defaultdict
 
-from utils.path_utils import OUTPUT_DIR, QC_REPORT_FILE
+from utils.path_utils import OUTPUT_DIR, FLAGGED_FIELDS_FILE
 from utils.logging_utils import get_logger
 
 logger = get_logger(__name__)
@@ -37,18 +37,18 @@ def _collect_qc_data(results: list[dict]) -> tuple[list[dict], dict[int, int]]:
     return flagged_rows, not_reported
 
 
-def _write_qc_csv(flagged_rows: list[dict]) -> None:
-    """Write flagged rows to outputs/qc_report.csv."""
+def _write_flagged_fields_csv(flagged_rows: list[dict]) -> None:
+    """Write flagged rows to outputs/flagged_fields.csv."""
     OUTPUT_DIR.mkdir(exist_ok=True)
     csv_cols = [
         "pdf", "field_index", "domain_group", "field_name",
         "extracted_value", "evidence", "confidence",
     ]
-    with open(QC_REPORT_FILE, "w", newline="", encoding="utf-8") as f:
+    with open(FLAGGED_FIELDS_FILE, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=csv_cols)
         writer.writeheader()
         writer.writerows(flagged_rows)
-    logger.info(f"QC report     → {QC_REPORT_FILE.name}  ({len(flagged_rows)} rows)")
+    logger.info(f"Flagged fields → {FLAGGED_FIELDS_FILE.name}  ({len(flagged_rows)} rows)")
 
 
 def _print_summary(
@@ -72,7 +72,7 @@ def _print_summary(
             print(f"  Time elapsed          : {minutes}m {secs}s")
         else:
             print(f"  Time elapsed          : {secs}s")
-    print(f"  QC report             : {QC_REPORT_FILE}")
+    print(f"  Flagged fields report : {FLAGGED_FIELDS_FILE}")
     print(sep)
 
     if not_reported:
@@ -84,11 +84,11 @@ def _print_summary(
     print()
 
 
-def generate_qc_report(results: list[dict], elapsed_seconds: float | None = None) -> None:
+def generate_flagged_fields_report(results: list[dict], elapsed_seconds: float | None = None) -> None:
     """
-    Write two files:
+    Write flagged fields report and summary to stdout.
 
-    outputs/qc_report.csv
+    outputs/flagged_fields.csv
         Every field with confidence "low" or "not reported", flagged for
         manual review. Sorted by field_index then PDF name.
 
@@ -98,5 +98,5 @@ def generate_qc_report(results: list[dict], elapsed_seconds: float | None = None
     total_fields = sum(len(e.get("fields", [])) for e in results)
 
     flagged_rows, not_reported = _collect_qc_data(results)
-    _write_qc_csv(flagged_rows)
+    _write_flagged_fields_csv(flagged_rows)
     _print_summary(total_pdfs, total_fields, flagged_rows, not_reported, elapsed_seconds)

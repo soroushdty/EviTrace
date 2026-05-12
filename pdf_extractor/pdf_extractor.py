@@ -29,53 +29,17 @@ from utils.logging_utils import setup_logging
 from utils.grobid_manager import GrobidServerManager
 
 from pipeline.extraction_pipeline import build_qc_bundle
+from artifact_generation import unified_to_artifact, save_artifact
 
 
 def _unified_to_artifact(pdf_name: str, pdf_info: dict, ctx) -> dict:
     """Serialise a QCBundle into a JSON-serialisable artifact dict."""
-    unified = ctx.unified
-    if unified is None:
-        return {
-            "pdf_name": pdf_name,
-            "pdf_id": pdf_info.get("id"),
-            "pdf_uri": pdf_info.get("uri"),
-            "status": "no_unified_record",
-            "branches": [
-                {"source": b.source, "index": b.index, "status": b.status}
-                for b in ctx.branches
-            ],
-        }
-
-    def _safe_asdict(obj):
-        try:
-            return asdict(obj) if obj is not None else None
-        except Exception:
-            return None
-
-    return {
-        "pdf_name": pdf_name,
-        "pdf_id": pdf_info.get("id"),
-        "pdf_uri": pdf_info.get("uri"),
-        "document_id": unified.document_id,
-        "content": unified.content,
-        "semantic": _safe_asdict(unified.semantic),
-        "structural": _safe_asdict(unified.structural),
-        "alignment": _safe_asdict(unified.alignment),
-        "branches": [
-            {"source": b.source, "index": b.index, "status": b.status}
-            for b in ctx.branches
-        ],
-        "metrics_hierarchy": ctx.metrics_hierarchy,
-    }
+    return unified_to_artifact(pdf_name, pdf_info, ctx)
 
 
 def _save_artifact(output_folder: str, pdf_name: str, artifact: dict) -> str:
     """Write a single extraction artifact JSON file and return its path."""
-    stem = Path(pdf_name).stem
-    out_path = Path(output_folder) / f"{stem}.extracted.json"
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(artifact, f, indent=2, ensure_ascii=False, default=str)
-    return str(out_path)
+    return save_artifact(output_folder, pdf_name, artifact)
 
 
 def run_pipeline(config_path: str) -> None:

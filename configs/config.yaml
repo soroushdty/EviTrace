@@ -143,7 +143,7 @@ quality_control:
     warmup:
       enabled: true
       mode: "tiny_real_pdf"
-      timeout: 600
+      timeout: 300
       title: "EviTrace warmup"
       text: "Warmup document for GROBID model loading."
     consolidate_header: 0

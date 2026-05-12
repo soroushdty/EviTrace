@@ -20,7 +20,7 @@ import pytest
 from hypothesis import given, settings, HealthCheck
 from hypothesis import strategies as st
 
-from pdf_extractor.artifact_generator import (
+from artifact_generation import (
     build_canonical_artifacts,
     canonicalize_grobid_xml,
     canonicalize_pymupdf_json,

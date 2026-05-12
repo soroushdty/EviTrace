@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 import pipeline
-from pipeline.extraction_report import generate_qc_report
+from pipeline.extraction_report import generate_flagged_fields_report
 from utils.config_utils import load_openai_config, load_local_config
 from utils.path_utils import PDF_DIR
 from utils.logging_utils import get_logger, setup_logging
@@ -137,7 +137,7 @@ async def main() -> None:
         logger.error("No PDFs were successfully processed.")
         sys.exit(1)
 
-    generate_qc_report(results, elapsed_seconds=_time.time() - _t_start)
+    generate_flagged_fields_report(results, elapsed_seconds=_time.time() - _t_start)
 
 
 if __name__ == "__main__":
