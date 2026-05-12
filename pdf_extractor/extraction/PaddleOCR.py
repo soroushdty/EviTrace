@@ -5,26 +5,13 @@ PaddleOCR extraction backend.
 
 Block construction uses :func:`~pdf_extractor.extraction.schemas.make_block`.
 
-``paddleocr``, ``paddlepaddle``, and ``pdf2image`` are installed lazily
-inside the function body — no import-time side effects.
+``paddleocr``, ``paddlepaddle``, and ``pdf2image`` are optional heavy
+dependencies that must be installed manually before using this backend.
 """
 
 from __future__ import annotations
 
-import subprocess
-import sys
-
 from . import schemas
-
-
-def _ensure_pdf2image() -> None:
-    """Install pdf2image if it is not already importable."""
-    try:
-        import pdf2image  # noqa: F401
-    except ImportError:
-        subprocess.check_call(
-            [sys.executable, "-m", "pip", "install", "-q", "pdf2image"]
-        )
 
 
 def extract_with_paddleocr(pdf_path: str, dpi: int = 150) -> list[schemas.BlockDict]:
@@ -35,9 +22,7 @@ def extract_with_paddleocr(pdf_path: str, dpi: int = 150) -> list[schemas.BlockD
     is held in memory at a time.  Result lines from PaddleOCR are joined
     with newlines to form the page text block.
 
-    **Lazy installation**: if ``paddleocr`` / ``paddlepaddle`` are not
-    already installed they are installed inside this function before use.
-    ``pdf2image`` is also installed here if absent.
+    Requires optional dependencies: ``pip install paddleocr paddlepaddle pdf2image``
 
     Parameters
     ----------
@@ -50,18 +35,22 @@ def extract_with_paddleocr(pdf_path: str, dpi: int = 150) -> list[schemas.BlockD
         One block per page (0-based page index).  ``block_bbox`` is
         ``None`` and ``spans`` is ``[]``.
     """
-    # ------------------------------------------------------------------ install
-    try:
-        from paddleocr import PaddleOCR  # noqa: F401
-    except ImportError:
-        subprocess.check_call(
-            [sys.executable, "-m", "pip", "install", "-q", "paddleocr", "paddlepaddle"]
-        )
-
-    _ensure_pdf2image()
-
     # ------------------------------------------------------------------ imports
-    from paddleocr import PaddleOCR
+    try:
+        from paddleocr import PaddleOCR
+    except ImportError as exc:
+        raise ImportError(
+            "PaddleOCR backend requires optional packages. "
+            "Install them with: pip install paddleocr paddlepaddle pdf2image"
+        ) from exc
+
+    try:
+        import pdf2image
+    except ImportError as exc:
+        raise ImportError(
+            "PaddleOCR backend requires pdf2image. "
+            "Install it with: pip install pdf2image"
+        ) from exc
     try:
         import numpy as np
     except ImportError:
@@ -72,7 +61,6 @@ def extract_with_paddleocr(pdf_path: str, dpi: int = 150) -> list[schemas.BlockD
 
         np = types.SimpleNamespace(array=lambda x: x)
         _sys.modules.setdefault("numpy", np)
-    import pdf2image
 
     # Initialise once; use_angle_cls handles rotated text gracefully.
     ocr_engine = PaddleOCR(use_angle_cls=True, lang="en", show_log=False)
