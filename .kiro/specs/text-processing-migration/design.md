@@ -27,7 +27,7 @@ This phase does not implement QC fallback selection, OCR fallback decision logic
 text_processing/          ← new canonical package (no QC imports)
   base.py                 ← TextProcessor ABC, SentenceSegment ABC,
   |                          5 concrete sentence backends
-  normalizers.py          ← WhitespaceNormalizer, FullNormalizer,
+  normalizers.py          ← WhitespaceNormalizer, AggressiveNormalizer,
   |                          LineHealingNormalizer, UnicodeNormalizer, OcrCleaner
   tokenizers.py           ← SimpleWordTokenizer
   matchers.py             ← LexicalMatcher, SemanticMatcher
@@ -126,12 +126,12 @@ Each normalizer is a concrete `TextProcessor` subclass. Methods outside the norm
 | Class | Source | Key behavior |
 |---|---|---|
 | `WhitespaceNormalizer` | `normalise_ws` in `text_utils.py` | Collapse whitespace, lowercase; idempotent |
-| `FullNormalizer` | `normalise_full` in `text_utils.py` | Whitespace + strip non-word chars; idempotent |
+| `AggressiveNormalizer` | `normalise_full` in `text_utils.py` | Whitespace + strip non-word chars; idempotent |
 | `LineHealingNormalizer` | `normalise_text` in `sentence_processor.py` | Heal mid-sentence line breaks, collapse newlines/spaces; idempotent |
 | `UnicodeNormalizer` | `TextProcessor.normalize` in `utils/text_processor.py` | Unicode NFC/NFKC + whitespace collapse; idempotent |
 | `OcrCleaner` | `TextProcessor.clean_ocr` in `utils/text_processor.py` | Strip C0 controls (U+0000–U+0008, U+000B, U+000C, U+000E–U+001F) and U+FFFD; preserves tab/LF/CR |
 
-**Idempotency invariant**: For each of `WhitespaceNormalizer`, `FullNormalizer`, `LineHealingNormalizer`, `UnicodeNormalizer`: `n(n(s)) == n(s)` for all strings `s`. Empty input → empty output.
+**Idempotency invariant**: For each of `WhitespaceNormalizer`, `AggressiveNormalizer`, `LineHealingNormalizer`, `UnicodeNormalizer`: `n(n(s)) == n(s)` for all strings `s`. Empty input → empty output.
 
 **Implementation details:**
 
@@ -140,7 +140,7 @@ class WhitespaceNormalizer(TextProcessor):
     def normalize(self, text: str) -> str:
         return re.sub(r'\s+', ' ', text.lower()).strip()
 
-class FullNormalizer(TextProcessor):
+class AggressiveNormalizer(TextProcessor):
     def normalize(self, text: str) -> str:
         text = re.sub(r'\s+', ' ', text.lower()).strip()
         text = re.sub(r'[^\w\s]', '', text)
@@ -206,7 +206,7 @@ class LexicalMatcher(TextProcessor):
 1. **Pre-check**: if `WhitespaceNormalizer().normalize(needle)` length < 10 → return `None`.
 2. **Empty guards**: `full_text == ""` or `page_texts == {}` → return `None`.
 3. **Pass 1**: `WhitespaceNormalizer` — if normalized needle is a substring of normalized `full_text`, return result with `score=1.0`. Pass 2 never invoked.
-4. **Pass 2**: `FullNormalizer` — only attempted when Pass 1 fails. `score=0.9`.
+4. **Pass 2**: `AggressiveNormalizer` — only attempted when Pass 1 fails. `score=0.9`.
 5. **Both fail**: return `None`.
 6. **Page attribution**: find the page whose normalized text contains the needle. If no single page contains it (cross-page span), attribute to the page with the longest common substring overlap via `SequenceMatcher` and emit `DEBUG`-level log.
 7. **Span recovery**: use `SequenceMatcher` on the matched page text to recover the original (un-normalized) span.
@@ -363,7 +363,7 @@ Every public module-level name (not `_`-prefixed) from the four legacy modules:
 | `SpacySentencizerSegment` | `utils/text_processor.py` | `text_processing/base.py` | — | move | `tests/utils/test_text_processor.py` |
 | `StanzaSentenceSegment` | `utils/text_processor.py` | `text_processing/base.py` | — | move | `tests/utils/test_text_processor.py` |
 | `normalise_ws` | `pdf_extractor/utils/text_utils.py` | `text_processing/normalizers.py` | `WhitespaceNormalizer` | rename | `tests/pdf_extractor/test_text_utils.py` |
-| `normalise_full` | `pdf_extractor/utils/text_utils.py` | `text_processing/normalizers.py` | `FullNormalizer` | rename | `tests/pdf_extractor/test_text_utils.py` |
+| `normalise_full` | `pdf_extractor/utils/text_utils.py` | `text_processing/normalizers.py` | `AggressiveNormalizer` | rename | `tests/pdf_extractor/test_text_utils.py` |
 | `exact_match_search` | `pdf_extractor/utils/text_utils.py` | `text_processing/matchers.py` | `LexicalMatcher.search` | rename | `tests/pdf_extractor/test_text_utils.py` |
 | `semantic_search` | `pdf_extractor/utils/text_utils.py` | `text_processing/matchers.py` | `SemanticMatcher.search` | rename | `tests/pdf_extractor/test_text_utils.py` |
 | `load_embedding_model` | `pdf_extractor/utils/embedding_utils.py` | `text_processing/embedding.py` | `EmbeddingProcessor.load_embedding_model` | rename | `tests/pdf_extractor/test_embedding_utils.py` |
@@ -400,7 +400,7 @@ Properties serve as the bridge between human-readable specifications and machine
 
 ### Property 3: Normalizer Idempotence
 
-*For any* string `s` and any of the four normalizers (`WhitespaceNormalizer`, `FullNormalizer`, `LineHealingNormalizer`, `UnicodeNormalizer`), applying the normalizer twice SHALL produce the same result as applying it once: `n(n(s)) == n(s)`.
+*For any* string `s` and any of the four normalizers (`WhitespaceNormalizer`, `AggressiveNormalizer`, `LineHealingNormalizer`, `UnicodeNormalizer`), applying the normalizer twice SHALL produce the same result as applying it once: `n(n(s)) == n(s)`.
 
 **Validates: Requirement 4.7**
 
@@ -412,7 +412,7 @@ Properties serve as the bridge between human-readable specifications and machine
 
 ### Property 5: LexicalMatcher Pass 1 Short-Circuit
 
-*For any* needle/text pair where Pass 1 succeeds, `LexicalMatcher.search` SHALL NOT invoke `FullNormalizer.normalize`.
+*For any* needle/text pair where Pass 1 succeeds, `LexicalMatcher.search` SHALL NOT invoke `AggressiveNormalizer.normalize`.
 
 **Validates: Requirement 5.8**
 
@@ -575,7 +575,7 @@ Implementation proceeds in dependency order (leaf modules first):
 | 2 | `text_processing/base.py` (ABCs + 5 backends) | — |
 | 3 | `text_processing/normalizers.py` | `base.py` (for ABC inheritance) |
 | 4 | `text_processing/tokenizers.py` | `normalizers.py` (composes `UnicodeNormalizer`) |
-| 5 | `text_processing/matchers.py` | `normalizers.py` (uses `WhitespaceNormalizer`, `FullNormalizer`) |
+| 5 | `text_processing/matchers.py` | `normalizers.py` (uses `WhitespaceNormalizer`, `AggressiveNormalizer`) |
 | 6 | `text_processing/embedding.py` | `base.py` (for ABC inheritance) |
 | 7 | Wire `__init__.py` exports | Steps 2–6 |
 | 8 | Update `sentence_processor.py` | `normalizers.py` (imports `LineHealingNormalizer`) |

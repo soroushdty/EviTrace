@@ -62,10 +62,10 @@ class WhitespaceNormalizer(TextProcessor):
 
 
 # ---------------------------------------------------------------------------
-# FullNormalizer
+# AggressiveNormalizer
 # ---------------------------------------------------------------------------
 
-class FullNormalizer(TextProcessor):
+class AggressiveNormalizer(TextProcessor):
     """Whitespace + strip non-word characters.
 
     Operations:
@@ -85,27 +85,27 @@ class FullNormalizer(TextProcessor):
 
     def tokenize_words(self, text: str) -> list[str]:
         raise NotImplementedError(
-            "FullNormalizer does not implement tokenize_words()."
+            "AggressiveNormalizer does not implement tokenize_words()."
         )
 
     def tokenize_sentences(self, text: str) -> list[str]:
         raise NotImplementedError(
-            "FullNormalizer does not implement tokenize_sentences()."
+            "AggressiveNormalizer does not implement tokenize_sentences()."
         )
 
     def clean_ocr(self, text: str) -> str:
         raise NotImplementedError(
-            "FullNormalizer does not implement clean_ocr()."
+            "AggressiveNormalizer does not implement clean_ocr()."
         )
 
     def compare(self, a: str, b: str) -> float:
         raise NotImplementedError(
-            "FullNormalizer does not implement compare()."
+            "AggressiveNormalizer does not implement compare()."
         )
 
     def extract_keywords(self, text: str) -> list[str]:
         raise NotImplementedError(
-            "FullNormalizer does not implement extract_keywords()."
+            "AggressiveNormalizer does not implement extract_keywords()."
         )
 
 
@@ -273,4 +273,63 @@ class OcrCleaner(TextProcessor):
     def extract_keywords(self, text: str) -> list[str]:
         raise NotImplementedError(
             "OcrCleaner does not implement extract_keywords()."
+        )
+
+
+# ---------------------------------------------------------------------------
+# OULNormalizer  (OcrCleaner → UnicodeNormalizer → LineHealingNormalizer)
+# ---------------------------------------------------------------------------
+
+class OULNormalizer(TextProcessor):
+    """Composite normalizer for scientific PDF extraction values.
+
+    Chains three normalizers in order:
+
+    1. **OcrCleaner** — strip C0 control characters (``\\x00``–``\\x1f`` minus
+       tab/LF/CR) and U+FFFD REPLACEMENT CHARACTER.
+    2. **UnicodeNormalizer(NFKC)** — decompose ligatures (fi, fl, …), expand
+       compatibility characters, normalize unicode.
+    3. **LineHealingNormalizer** — heal mid-sentence PDF line breaks, collapse
+       multiple blank lines and runs of spaces.
+
+    Preserves case, scientific punctuation (``.,%-/()=±``), and numerics.
+    Idempotent.
+    """
+
+    def __init__(self) -> None:
+        self._ocr = OcrCleaner()
+        self._unicode = UnicodeNormalizer(form="NFKC")
+        self._line = LineHealingNormalizer()
+
+    def normalize(self, text: str) -> str:
+        if not text:
+            return ""
+        text = self._ocr.normalize(text)
+        text = self._unicode.normalize(text)
+        text = self._line.normalize(text)
+        return text
+
+    def tokenize_words(self, text: str) -> list[str]:
+        raise NotImplementedError(
+            "OULNormalizer does not implement tokenize_words()."
+        )
+
+    def tokenize_sentences(self, text: str) -> list[str]:
+        raise NotImplementedError(
+            "OULNormalizer does not implement tokenize_sentences()."
+        )
+
+    def clean_ocr(self, text: str) -> str:
+        raise NotImplementedError(
+            "OULNormalizer does not implement clean_ocr()."
+        )
+
+    def compare(self, a: str, b: str) -> float:
+        raise NotImplementedError(
+            "OULNormalizer does not implement compare()."
+        )
+
+    def extract_keywords(self, text: str) -> list[str]:
+        raise NotImplementedError(
+            "OULNormalizer does not implement extract_keywords()."
         )

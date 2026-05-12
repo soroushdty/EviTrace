@@ -85,11 +85,13 @@ export_csv: true
 # This ensures the canonical JSON has clean values.
 sanitize_extracted_values: true
 # Normalizer class to apply. Choose from:
-#   - FullNormalizer: strips non-word chars, collapses whitespace
+#   - OULNormalizer: OcrCleaner → UnicodeNormalizer(NFKC) → LineHealingNormalizer (default)
+#   - AggressiveNormalizer: strips non-word chars, collapses whitespace, lowercases
 #   - WhitespaceNormalizer: collapses whitespace, lowercases
-#   - OcrCleaner: strips C0 control chars
+#   - OcrCleaner: strips C0 control chars only
 #   - UnicodeNormalizer: Unicode normalization (NFC/NFKC)
-exported_value_normalizer: "FullNormalizer"
+#   - LineHealingNormalizer: heals PDF line breaks, collapses whitespace
+exported_value_normalizer: "OULNormalizer"
 
 # Extraction and OCR settings
 len_filter: 40

@@ -9,17 +9,19 @@ from hypothesis import strategies as st
 
 from text_processing.normalizers import (
     WhitespaceNormalizer,
-    FullNormalizer,
+    AggressiveNormalizer,
     LineHealingNormalizer,
     UnicodeNormalizer,
     OcrCleaner,
+    OULNormalizer,
 )
 
 
 _ws = WhitespaceNormalizer()
-_full = FullNormalizer()
+_full = AggressiveNormalizer()
 _line = LineHealingNormalizer()
 _unicode_nfkc = UnicodeNormalizer(form="NFKC")
+_oul = OULNormalizer()
 _unicode_nfc = UnicodeNormalizer(form="NFC")
 _ocr = OcrCleaner()
 
@@ -34,7 +36,7 @@ def test_whitespace_normalizer_idempotent(s: str):
 @settings(max_examples=100)
 @given(st.text())
 def test_full_normalizer_idempotent(s: str):
-    """FullNormalizer.normalize is idempotent."""
+    """AggressiveNormalizer.normalize is idempotent."""
     assert _full.normalize(_full.normalize(s)) == _full.normalize(s)
 
 
@@ -64,3 +66,10 @@ def test_unicode_normalizer_nfc_idempotent(s: str):
 def test_ocr_cleaner_idempotent(s: str):
     """OcrCleaner.normalize is idempotent."""
     assert _ocr.normalize(_ocr.normalize(s)) == _ocr.normalize(s)
+
+
+@settings(max_examples=200)
+@given(st.text())
+def test_oul_normalizer_idempotent(s: str):
+    """OULNormalizer.normalize is idempotent."""
+    assert _oul.normalize(_oul.normalize(s)) == _oul.normalize(s)

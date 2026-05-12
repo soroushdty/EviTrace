@@ -163,7 +163,7 @@ def _import_orchestrator():
     with patch.dict(sys.modules, extra_stubs), \
          patch("utils.config_utils.load_openai_config", return_value=_FAKE_OPENAI_CONFIG), \
          patch("utils.config_utils.load_qc_config", return_value=_FAKE_QC_CONFIG_FALLBACK), \
-         patch("utils.config_utils.load_local_config", return_value={"sanitize_extracted_values": False, "exported_value_normalizer": "FullNormalizer"}):
+         patch("utils.config_utils.load_local_config", return_value={"sanitize_extracted_values": False, "exported_value_normalizer": "AggressiveNormalizer"}):
         m = importlib.util.module_from_spec(_spec)
         sys.modules["pipeline.orchestrator"] = m
         _spec.loader.exec_module(m)

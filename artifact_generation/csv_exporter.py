@@ -4,7 +4,11 @@ Extract JSON extraction artifacts to CSV format.
 Converts extracted.json files (with field_name and extracted_value) to CSV format,
 grouped by source_pdf with field_name as columns and extracted_value as cell values.
 
+Sanitization of extracted_value is performed at JSON write time by the pipeline
+(pdf_processor._save_pdf_output), not here. CSV values are written as-is.
+
 Public functions:
+  - export_all_extracted_jsons_to_csv: Combine all *.extracted.json in a dir into one CSV
   - extract_to_csv: Convert a single JSON file to CSV
   - process_folder: Process all JSONs in a folder structure
 """
@@ -13,34 +17,10 @@ import json
 import csv
 from pathlib import Path
 from collections import defaultdict
-import re
 
 from utils.logging_utils import get_logger
 
 logger = get_logger(__name__)
-
-
-def clean_cell_value(value):
-    """Clean cell value by removing weird characters and stripping whitespace.
-
-    Uses regex to keep only alphanumeric, spaces, and common punctuation.
-
-    Args:
-        value: Raw cell value (string or other type)
-
-    Returns:
-        Cleaned string value
-    """
-    if not isinstance(value, str):
-        value = str(value) if value is not None else ''
-
-    # Remove non-printable and weird characters, keep alphanumeric, basic punctuation, and spaces
-    value = re.sub(r'[^\w\s\.\,\:\;\-\(\)\%\&\'\"\n]', '', value)
-
-    # Strip leading and trailing whitespace
-    value = value.strip()
-
-    return value
 
 
 def extract_from_json(json_file_path):
@@ -66,23 +46,77 @@ def extract_from_json(json_file_path):
     field_index_map = {}
 
     for item in data:
-        # Handle nested structures
         if isinstance(item, dict):
-            # Try to get source_pdf from various possible locations
             source_pdf = item.get('source_pdf', 'unknown')
-
             field_name = item.get('field_name', 'unknown')
             extracted_value = item.get('extracted_value', '')
-            extracted_value = clean_cell_value(extracted_value)
+            if not isinstance(extracted_value, str):
+                extracted_value = str(extracted_value) if extracted_value is not None else ''
             field_index = item.get('field_index', float('inf'))
 
-            # Store the data
             if source_pdf and field_name:
                 grouped_data[source_pdf][field_name] = extracted_value
-                # Track field_index for sorting
                 field_index_map[field_name] = field_index
 
     return grouped_data, field_index_map
+
+
+def export_all_extracted_jsons_to_csv(run_dir, output_csv_path):
+    """Combine all *.extracted.json files in run_dir into a single CSV.
+
+    Scans run_dir (non-recursively) for files matching *.extracted.json,
+    merges their data, and writes one CSV with source_pdf as the first column
+    and field names (sorted by field_index) as subsequent columns.
+
+    Args:
+        run_dir: Path to directory containing *.extracted.json files
+        output_csv_path: Destination path for the combined CSV file
+    """
+    run_dir = Path(run_dir)
+    output_csv_path = Path(output_csv_path)
+
+    json_files = sorted(run_dir.glob("*.extracted.json"))
+    if not json_files:
+        logger.warning("No *.extracted.json files found in %s", run_dir)
+        return
+
+    combined_data = defaultdict(dict)
+    combined_field_index_map = {}
+
+    for json_file in json_files:
+        try:
+            grouped_data, field_index_map = extract_from_json(json_file)
+            for source_pdf, fields in grouped_data.items():
+                combined_data[source_pdf].update(fields)
+            combined_field_index_map.update(field_index_map)
+        except Exception as e:
+            logger.error("Error processing %s: %s", json_file.name, e)
+
+    if not combined_data:
+        logger.warning("No data extracted from JSON files in %s", run_dir)
+        return
+
+    all_field_names = sorted(
+        combined_field_index_map.keys(),
+        key=lambda x: combined_field_index_map.get(x, float('inf')),
+    )
+
+    output_csv_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_csv_path, 'w', newline='', encoding='utf-8') as csvfile:
+        fieldnames = ['source_pdf'] + all_field_names
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames, extrasaction='ignore')
+        writer.writeheader()
+        for source_pdf in sorted(combined_data.keys()):
+            row = {'source_pdf': source_pdf}
+            row.update(combined_data[source_pdf])
+            writer.writerow(row)
+
+    message = (
+        f"Exported combined CSV: {output_csv_path} | "
+        f"PDFs: {len(combined_data)} | "
+        f"Fields: {len(all_field_names)}"
+    )
+    logger.info(message)
 
 
 def extract_to_csv(json_file_path, output_csv_path):

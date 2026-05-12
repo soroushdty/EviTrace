@@ -41,7 +41,7 @@
 ### Subtasks
 
 - [ ] 3.1 Implement `WhitespaceNormalizer(TextProcessor)` — collapse whitespace + lowercase; verify idempotency
-- [ ] 3.2 Implement `FullNormalizer(TextProcessor)` — whitespace + strip non-word chars; verify idempotency
+- [ ] 3.2 Implement `AggressiveNormalizer(TextProcessor)` — whitespace + strip non-word chars; verify idempotency
 - [ ] 3.3 Implement `LineHealingNormalizer(TextProcessor)` — heal mid-sentence line breaks, collapse newlines/spaces; verify idempotency
 - [ ] 3.4 Implement `UnicodeNormalizer(TextProcessor)` — NFC/NFKC + whitespace collapse; configurable `form` parameter; verify idempotency
 - [ ] 3.5 Implement `OcrCleaner(TextProcessor)` — strip C0 controls and U+FFFD; preserve tab/LF/CR
@@ -72,7 +72,7 @@
 - [ ] 5.2 Implement pre-check: return `None` when whitespace-normalized needle length < 10
 - [ ] 5.3 Implement empty guards: return `None` for empty `full_text` or empty `page_texts`
 - [ ] 5.4 Implement Pass 1 via `WhitespaceNormalizer` — substring check; score `1.0`; short-circuit (no Pass 2)
-- [ ] 5.5 Implement Pass 2 via `FullNormalizer` — only when Pass 1 fails; score `0.9`
+- [ ] 5.5 Implement Pass 2 via `AggressiveNormalizer` — only when Pass 1 fails; score `0.9`
 - [ ] 5.6 Return `None` when both passes fail
 - [ ] 5.7 Implement page attribution: find page containing normalized needle; cross-page fallback via `SequenceMatcher` with `DEBUG` log
 - [ ] 5.8 Implement span recovery via `SequenceMatcher` on matched page text

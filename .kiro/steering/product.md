@@ -34,7 +34,7 @@ main.py  (CLI entry — asyncio.run)
         │     └── pdf_validator.py       # PDF-level structural validation
         ├── text_processing/             # standalone text processing package
         │     ├── base.py                # TextProcessor ABC, SentenceSegment ABC, 5 backends
-        │     ├── normalizers.py         # WhitespaceNormalizer, FullNormalizer, LineHealingNormalizer, UnicodeNormalizer, OcrCleaner
+        │     ├── normalizers.py         # WhitespaceNormalizer, AggressiveNormalizer, LineHealingNormalizer, UnicodeNormalizer, OcrCleaner
         │     ├── tokenizers.py          # SimpleWordTokenizer
         │     ├── matchers.py            # LexicalMatcher, SemanticMatcher
         │     └── embedding.py           # EmbeddingProcessor (lazy faiss/torch/sentence-transformers)
@@ -159,7 +159,7 @@ Configuration lives in `configs/config.yaml` (note: `configs/`, not `config/`). 
 | `utils/grobid_manager.py` | `GrobidServerManager` context manager; Docker lifecycle; `/api/isalive` polling |
 | `text_processing/` | Standalone text processing package: ABCs, normalizers, tokenizers, matchers (lexical + semantic), embedding processor, sentence-segmentation backends |
 | `text_processing/base.py` | `TextProcessor` ABC + `SentenceSegment` ABC + 5 concrete backends (ScispaCy, WtpSplit, NLTKPunkt, SpacySentencizer, Stanza) |
-| `text_processing/normalizers.py` | `WhitespaceNormalizer`, `FullNormalizer`, `LineHealingNormalizer`, `UnicodeNormalizer`, `OcrCleaner` |
+| `text_processing/normalizers.py` | `WhitespaceNormalizer`, `AggressiveNormalizer`, `LineHealingNormalizer`, `UnicodeNormalizer`, `OcrCleaner` |
 | `text_processing/tokenizers.py` | `SimpleWordTokenizer` |
 | `text_processing/matchers.py` | `LexicalMatcher` (two-pass exact match), `SemanticMatcher` (FAISS-based) |
 | `text_processing/embedding.py` | `EmbeddingProcessor` (lazy-loaded sentence-transformers + FAISS) |
