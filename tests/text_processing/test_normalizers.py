@@ -12,6 +12,7 @@ from text_processing.normalizers import (
     LineHealingNormalizer,
     UnicodeNormalizer,
     OcrCleaner,
+    OULNormalizer,
 )
 
 
@@ -231,3 +232,61 @@ class TestOcrCleaner:
     def test_unrelated_methods_raise(self, cleaner):
         with pytest.raises(NotImplementedError):
             cleaner.tokenize_words("x")
+
+
+# ---------------------------------------------------------------------------
+# OULNormalizer
+# ---------------------------------------------------------------------------
+
+class TestOULNormalizer:
+    @pytest.fixture
+    def norm(self):
+        return OULNormalizer()
+
+    def test_empty_string(self, norm):
+        assert norm.normalize("") == ""
+
+    def test_strips_c0_controls(self, norm):
+        assert "\x00" not in norm.normalize("a\x00b")
+        assert "\x0b" not in norm.normalize("a\x0b b")
+
+    def test_removes_replacement_character(self, norm):
+        assert "�" not in norm.normalize("hello�world")
+
+    def test_expands_fi_ligature(self, norm):
+        # NFKC decomposes U+FB01 (ﬁ) → "fi"
+        assert norm.normalize("ﬁeld") == "field"
+
+    def test_heals_mid_sentence_line_break(self, norm):
+        assert norm.normalize("measured\nby") == "measured by"
+
+    def test_preserves_case(self, norm):
+        assert norm.normalize("BRCA1 gene") == "BRCA1 gene"
+
+    def test_preserves_scientific_punctuation(self, norm):
+        result = norm.normalize("p < 0.001, 95% CI (0.42–0.68)")
+        assert "0.001" in result
+        assert "95%" in result
+        assert "0.42" in result
+
+    def test_preserves_doi(self, norm):
+        assert norm.normalize("10.1000/demo") == "10.1000/demo"
+
+    def test_collapses_whitespace(self, norm):
+        assert norm.normalize("mean   ±   SD") == "mean ± SD"
+
+    def test_idempotent(self, norm):
+        text = "measured\nby BRCA1\x00 gene (ﬁrst� cohort)"
+        assert norm.normalize(norm.normalize(text)) == norm.normalize(text)
+
+    def test_unrelated_methods_raise(self, norm):
+        with pytest.raises(NotImplementedError):
+            norm.tokenize_words("x")
+        with pytest.raises(NotImplementedError):
+            norm.tokenize_sentences("x")
+        with pytest.raises(NotImplementedError):
+            norm.clean_ocr("x")
+        with pytest.raises(NotImplementedError):
+            norm.compare("a", "b")
+        with pytest.raises(NotImplementedError):
+            norm.extract_keywords("x")

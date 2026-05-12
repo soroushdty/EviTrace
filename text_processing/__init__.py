@@ -18,6 +18,14 @@ from text_processing.base import (
 from text_processing.matchers import LexicalMatcher, SemanticMatcher
 from text_processing.embedding import EmbeddingProcessor
 from text_processing.composite import DefaultTextProcessor
+from text_processing.normalizers import (
+    WhitespaceNormalizer,
+    FullNormalizer,
+    LineHealingNormalizer,
+    UnicodeNormalizer,
+    OcrCleaner,
+    OULNormalizer,
+)
 
 __all__ = [
     "TextProcessor",
@@ -31,4 +39,10 @@ __all__ = [
     "SemanticMatcher",
     "EmbeddingProcessor",
     "DefaultTextProcessor",
+    "WhitespaceNormalizer",
+    "FullNormalizer",
+    "LineHealingNormalizer",
+    "UnicodeNormalizer",
+    "OcrCleaner",
+    "OULNormalizer",
 ]

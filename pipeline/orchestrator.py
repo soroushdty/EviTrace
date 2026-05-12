@@ -69,7 +69,7 @@ async def run_pipeline(
     runtime_config["addons"] = _qc_config.get("quality_control", {}).get("addons", {})
     # Add sanitization settings from local config
     runtime_config["sanitize_extracted_values"] = _local_config.get("sanitize_extracted_values", False)
-    runtime_config["exported_value_normalizer"] = _local_config.get("exported_value_normalizer", "FullNormalizer")
+    runtime_config["exported_value_normalizer"] = _local_config.get("exported_value_normalizer", "OULNormalizer")
     logger.debug(
         "Runtime config keys: %s; addons enabled: %s",
         sorted(runtime_config.keys()),
