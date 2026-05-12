@@ -47,7 +47,23 @@ def extract_from_json(json_file_path):
 
     for item in data:
         if isinstance(item, dict):
-            source_pdf = item.get('source_pdf', 'unknown')
+            # Try top-level source_pdf first; fall back to location_metadata;
+            # then fall back to the JSON filename stem.
+            source_pdf = item.get('source_pdf', '')
+            if not source_pdf:
+                # Derive from location_metadata if present
+                loc_meta = item.get('location_metadata')
+                if loc_meta and isinstance(loc_meta, list) and len(loc_meta) > 0:
+                    first_meta = loc_meta[0]
+                    if isinstance(first_meta, dict):
+                        raw_path = first_meta.get('source_pdf', '')
+                        if raw_path:
+                            # Extract just the filename (stem) from the full path
+                            source_pdf = Path(raw_path).stem
+            if not source_pdf:
+                # Last resort: use the JSON filename itself as source identifier
+                source_pdf = Path(json_file_path).stem
+
             field_name = item.get('field_name', 'unknown')
             extracted_value = item.get('extracted_value', '')
             if not isinstance(extracted_value, str):
@@ -253,3 +269,38 @@ def process_folder(input_path, output_base):
             logger.info(message)
 
         print()
+
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Convert EviTrace extracted JSON files to CSV format."
+    )
+    parser.add_argument(
+        "-i", "--input",
+        required=True,
+        help="Path to input folder containing JSON files, or a single JSON file.",
+    )
+    parser.add_argument(
+        "-o", "--output",
+        default=None,
+        help="Output path. For a folder input: output directory (defaults to input folder). "
+             "For a single file input: output CSV path (defaults to <input_stem>.csv).",
+    )
+    args = parser.parse_args()
+
+    input_path = Path(args.input)
+    if not input_path.exists():
+        print(f"Error: input path does not exist: {input_path}")
+        raise SystemExit(1)
+
+    if input_path.is_file():
+        # Single JSON file mode
+        output_csv = Path(args.output) if args.output else input_path.with_suffix(".csv")
+        extract_to_csv(str(input_path), str(output_csv))
+    else:
+        # Folder mode
+        output_base = Path(args.output) if args.output else input_path
+        process_folder(input_path, output_base)
