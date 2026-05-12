@@ -14,8 +14,6 @@ Return type is ``list[BlockDict]``; each page becomes one
 
 from __future__ import annotations
 
-import subprocess
-import sys
 from pathlib import Path
 
 from . import schemas
@@ -40,16 +38,6 @@ _TABLE_SETTINGS_TEXT = {
     "vertical_strategy": "text",
     "horizontal_strategy": "text",
 }
-
-
-def _ensure_pdfplumber() -> None:
-    """Install pdfplumber if it is not already importable."""
-    try:
-        import pdfplumber  # noqa: F401
-    except ImportError:
-        subprocess.check_call(
-            [sys.executable, "-m", "pip", "install", "-q", "pdfplumber"]
-        )
 
 
 def _keep_char(obj: dict, bboxes: list) -> bool:
@@ -92,7 +80,6 @@ def extract_with_pdfplumber(pdf_path: Path) -> list[schemas.BlockDict]:
     blocks: list[schemas.BlockDict] = []
 
     try:
-        _ensure_pdfplumber()
         import pdfplumber
 
         with pdfplumber.open(pdf_path) as pdf:

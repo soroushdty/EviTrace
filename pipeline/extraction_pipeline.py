@@ -19,12 +19,14 @@ build_qc_bundle(pdf_path, pdf_name, qc_config) -> QCBundle
 from __future__ import annotations
 
 import functools
+import hashlib
 import logging
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
-from pdf_extractor.extraction.GROBID import extract_with_grobid
+from pdf_extractor.extraction.GROBID import extract_with_grobid, parse_grobid_tei
 from pdf_extractor.extraction.PyMuPDF import extract_with_pymupdf
 from pdf_extractor.extraction.pdfplumber import extract_with_pdfplumber
 from pdf_extractor.extraction.PaddleOCR import extract_with_paddleocr
@@ -125,6 +127,53 @@ def _get_text_processor(class_path: str, tp_cfg: dict):
         return instance
 
 
+# ---------------------------------------------------------------------------
+# GROBID TEI disk cache
+# ---------------------------------------------------------------------------
+
+def _pdf_sha256(pdf_path: Path) -> str:
+    """Return the hex SHA-256 digest of *pdf_path* contents."""
+    h = hashlib.sha256()
+    with open(pdf_path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _grobid_cache_read(
+    pdf_path: Path, cache_dir: Path | None
+) -> tuple[str | None, str]:
+    """Return (cached_tei_xml_or_None, pdf_sha256).
+
+    The cache is content-addressed by PDF SHA-256 so renamed or moved PDFs
+    still hit the cache and re-processed PDFs with changed content always miss.
+    Returns (None, "") when the PDF cannot be read (e.g. in unit tests with
+    fake paths), which is treated as a cache miss.
+    """
+    try:
+        digest = _pdf_sha256(pdf_path)
+    except OSError:
+        return None, ""
+    if cache_dir is not None:
+        cache_file = cache_dir / f"{digest}.tei.xml"
+        if cache_file.exists():
+            try:
+                return cache_file.read_text(encoding="utf-8"), digest
+            except OSError:
+                pass
+    return None, digest
+
+
+def _grobid_cache_write(tei_xml: str, digest: str, cache_dir: Path | None) -> None:
+    if cache_dir is None or not tei_xml or not digest:
+        return
+    try:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        (cache_dir / f"{digest}.tei.xml").write_text(tei_xml, encoding="utf-8")
+    except OSError as exc:
+        logger.warning("GROBID cache write failed: %s", exc)
+
+
 def build_qc_bundle(
     pdf_path: Path | str,
     pdf_name: str,
@@ -219,32 +268,53 @@ def build_qc_bundle(
         # Native path: GROBID (semantic) + pdfplumber (structural)
         logger.debug("Routing %s: native path (GROBID + pdfplumber)", pdf_name)
         grobid_cfg = qc_config.get("quality_control", {}).get("grobid", {})
-        try:
-            tei_xml, _ = extract_with_grobid(
-                str(pdf_path),
+
+        # Resolve GROBID TEI disk cache directory (empty string = disabled).
+        _cache_dir_str = str(grobid_cfg.get("tei_cache_dir", "") or "").strip()
+        tei_cache_dir: Path | None = Path(_cache_dir_str).resolve() if _cache_dir_str else None
+
+        cached_tei, pdf_digest = _grobid_cache_read(pdf_path, tei_cache_dir)
+
+        if cached_tei is not None:
+            # Cache hit: skip the GROBID HTTP call entirely.
+            logger.info("GROBID cache hit for %s (%s); skipping API call", pdf_name, pdf_digest[:12])
+            tei_xml = cached_tei
+            plumber_blocks = extract_with_pdfplumber(str(pdf_path))
+            logger.debug("pdfplumber returned %d blocks (cache-hit path)", len(plumber_blocks))
+        else:
+            # Cache miss: run GROBID and pdfplumber concurrently — they are
+            # fully independent (different libraries, same read-only PDF file).
+            grobid_kwargs: dict = dict(
                 grobid_url=grobid_cfg.get("url", "http://localhost:8070"),
-                timeout=int(grobid_cfg.get("timeout", 180)),
+                timeout=int(grobid_cfg.get("timeout", 300)),
                 consolidate_header=int(grobid_cfg.get("consolidate_header", 0)),
                 consolidate_citations=int(grobid_cfg.get("consolidate_citations", 0)),
-                generate_ids=bool(grobid_cfg.get("generate_ids", True)),
+                generate_ids=bool(grobid_cfg.get("generate_ids", False)),
                 segment_sentences=bool(grobid_cfg.get("segment_sentences", True)),
                 include_raw_citations=bool(grobid_cfg.get("include_raw_citations", True)),
                 include_raw_affiliations=bool(grobid_cfg.get("include_raw_affiliations", False)),
                 tei_coordinates=bool(grobid_cfg.get("tei_coordinates", True)),
                 max_retries=int(grobid_cfg.get("max_retries", 2)),
             )
-            logger.debug("GROBID returned TEI XML: %d chars", len(tei_xml))
-        except Exception:
-            if grobid_failure_behavior == "manifest_fail":
-                raise
-            logger.warning(
-                "GROBID failed for %s; continuing with fallback mode", pdf_name
-            )
-            logger.debug("GROBID exception for %s", pdf_name, exc_info=True)
-            tei_xml = ""
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                grobid_future = pool.submit(extract_with_grobid, str(pdf_path), **grobid_kwargs)
+                plumber_future = pool.submit(extract_with_pdfplumber, str(pdf_path))
 
-        plumber_blocks = extract_with_pdfplumber(str(pdf_path))
-        logger.debug("pdfplumber returned %d blocks", len(plumber_blocks))
+                try:
+                    tei_xml, _ = grobid_future.result()
+                    logger.debug("GROBID returned TEI XML: %d chars", len(tei_xml))
+                    _grobid_cache_write(tei_xml, pdf_digest, tei_cache_dir)
+                except Exception:
+                    if grobid_failure_behavior == "manifest_fail":
+                        raise
+                    logger.warning(
+                        "GROBID failed for %s; continuing with fallback mode", pdf_name
+                    )
+                    logger.debug("GROBID exception for %s", pdf_name, exc_info=True)
+                    tei_xml = ""
+
+                plumber_blocks = plumber_future.result()
+                logger.debug("pdfplumber returned %d blocks", len(plumber_blocks))
         branches = [
             Candidate(source="grobid",     index=0, payload=tei_xml,        status=None),
             Candidate(source="pdfplumber",  index=1, payload=plumber_blocks, status=None),

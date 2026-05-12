@@ -751,7 +751,7 @@ class TestConfigDefaults:
         warmup = cfg["quality_control"]["grobid"]["warmup"]
         assert warmup["enabled"] is True
         assert warmup["mode"] == "tiny_real_pdf"
-        assert warmup["timeout"] == 600
+        assert warmup["timeout"] == 300
         assert warmup["title"] == "EviTrace warmup"
         assert "Warmup document" in warmup["text"]
 

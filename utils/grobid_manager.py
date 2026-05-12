@@ -28,6 +28,7 @@ import os
 import platform
 import subprocess
 import sys
+import threading
 import time
 
 logger = logging.getLogger("pdf_extractor")
@@ -175,18 +176,7 @@ class GrobidServerManager:
         # 3. Poll until responsive.
         print("Waiting for GROBID server to become ready (this may take a few minutes on first run)...")
         logger.debug("Polling %s/api/isalive (up to 180s)...", self.url)
-        ready = False
-        t_poll_start = time.time()
-        for i in range(180):
-            if self._is_server_alive():
-                ready = True
-                elapsed = int(time.time() - t_poll_start)
-                logger.info("GROBID became ready after %d seconds.", i)
-                print(f"\rGROBID ready ({elapsed}s).")
-                break
-            elapsed = int(time.time() - t_poll_start)
-            print(f"\r  Waiting for GROBID... {elapsed}s", end="", flush=True)
-            time.sleep(1)
+        ready = self._poll_until_alive(timeout=180, label="GROBID")
         if not ready:
             # Container is running but unresponsive — likely a stale/crashed
             # JVM from a previous session. Remove it and start fresh.
@@ -199,19 +189,7 @@ class GrobidServerManager:
             print("GROBID container is unresponsive; recreating...")
             self._remove_container(self.container_name)
             self._create_new_container()
-            # Poll again for the fresh container.
-            ready = False
-            t_poll_start = time.time()
-            for i in range(300):
-                if self._is_server_alive():
-                    ready = True
-                    elapsed = int(time.time() - t_poll_start)
-                    logger.info("GROBID (fresh) became ready after %d seconds.", i)
-                    print(f"\rGROBID ready ({elapsed}s).")
-                    break
-                elapsed = int(time.time() - t_poll_start)
-                print(f"\r  Waiting for GROBID... {elapsed}s", end="", flush=True)
-                time.sleep(1)
+            ready = self._poll_until_alive(timeout=300, label="GROBID (fresh)")
             if not ready:
                 print("\nGROBID server failed to start in time.")
                 logger.error("GROBID did not report healthy within 300s (fresh container).")
@@ -267,6 +245,8 @@ class GrobidServerManager:
             cmd += ["--cpus", self.cpus]
         if self.java_opts:
             cmd += ["-e", f"JAVA_OPTS={self.java_opts}"]
+        if self.concurrency:
+            cmd += ["-e", f"GROBID_NB_THREADS={self.concurrency}"]
         cmd += ["-p", "8070:8070", self.image]
         logger.debug("docker run command: %s", " ".join(cmd))
         try:
@@ -333,42 +313,73 @@ class GrobidServerManager:
             warmup_pdf = _build_tiny_real_pdf(title=title, text=text)
 
         endpoint = self.url.rstrip("/") + "/api/processFulltextDocument"
-        print(f"Warming up GROBID models (mode={mode})...")
+        print(f"Warming up GROBID models (mode={mode}, timeout={timeout}s)...")
         logger.debug(
             "Sending warmup PDF to %s (mode=%s, timeout=%ds, title=%r, text_len=%d)",
             endpoint, mode, timeout, title, len(text),
         )
         t_start = time.time()
-        try:
-            resp = requests.post(
-                endpoint,
-                files={"input": ("warmup.pdf", io.BytesIO(warmup_pdf), "application/pdf")},
-                data={"consolidateHeader": "0", "consolidateCitations": "0"},
-                timeout=timeout,
-            )
-            dt = time.time() - t_start
-            if resp.status_code >= 400 and mode == "tiny_real_pdf":
-                logger.warning(
-                    "GROBID warmup returned HTTP %d in %.1fs; this may still be fine if the server is loaded.",
-                    resp.status_code, dt,
+
+        result: dict = {}
+
+        def _do_post() -> None:
+            try:
+                resp = requests.post(
+                    endpoint,
+                    files={"input": ("warmup.pdf", io.BytesIO(warmup_pdf), "application/pdf")},
+                    data={"consolidateHeader": "0", "consolidateCitations": "0"},
+                    timeout=timeout,
                 )
-                print(f"GROBID warmup returned {resp.status_code} ({dt:.0f}s); proceeding.")
+                result["status"] = resp.status_code
+            except requests.exceptions.Timeout:
+                result["error"] = "timeout"
+            except requests.exceptions.RequestException as exc:
+                result["error"] = str(exc)
+
+        thread = threading.Thread(target=_do_post, daemon=True)
+        thread.start()
+        while thread.is_alive():
+            elapsed = int(time.time() - t_start)
+            remaining = max(0, timeout - elapsed)
+            print(f"\r  Warming up GROBID... {elapsed}s / {timeout}s (timeout in {remaining}s)", end="", flush=True)
+            thread.join(timeout=1)
+        print()
+
+        dt = time.time() - t_start
+        if "error" in result:
+            if result["error"] == "timeout":
+                logger.warning("GROBID warmup timed out after %.1fs; proceeding anyway.", dt)
+                print(f"GROBID warmup timed out ({dt:.0f}s); proceeding.")
             else:
-                # Any response (even 4xx/5xx) means the server reached the endpoint.
-                logger.info(
-                    "GROBID warmup completed in %.1fs (status=%d).",
-                    dt, resp.status_code,
+                logger.warning("GROBID warmup request failed: %s; proceeding anyway.", result["error"])
+                print("GROBID warmup failed; proceeding.")
+        else:
+            status = result.get("status", 0)
+            if status >= 400 and mode == "tiny_real_pdf":
+                logger.warning(
+                    "GROBID warmup returned HTTP %d in %.1fs; proceeding.",
+                    status, dt,
                 )
+                print(f"GROBID warmup returned {status} ({dt:.0f}s); proceeding.")
+            else:
+                logger.info("GROBID warmup completed in %.1fs (status=%d).", dt, status)
                 print(f"GROBID models loaded ({dt:.0f}s).")
-        except requests.exceptions.Timeout:
-            dt = time.time() - t_start
-            logger.warning(
-                "GROBID warmup timed out after %.1fs; proceeding anyway.", dt,
-            )
-            print(f"GROBID warmup timed out ({dt:.0f}s); proceeding.")
-        except requests.exceptions.RequestException as exc:
-            logger.warning("GROBID warmup request failed: %s; proceeding anyway.", exc)
-            print("GROBID warmup failed; proceeding.")
+
+    def _poll_until_alive(self, timeout: int, label: str = "GROBID") -> bool:
+        """Poll /api/isalive until ready or *timeout* wall-clock seconds elapse."""
+        t_start = time.time()
+        deadline = t_start + timeout
+        while time.time() < deadline:
+            if self._is_server_alive():
+                elapsed = int(time.time() - t_start)
+                logger.info("%s became ready after %ds.", label, elapsed)
+                print(f"\r{label} ready ({elapsed}s).          ")
+                return True
+            elapsed = int(time.time() - t_start)
+            remaining = max(0, int(deadline - time.time()))
+            print(f"\r  Waiting for {label}... {elapsed}s (timeout in {remaining}s)", end="", flush=True)
+            time.sleep(1)
+        return False
 
     @staticmethod
     def _container_state(name: str) -> str:
