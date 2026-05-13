@@ -107,7 +107,7 @@ def _mixed_unified() -> UnifiedRecord:
 class TestProject:
     def test_returns_list_of_annotation_records_not_dicts(self):
         """project() must return list[AnnotationRecord], not list[dict]."""
-        from pdf_extractor.annotation import AnnotationRecord, project
+        from artifact_generation.w3c_annotation import AnnotationRecord, project
 
         unified = _born_digital_unified()
         result = project(unified)
@@ -118,7 +118,7 @@ class TestProject:
 
     def test_born_digital_has_text_position_selector(self):
         """Born-digital entry → selector_type == 'TextPositionSelector'."""
-        from pdf_extractor.annotation import project
+        from artifact_generation.w3c_annotation import project
 
         unified = _born_digital_unified()
         records = project(unified)
@@ -127,7 +127,7 @@ class TestProject:
 
     def test_born_digital_selector_payload_has_start_end(self):
         """Born-digital selector_payload must carry integer start and end."""
-        from pdf_extractor.annotation import project
+        from artifact_generation.w3c_annotation import project
 
         unified = _born_digital_unified()
         records = project(unified)
@@ -140,7 +140,7 @@ class TestProject:
 
     def test_born_digital_quote_selector_populated(self):
         """Every record must have a populated quote_selector with exact/prefix/suffix."""
-        from pdf_extractor.annotation import project
+        from artifact_generation.w3c_annotation import project
 
         unified = _born_digital_unified()
         records = project(unified)
@@ -153,7 +153,7 @@ class TestProject:
 
     def test_scanned_has_fragment_selector(self):
         """Scanned entry → selector_type == 'FragmentSelector'."""
-        from pdf_extractor.annotation import project
+        from artifact_generation.w3c_annotation import project
 
         unified = _scanned_unified()
         records = project(unified)
@@ -162,7 +162,7 @@ class TestProject:
 
     def test_scanned_ocr_derived_flag_set(self):
         """Scanned entry must have ocr_derived == True on the AnnotationRecord."""
-        from pdf_extractor.annotation import project
+        from artifact_generation.w3c_annotation import project
 
         unified = _scanned_unified()
         records = project(unified)
@@ -171,7 +171,7 @@ class TestProject:
 
     def test_scanned_quote_selector_populated(self):
         """Scanned records must also carry a populated quote_selector."""
-        from pdf_extractor.annotation import project
+        from artifact_generation.w3c_annotation import project
 
         unified = _scanned_unified()
         records = project(unified)
@@ -181,7 +181,7 @@ class TestProject:
 
     def test_mixed_document_produces_both_selector_types(self):
         """A document with both page types must produce both selector types."""
-        from pdf_extractor.annotation import project
+        from artifact_generation.w3c_annotation import project
 
         unified = _mixed_unified()
         records = project(unified)
@@ -192,7 +192,7 @@ class TestProject:
 
     def test_project_returns_empty_list_when_alignment_none(self):
         """project() returns [] when alignment is None."""
-        from pdf_extractor.annotation import project
+        from artifact_generation.w3c_annotation import project
 
         unified = UnifiedRecord(
             document_id="empty",
@@ -204,7 +204,7 @@ class TestProject:
 
     def test_project_returns_empty_list_when_semantic_none(self):
         """project() returns [] when semantic is None."""
-        from pdf_extractor.annotation import project
+        from artifact_generation.w3c_annotation import project
 
         unified = UnifiedRecord(
             document_id="empty",
@@ -222,14 +222,14 @@ class TestProject:
 class TestGenerateW3cJsonld:
     def test_empty_list_returns_empty_list(self):
         """generate_w3c_jsonld([]) must return [] without raising."""
-        from pdf_extractor.annotation import generate_w3c_jsonld
+        from artifact_generation.w3c_annotation import generate_w3c_jsonld
 
         result = generate_w3c_jsonld([])
         assert result == []
 
     def test_born_digital_produces_dict_with_five_required_keys(self):
         """Born-digital record → dict with @context, id, type, body, target."""
-        from pdf_extractor.annotation import generate_w3c_jsonld, project
+        from artifact_generation.w3c_annotation import generate_w3c_jsonld, project
 
         records = project(_born_digital_unified())
         result = generate_w3c_jsonld(records)
@@ -241,7 +241,7 @@ class TestGenerateW3cJsonld:
 
     def test_born_digital_serializes_text_position_selector(self):
         """Born-digital JSON-LD target must include a TextPositionSelector."""
-        from pdf_extractor.annotation import generate_w3c_jsonld, project
+        from artifact_generation.w3c_annotation import generate_w3c_jsonld, project
 
         records = project(_born_digital_unified())
         anno = generate_w3c_jsonld(records)[0]
@@ -252,7 +252,7 @@ class TestGenerateW3cJsonld:
 
     def test_scanned_serializes_fragment_selector(self):
         """Scanned JSON-LD target must include a FragmentSelector."""
-        from pdf_extractor.annotation import generate_w3c_jsonld, project
+        from artifact_generation.w3c_annotation import generate_w3c_jsonld, project
 
         records = project(_scanned_unified())
         anno = generate_w3c_jsonld(records)[0]
@@ -263,7 +263,7 @@ class TestGenerateW3cJsonld:
 
     def test_scanned_body_has_ocr_derived_true(self):
         """Scanned JSON-LD body must carry 'ocr_derived': True."""
-        from pdf_extractor.annotation import generate_w3c_jsonld, project
+        from artifact_generation.w3c_annotation import generate_w3c_jsonld, project
 
         records = project(_scanned_unified())
         anno = generate_w3c_jsonld(records)[0]
@@ -272,7 +272,7 @@ class TestGenerateW3cJsonld:
 
     def test_id_matches_urn_prefix(self):
         """Every annotation id must match the pattern urn:evitrace:anno:<uuid4>."""
-        from pdf_extractor.annotation import generate_w3c_jsonld, project
+        from artifact_generation.w3c_annotation import generate_w3c_jsonld, project
 
         records = project(_born_digital_unified())
         anno = generate_w3c_jsonld(records)[0]
@@ -282,7 +282,7 @@ class TestGenerateW3cJsonld:
 
     def test_scanned_id_matches_urn_prefix(self):
         """Scanned annotation id must also match the urn:evitrace:anno: pattern."""
-        from pdf_extractor.annotation import generate_w3c_jsonld, project
+        from artifact_generation.w3c_annotation import generate_w3c_jsonld, project
 
         records = project(_scanned_unified())
         anno = generate_w3c_jsonld(records)[0]
@@ -292,7 +292,7 @@ class TestGenerateW3cJsonld:
 
     def test_type_field_is_annotation(self):
         """JSON-LD 'type' field must be 'Annotation'."""
-        from pdf_extractor.annotation import generate_w3c_jsonld, project
+        from artifact_generation.w3c_annotation import generate_w3c_jsonld, project
 
         records = project(_born_digital_unified())
         anno = generate_w3c_jsonld(records)[0]
@@ -301,7 +301,7 @@ class TestGenerateW3cJsonld:
 
     def test_context_is_w3c_anno_context(self):
         """JSON-LD '@context' must be the W3C annotation context URI."""
-        from pdf_extractor.annotation import generate_w3c_jsonld, project
+        from artifact_generation.w3c_annotation import generate_w3c_jsonld, project
 
         records = project(_born_digital_unified())
         anno = generate_w3c_jsonld(records)[0]
@@ -310,7 +310,7 @@ class TestGenerateW3cJsonld:
 
     def test_text_quote_selector_present_in_born_digital_target(self):
         """Born-digital target must also include a TextQuoteSelector."""
-        from pdf_extractor.annotation import generate_w3c_jsonld, project
+        from artifact_generation.w3c_annotation import generate_w3c_jsonld, project
 
         records = project(_born_digital_unified())
         anno = generate_w3c_jsonld(records)[0]
@@ -321,7 +321,7 @@ class TestGenerateW3cJsonld:
 
     def test_text_quote_selector_present_in_scanned_target(self):
         """Scanned target must also include a TextQuoteSelector."""
-        from pdf_extractor.annotation import generate_w3c_jsonld, project
+        from artifact_generation.w3c_annotation import generate_w3c_jsonld, project
 
         records = project(_scanned_unified())
         anno = generate_w3c_jsonld(records)[0]

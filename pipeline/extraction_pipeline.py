@@ -31,8 +31,8 @@ from pdf_extractor.extraction.PyMuPDF import extract_with_pymupdf
 from pdf_extractor.extraction.pdfplumber import extract_with_pdfplumber
 from pdf_extractor.extraction.PaddleOCR import extract_with_paddleocr
 from pdf_extractor.extraction import scan_detector
-from pdf_extractor.annotation import w3c_annotation
 from artifact_generation import generate_w3c_jsonld
+from artifact_generation.w3c_annotation import project as w3c_project
 from quality_control import QCBundle, run_quality_control
 from quality_control.models import Candidate
 from text_processing.base import TextProcessor
@@ -393,7 +393,7 @@ def build_qc_bundle(
     # Step 4 — Annotation chain (project W3C JSON-LD from unified record)
     # ------------------------------------------------------------------
     if ctx.unified is not None:
-        annotation_records = w3c_annotation.project(ctx.unified)
+        annotation_records = w3c_project(ctx.unified)
         logger.debug(
             "W3C annotation projection produced %d records for %s",
             len(annotation_records), pdf_name,

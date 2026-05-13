@@ -31,7 +31,7 @@ extraction-tier and embedding tests via
 | `test_paddleocr_backend.py` | `pdf_extractor.extraction.PaddleOCR` (slow) |
 | `test_scan_detector.py` | `pdf_extractor.extraction.scan_detector.classify_page` — five-stage logic |
 | `test_scan_detector_routing.py` | End-to-end routing decisions from `build_qc_bundle` |
-| `test_w3c_annotation.py` | `pdf_extractor.annotation.project` and `generate_w3c_jsonld` |
+| `test_w3c_annotation.py` | `artifact_generation.w3c_annotation.project` and `generate_w3c_jsonld` |
 | `test_text_utils.py` | `pdf_extractor.utils.text_utils` — `normalise_ws`, `normalise_full`, `exact_match_search`, `semantic_search` |
 | `test_embedding_utils.py` | `pdf_extractor.utils.embedding_utils` — `load_embedding_model`, `embed_query`, `l2_normalise`, `build_faiss_index`, `build_sentence_store` |
 | `test_layout_utils.py` | `pdf_extractor.layout_utils` — `detect_section_heading`, `location_cross_check` (top-level module, not in `pdf_extractor/utils/`) |

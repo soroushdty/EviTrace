@@ -5,6 +5,21 @@ and should never be deleted. Add a brief entry whenever a spec is implemented,
 steering docs change, README files change, or any other significant code change
 occurs.
 
+## [2026-05] — Remove `pdf_extractor/annotation/` wrapper
+
+Deleted the `pdf_extractor/annotation/` subpackage which was a thin proxy to
+`artifact_generation/w3c_annotation.py`. Moved `AnnotationRecord` dataclass and
+`project()` function directly into `artifact_generation/w3c_annotation.py` so all
+W3C annotation logic lives in one place. Updated all imports, READMEs, and
+steering docs.
+
+- Deleted `pdf_extractor/annotation/__init__.py` and `pdf_extractor/annotation/w3c_annotation.py`
+- Consolidated `AnnotationRecord`, `project()`, and `generate_w3c_jsonld()` in `artifact_generation/w3c_annotation.py`
+- Updated `artifact_generation/__init__.py` to export `AnnotationRecord` and `project`
+- Updated `pipeline/extraction_pipeline.py` import to use `artifact_generation.w3c_annotation.project`
+- Updated `tests/pdf_extractor/test_w3c_annotation.py` imports
+- Scrubbed references from all READMEs and steering docs
+
 ## [2026-05] — Steering docs drift fix (`fix_steering_drift`)
 
 Updated all four steering documents to match the current codebase state after the QC migration and text-processing migration.

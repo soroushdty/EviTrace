@@ -31,7 +31,7 @@ pipeline.extraction_pipeline.build_qc_bundle
         ├──► pdf_extractor.extraction.PaddleOCR            # scanned primary
         ├──► pdf_extractor.extraction.PyMuPDF              # font metadata / OCR cross-validator
         ├──► quality_control.run_quality_control           # QCBundle + UnifiedRecord
-        └──► pdf_extractor.annotation                      # W3C JSON-LD projection
+        └──► artifact_generation.w3c_annotation          # W3C JSON-LD projection
 ```
 
 ---
@@ -46,7 +46,6 @@ pdf_extractor/
 ├── __init__.py             Exports: build_full_text, PDFValidationError
 ├── extraction/             Multi-backend extraction + scan_detector + schemas
 ├── processing/             Sentence segmentation and full-text assembly
-├── annotation/             W3C JSON-LD projection and serialization
 └── utils/                  text_utils, embedding_utils
 ```
 
@@ -54,7 +53,6 @@ pdf_extractor/
 | ----------- | ------ |
 | `extraction/` | [extraction/README.md](extraction/README.md) |
 | `processing/` | [processing/README.md](processing/README.md) |
-| `annotation/` | W3C annotation layer (see below) |
 | `utils/` | [utils/README.md](utils/README.md) |
 
 ---
@@ -116,18 +114,6 @@ and location cross-checking.
 Exports:
 - `build_full_text` — from `pdf_extractor.processing.sentence_processor`
 - `PDFValidationError` — from `pdf_extractor.pdf_validator`
-
-### `annotation/`
-
-W3C JSON-LD annotation layer. Sole producer of W3C annotation dicts.
-
-- `AnnotationRecord` — dataclass for a single projected annotation record.
-  Fields: `sentence_text`, `page_index`, `selector_type`,
-  `selector_payload`, `quote_selector`, `ocr_derived`, `body_value`.
-- `project(unified, base_uri="") -> list[AnnotationRecord]` — reads only
-  `unified.semantic` and `unified.alignment`. Returns one record per
-  sentence. Uses `TextPositionSelector` for native sentences and
-  `FragmentSelector` for OCR-derived sentences.
 - `generate_w3c_jsonld(records, base_uri="") -> list[dict]` — sole
   producer of W3C JSON-LD dicts. Each dict contains `@context`, `id`,
   `type`, `body`, `target`. Returns `[]` when `records` is empty.

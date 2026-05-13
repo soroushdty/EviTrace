@@ -29,7 +29,6 @@ main.py  (CLI entry — asyncio.run)
         │     │     └── schemas.py       # shared extraction schemas
         │     ├── processing/            # sentence_processor.py — sentence segmentation + full-text assembly
         │     ├── layout_utils.py        # section heading detection + location cross-check
-        │     ├── annotation/            # w3c_annotation.py + artifact_generator.py
         │     ├── pdf_extractor.py       # standalone CLI (no OpenAI key required)
         │     └── pdf_validator.py       # PDF-level structural validation
         ├── text_processing/             # standalone text processing package
@@ -102,7 +101,7 @@ Configuration lives in `configs/config.yaml` (note: `configs/`, not `config/`). 
 
 **Concern strategies are asymmetric** — `TextFidelityConcern.reconcile(primary, reference, ...)` always treats `reference` as the preferred reading. Swap argument order to invert. `DEFAULT_TEXT_FIDELITY` uses `source_label="pdfplumber"`.
 
-**W3C annotations are produced in one place** — `pdf_extractor/annotation/` is the sole producer. `w3c_annotation.project(unified)` reads only `unified.semantic` and `unified.alignment`. Never build W3C annotation dicts outside `annotation/artifact_generator.py`.
+**W3C annotations are produced in one place** — `artifact_generation/w3c_annotation.py` is the sole producer. `project(unified)` reads only `unified.semantic` and `unified.alignment`. Never build W3C annotation dicts outside `artifact_generation/w3c_annotation.py`.
 
 ---
 
@@ -138,7 +137,7 @@ Configuration lives in `configs/config.yaml` (note: `configs/`, not `config/`). 
 | `pdf_extractor/pdf_extractor.py` | Standalone CLI; runs full extraction pipeline without OpenAI key |
 | `pdf_extractor/pdf_validator.py` | PDF-level structural validation |
 | `pdf_extractor/extraction/` | One file per backend (GROBID, PyMuPDF, pdfplumber, PaddleOCR); `scan_detector`; `schemas` |
-| `pdf_extractor/annotation/` | W3C JSON-LD projection (`w3c_annotation.py`) and serialization (`artifact_generator.py`) |
+| `artifact_generation/w3c_annotation.py` | W3C JSON-LD data model (`AnnotationRecord`), projection (`project`), and serialization (`generate_w3c_jsonld`) |
 | `pdf_extractor/processing/sentence_processor.py` | Sentence segmentation and full-text assembly |
 | `pdf_extractor/layout_utils.py` | `detect_section_heading`, `location_cross_check` — layout-aware utilities |
 | `quality_control/models.py` | ALL shared dataclasses — always import from here |

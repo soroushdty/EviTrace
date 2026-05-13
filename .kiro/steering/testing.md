@@ -228,7 +228,7 @@ Rules:
 |---|---|
 | `pdf_extractor/extraction/` | Backends (GROBID, PyMuPDF, pdfplumber, PaddleOCR), scan detector, schemas |
 | `pdf_extractor/layout_utils.py` | Section heading detection, location cross-check |
-| `pdf_extractor/annotation/` | W3C annotation projection and artifact generation |
+| `artifact_generation/w3c_annotation.py` | W3C annotation projection and serialization |
 | `pdf_extractor/processing/` | Sentence processor (via `tests/utils/test_sentence_processor.py`) |
 | `quality_control/` | Pipeline, models, local metrics, rater, IAA calculator, adjudicator, reconciler, concern strategies, `Validator`, `StructureSchemaValidator`, `validate_context`, checks package (separation + integration), verification result, unified record layers |
 | `quality_control/checks/` | Source text, semantic source, extractor agreement, task quality scaffold |

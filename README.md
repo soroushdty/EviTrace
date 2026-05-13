@@ -14,7 +14,7 @@ The pipeline combines:
    branches through a four-stage pipeline (rater → IAA → adjudicator → reconciler)
    and produces a single reconciled `UnifiedRecord`.
 3. A **W3C JSON-LD annotation layer** projected from the `UnifiedRecord` by
-   `pdf_extractor/annotation/`.
+   `artifact_generation/w3c_annotation.py`.
 4. A **chunked LLM extraction agent** (OpenAI Responses API) with prompt-cache
    prewarm, section-aware evidence indexing, and strict JSON-Schema structured outputs.
 5. A **synthesis chunk** that consumes prior extracted fields as read-only context.
@@ -72,7 +72,7 @@ agent can each be reused outside the end-to-end review workflow.
   prewarm and a synthesis chunk that consumes prior chunks as read-only context.
 - Strict JSON-Schema structured outputs with local field-index validation
   independent of the API schema.
-- W3C JSON-LD annotation artifacts produced by `pdf_extractor/annotation/`
+- W3C JSON-LD annotation artifacts produced by `artifact_generation/w3c_annotation.py`
   (sole producer — never built elsewhere).
 - Idempotent run manifest (`manifest.json`) so partial runs can be resumed safely.
 - Per-run flagged-fields QC report (`outputs/qc_report.csv`) for manual
@@ -264,7 +264,6 @@ EviTrace/
 │   ├── pdf_validator.py          PDF-level structural validation
 │   ├── extraction/               Per-backend extractors + scan_detector + schemas
 │   ├── processing/               Sentence segmentation and full-text assembly
-│   ├── annotation/               W3C JSON-LD projection and serialization
 │   └── utils/                    text_utils, embedding_utils (no layout_utils here)
 ├── quality_control/              Generic four-stage QC pipeline
 │   ├── models.py                 ALL shared dataclasses — import from here only

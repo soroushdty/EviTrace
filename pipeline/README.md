@@ -26,7 +26,7 @@ pipeline.run_pipeline(pdf_paths)
    │         ├── pdf_extractor.extraction.PaddleOCR     # scanned primary
    │         ├── pdf_extractor.extraction.PyMuPDF       # font metadata / OCR cross-validator
    │         ├── quality_control.run_quality_control    # QCBundle + UnifiedRecord
-   │         └── pdf_extractor.annotation               # W3C JSON-LD projection
+   │         └── artifact_generation.w3c_annotation      # W3C JSON-LD projection
    │
    ├──► pipeline.evidence_index.build_or_load_evidence_bundle  # GROBID TEI → ranked evidence
    ├──► agents.openai.warm_pdf_cache                    # optional cache prewarm
@@ -88,7 +88,7 @@ Per-page routing:
   (secondary cross-validation).
 - Any page scanned + `ocr=false` → skip extraction, log WARNING, no branch.
 
-After QC, projects W3C JSON-LD annotations via `pdf_extractor.annotation`
+After QC, projects W3C JSON-LD annotations via `artifact_generation.w3c_annotation`
 and stores them in `ctx.unified.content["annotations"]`.
 
 ### `orchestrator.py`

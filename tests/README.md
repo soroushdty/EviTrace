@@ -67,7 +67,7 @@ test_<module-or-feature>_<aspect>.py
 | `agents/openai/prompts` | `tests/agents/openai/` | `test_prompts_builders.py`, `test_prompts_pbt.py` |
 | `pdf_extractor/extraction/` | `tests/pdf_extractor/` | `test_text_extractor_orchestrator.py`, `test_text_extractor_schemas.py`, `test_pdfplumber_backend.py`, `test_pymupdf_backend.py`, `test_pymupdf_schema.py`, `test_paddleocr_backend.py` |
 | `pdf_extractor/extraction/scan_detector` | `tests/pdf_extractor/` | `test_scan_detector.py`, `test_scan_detector_routing.py` |
-| `pdf_extractor/annotation/` | `tests/pdf_extractor/` | `test_w3c_annotation.py` |
+| `artifact_generation/w3c_annotation` | `tests/pdf_extractor/` | `test_w3c_annotation.py` |
 | `pdf_extractor/utils/` | `tests/pdf_extractor/` | `test_text_utils.py`, `test_embedding_utils.py` |
 | `pdf_extractor/layout_utils` | `tests/pdf_extractor/` | `test_layout_utils.py` |
 | `pdf_extractor/` (pipeline) | `tests/pdf_extractor/` | `test_parser_pipeline.py` |

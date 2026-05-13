@@ -16,6 +16,8 @@ Canonical artifact generation:
   - export_canonical_artifacts
 
 W3C annotation generation:
+  - AnnotationRecord
+  - project
   - generate_w3c_jsonld
 
 CSV export:
@@ -38,10 +40,19 @@ from artifact_generation.canonical import (
 )
 
 
+from artifact_generation.w3c_annotation import AnnotationRecord
+
+
 def generate_w3c_jsonld(*args, **kwargs):
   from artifact_generation.w3c_annotation import generate_w3c_jsonld as _generate_w3c_jsonld
 
   return _generate_w3c_jsonld(*args, **kwargs)
+
+
+def project(*args, **kwargs):
+  from artifact_generation.w3c_annotation import project as _project
+
+  return _project(*args, **kwargs)
 
 
 # CSV export
@@ -64,6 +75,8 @@ __all__ = [
     "build_canonical_artifacts",
     "export_canonical_artifacts",
     # W3C
+    "AnnotationRecord",
+    "project",
     "generate_w3c_jsonld",
     # CSV
     "extract_to_csv",
