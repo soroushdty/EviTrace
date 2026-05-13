@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 # Import pipeline.manifest directly from its file to avoid triggering
 # pipeline/__init__.py, which imports orchestrator → api_client → openai.
-_MANIFEST_PATH = Path(__file__).resolve().parents[2] / "pipeline" / "manifest.py"
+_MANIFEST_PATH = Path(__file__).resolve().parents[3] / "src" / "pipeline" / "manifest.py"
 _SPEC = importlib.util.spec_from_file_location("pipeline.manifest", _MANIFEST_PATH)
 assert _SPEC is not None and _SPEC.loader is not None
 _MANIFEST_MODULE = importlib.util.module_from_spec(_SPEC)

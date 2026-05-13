@@ -16,7 +16,7 @@ import pytest
 # tests/steering/test_qc_textprocessor_separation.py -> tests/steering/ -> tests/ -> repo root
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
-CHECKS_DIR = PROJECT_ROOT / "quality_control" / "checks"
+CHECKS_DIR = PROJECT_ROOT / "src" / "quality_control" / "checks"
 
 # ---------------------------------------------------------------------------
 # Forbidden import patterns

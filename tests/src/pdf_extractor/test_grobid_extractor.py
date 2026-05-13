@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-import io
+import sys
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from pdf_extractor.extraction import GROBID as grobid_mod
 
@@ -15,6 +17,15 @@ _MINIMAL_TEI = f"""<?xml version="1.0"?>
   <teiHeader><fileDesc><titleStmt><title>X</title></titleStmt></fileDesc></teiHeader>
   <text><body><p>hello world</p></body></text>
 </TEI>"""
+
+
+@pytest.fixture(autouse=True)
+def _mock_requests():
+    """Patch sys.modules['requests'] so the lazy import inside _call_grobid_api
+    does not raise ModuleNotFoundError when the requests package is absent."""
+    mock_requests = MagicMock()
+    with patch.dict(sys.modules, {"requests": mock_requests, "requests.exceptions": mock_requests.exceptions}):
+        yield mock_requests
 
 
 def _fake_session_returning(tei_xml: str, status: int = 200):

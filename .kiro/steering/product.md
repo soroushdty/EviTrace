@@ -16,10 +16,10 @@ Target users are clinical researchers, evidence synthesis teams, and biomedical 
 
 ```
 main.py  (CLI entry — asyncio.run)
-  └── pipeline/orchestrator.py          # async run_pipeline(); PDF-level concurrency
-        ├── pipeline/extraction_pipeline.py  # build_qc_bundle(); single source of truth for
-        │                                    # scan detection → backend routing → QC → annotation
-        ├── pdf_extractor/               # multi-backend extraction
+  └── src/pipeline/orchestrator.py          # async run_pipeline(); PDF-level concurrency
+        ├── src/pipeline/extraction_pipeline.py  # build_qc_bundle(); single source of truth for
+        │                                        # scan detection → backend routing → QC → annotation
+        ├── src/pdf_extractor/               # multi-backend extraction
         │     ├── extraction/            # one file per backend + scan_detector + schemas
         │     │     ├── GROBID.py        # semantic authority (TEI XML)
         │     │     ├── PyMuPDF.py       # font metadata / scanned-path cross-validation
@@ -31,13 +31,13 @@ main.py  (CLI entry — asyncio.run)
         │     ├── layout_utils.py        # section heading detection + location cross-check
         │     ├── pdf_extractor.py       # standalone CLI (no OpenAI key required)
         │     └── pdf_validator.py       # PDF-level structural validation
-        ├── text_processing/             # standalone text processing package
+        ├── src/text_processing/             # standalone text processing package
         │     ├── base.py                # TextProcessor ABC, SentenceSegment ABC, 5 backends
         │     ├── normalizers.py         # WhitespaceNormalizer, AggressiveNormalizer, LineHealingNormalizer, UnicodeNormalizer, OcrCleaner
         │     ├── tokenizers.py          # SimpleWordTokenizer
         │     ├── matchers.py            # LexicalMatcher, SemanticMatcher
         │     └── embedding.py           # EmbeddingProcessor (lazy faiss/torch/sentence-transformers)
-        ├── quality_control/             # generic 4-stage QC: rater → IAA → adjudicator → reconciler
+        ├── src/quality_control/             # generic 4-stage QC: rater → IAA → adjudicator → reconciler
         │     ├── models.py              # ALL shared dataclasses — import from here only
         │     ├── concerns/              # injectable strategy objects
         │     ├── checks/                # QC check classes (SourceTextPresenceCheck, SemanticSourceVerificationCheck, ExtractorAgreementCheck, build_task_quality_scaffold)
@@ -46,35 +46,35 @@ main.py  (CLI entry — asyncio.run)
         │     ├── validator.py           # generic Validator + ValidationResult (injectable, schema-driven)
         │     ├── structure_validator.py # StructureSchemaValidator — sole reader of configs/structure_schema.json
         │     └── validate_context.py    # validate_qc_context_input() — QC-to-LLM handoff guard
-        ├── agents/
+        ├── src/agents/
         │     ├── openai/                # api_client.py, prompts.py
         │     └── validator.py           # AgentSchemaValidator — sole reader of configs/agent_schema.json
-        ├── pipeline/evidence_index.py   # GROBID TEI → ranked evidence bundle + local cache
-        ├── pipeline/validator.py        # local JSON-Schema validation of LLM chunk outputs
-        ├── pipeline/extraction_report.py # generate_qc_report(); writes qc_report.csv + stdout summary
-        └── utils/                       # config_utils, path_utils, logging_utils, grobid_manager
+        ├── src/pipeline/evidence_index.py   # GROBID TEI → ranked evidence bundle + local cache
+        ├── src/pipeline/validator.py        # local JSON-Schema validation of LLM chunk outputs
+        ├── src/pipeline/extraction_report.py # generate_qc_report(); writes qc_report.csv + stdout summary
+        └── src/utils/                       # config_utils, path_utils, logging_utils, grobid_manager
 ```
 
-Configuration lives in `configs/config.yaml` (note: `configs/`, not `config/`). Loaded once at startup via `utils/config_utils.py` and passed explicitly — never mutated as globals after startup.
+Configuration lives in `configs/config.yaml` (note: `configs/`, not `config/`). Loaded once at startup via `src/utils/config_utils.py` and passed explicitly — never mutated as globals after startup.
 
 ---
 
 ## Per-PDF Processing Flow
 
 1. **Scan detection** — `scan_detector.classify_page()` is a stateless pure function running five sequential stages: (1) empty text short-circuit, (2) low word count, (3) low alpha-char ratio after `clean_ocr`, (4) zero embedded fonts, (5) image-area dominance. A page is `native` only when no stage fires; otherwise `scanned` or `mixed`. Thresholds are configurable under `quality_control.scan_detection`.
-2. **Backend routing** — Backends are complementary and non-competing. Routing is centralised in `pipeline/extraction_pipeline.py::build_qc_bundle()`:
+2. **Backend routing** — Backends are complementary and non-competing. Routing is centralised in `src/pipeline/extraction_pipeline.py::build_qc_bundle()`:
    - All pages native → GROBID (semantic authority, TEI XML) + pdfplumber (structural text blocks); PyMuPDF font metadata stored in `ctx.unified.content`.
    - Any page scanned + `ocr=true` → PaddleOCR (primary, bounding boxes + text) + PyMuPDF built-in OCR (secondary cross-validation). Standalone Tesseract is **never** used.
    - Any page scanned + `ocr=false` → skip extraction, log WARNING, no branch created.
 3. **Quality Control** — `run_quality_control(branches, document_id, config)` evaluates branches through local heuristics and exact-match search, reconciling a `UnifiedRecord` with `exact_text` and W3C JSON-LD annotations. Semantic search is scaffolded but disabled by default.
-4. **QC-to-LLM handoff guard** — `validate_qc_context_input(ctx)` in `quality_control/validate_context.py` performs five pre-flight checks on the `QCBundle` (type, unified not None, non-empty document_id, content is dict, non-empty exact_text) plus a structural schema check before field extraction begins.
+4. **QC-to-LLM handoff guard** — `validate_qc_context_input(ctx)` in `src/quality_control/validate_context.py` performs five pre-flight checks on the `QCBundle` (type, unified not None, non-empty document_id, content is dict, non-empty exact_text) plus a structural schema check before field extraction begins.
 5. **Evidence index** — `build_or_load_evidence_bundle()` parses GROBID TEI XML into a ranked, section-scored index (sentences, tables, figure captions), cached to disk by `{paper_id}_{pdf_hash}`. When GROBID is absent, the default is to skip the PDF and record failure in the manifest. Fallback to sentence-splitting `exact_text` requires opting in via `quality_control.grobid_integration.failure_behavior: "fallback"`.
 6. **Cache prewarm** — Optional tiny OpenAI call warms the shared `(system + evidence package)` prompt prefix. Synthesis-model warmup fires concurrently when models differ.
 7. **Parallel extraction chunks** — Chunks `1..N-1` run concurrently with per-chunk evidence packages (section-aware scoring, keyword overlap, char/item budget limits). Fields 1–2 (author+year, publication year) are pre-filled locally from TEI metadata and never sent to the LLM.
 8. **Local validation** — `validate_chunk_output()` checks each chunk's JSON against the expected `field_index` set, key schema, confidence enum, and `loc` ID membership.
 9. **Synthesis chunk** — Final chunk runs with prior chunk results as read-only context.
 10. **Persist** — Fields merged, sorted by `field_index`, written to `outputs/<paper>.extracted.json`; manifest marked `complete`.
-11. **QC report** — `pipeline/extraction_report.py::generate_qc_report()` writes `outputs/qc_report.csv` flagging low-confidence and not-reported fields, and prints a summary to stdout.
+11. **QC report** — `src/pipeline/extraction_report.py::generate_qc_report()` writes `outputs/qc_report.csv` flagging low-confidence and not-reported fields, and prints a summary to stdout.
 
 ---
 
@@ -82,9 +82,9 @@ Configuration lives in `configs/config.yaml` (note: `configs/`, not `config/`). 
 
 **No global mutation** — Config loaded once, passed explicitly. CLI overrides forwarded as parameters to `run_pipeline()`, never written back to module-level constants.
 
-**Independently swappable stages** — Each stage (extraction, QC, LLM agent) can be used standalone. `pipeline/extraction_pipeline.py::build_qc_bundle()` is the single source of truth for the extraction flow; both `main.py` and the standalone `pdf_extractor.py` CLI delegate to it.
+**Independently swappable stages** — Each stage (extraction, QC, LLM agent) can be used standalone. `src/pipeline/extraction_pipeline.py::build_qc_bundle()` is the single source of truth for the extraction flow; both `main.py` and the standalone `pdf_extractor.py` CLI delegate to it.
 
-**Dependency direction rule** — `quality_control` must not import from `agents`, `pipeline`, or `pdf_extractor`. `text_processing` must not import from `quality_control`. `validate_qc_context_input` was placed in `quality_control/validate_context.py` specifically to respect this boundary.
+**Dependency direction rule** — `quality_control` must not import from `agents`, `pipeline`, or `pdf_extractor`. `text_processing` must not import from `quality_control`. `validate_qc_context_input` was placed in `src/quality_control/validate_context.py` specifically to respect this boundary.
 
 **OOP extensibility via ABCs** — Subclass to inject custom behavior:
 - `QualityMetrics` → per-branch quality checks (`passes_check()`)
@@ -94,14 +94,14 @@ Configuration lives in `configs/config.yaml` (note: `configs/`, not `config/`). 
 - Concern strategies → `TextFidelityConcern`, `SectionVerificationConcern`, `TableFigureMergeConcern`
 
 **Schema validators are singletons with a single owner** — Each JSON schema file has exactly one reader:
-- `configs/agent_schema.json` → `agents/validator.py::AgentSchemaValidator`
-- `configs/structure_schema.json` → `quality_control/structure_validator.py::StructureSchemaValidator`
+- `configs/agent_schema.json` → `src/agents/validator.py::AgentSchemaValidator`
+- `configs/structure_schema.json` → `src/quality_control/structure_validator.py::StructureSchemaValidator`
 
 **Prompt cache stability** — `_shared_paper_prefix` must be byte-identical across warmup, extraction chunks, and synthesis for the same PDF. Never inject PDF names, timestamps, chunk numbers, or run IDs into the shared prefix. Variable material goes after the prefix only.
 
 **Concern strategies are asymmetric** — `TextFidelityConcern.reconcile(primary, reference, ...)` always treats `reference` as the preferred reading. Swap argument order to invert. `DEFAULT_TEXT_FIDELITY` uses `source_label="pdfplumber"`.
 
-**W3C annotations are produced in one place** — `artifact_generation/w3c_annotation.py` is the sole producer. `project(unified)` reads only `unified.semantic` and `unified.alignment`. Never build W3C annotation dicts outside `artifact_generation/w3c_annotation.py`.
+**W3C annotations are produced in one place** — `src/artifact_generation/w3c_annotation.py` is the sole producer. `project(unified)` reads only `unified.semantic` and `unified.alignment`. Never build W3C annotation dicts outside `src/artifact_generation/w3c_annotation.py`.
 
 ---
 
@@ -109,16 +109,16 @@ Configuration lives in `configs/config.yaml` (note: `configs/`, not `config/`). 
 
 - Python 3.10+; `dataclasses` for all shared models; `from __future__ import annotations` for forward references.
 - Async I/O via `asyncio`; blocking work (PDF extraction, QC) runs in `asyncio.to_thread`.
-- All logging via `utils/logging_utils.py` (`get_logger(__name__)`); **never use `print`** in library code.
-- Config lives in `configs/config.yaml`; loaded via `utils/config_utils.py`; never hardcode the path — use `utils/path_utils.py` helpers.
-- File paths resolved through `utils/path_utils.py`; never hardcode paths.
+- All logging via `src/utils/logging_utils.py` (`get_logger(__name__)`); **never use `print`** in library code.
+- Config lives in `configs/config.yaml`; loaded via `src/utils/config_utils.py`; never hardcode the path — use `src/utils/path_utils.py` helpers.
+- File paths resolved through `src/utils/path_utils.py`; never hardcode paths.
 - LLM output schema uses compact keys: `i` (field index), `v` (value), `loc` (list of evidence IDs), `c` (confidence: `h`/`m`/`l`/`nr`).
 - Retry uses exponential backoff: `delay = base_delay * 2^(attempt - 1)`.
 - Semaphores gate PDF-level (`pdf_semaphore`) and API-level (`api_semaphore`) concurrency.
 - Heavy optional dependencies (`sentence-transformers`, `faiss`, `torch`, `paddleocr`) are imported **lazily inside function bodies** — never at module level.
-- New top-level YAML keys must be registered in `_ALL_KNOWN_TOP_LEVEL_KEYS` in `utils/config_utils.py` or `load_local_config` raises `ValueError`.
-- All shared dataclasses live in `quality_control/models.py` — always import from there, never from individual QC submodules.
-- Concrete default implementations live in `quality_control/builtin_impls/` — import from `quality_control.builtin_impls` or the `quality_control` top-level re-export.
+- New top-level YAML keys must be registered in `_ALL_KNOWN_TOP_LEVEL_KEYS` in `src/utils/config_utils.py` or `load_local_config` raises `ValueError`.
+- All shared dataclasses live in `src/quality_control/models.py` — always import from there, never from individual QC submodules.
+- Concrete default implementations live in `src/quality_control/builtin_impls/` — import from `quality_control.builtin_impls` or the `quality_control` top-level re-export.
 
 ---
 
@@ -126,46 +126,46 @@ Configuration lives in `configs/config.yaml` (note: `configs/`, not `config/`). 
 
 | Module | Responsibility |
 |---|---|
-| `pipeline/orchestrator.py` | Top-level async runner; wires QC context into LLM extraction |
-| `pipeline/extraction_pipeline.py` | `build_qc_bundle()` — single source of truth for scan detection → backend routing → QC → annotation for one PDF |
-| `pipeline/pdf_processor.py` | Per-PDF LLM extraction orchestration (evidence bundle → chunks → synthesis → persist) |
-| `pipeline/evidence_index.py` | GROBID TEI → ranked evidence bundle; disk cache; addon enrichment |
-| `pipeline/manifest.py` | Idempotent checkpoint read/write |
-| `pipeline/validator.py` | Local JSON-Schema validation of LLM chunk outputs; `reconstruct_fields` |
-| `pipeline/extraction_map.py` | Load `extraction_map.json`; group fields by chunk; build field lookup |
-| `pipeline/extraction_report.py` | `generate_qc_report()` — writes `qc_report.csv` and prints pipeline summary |
-| `pdf_extractor/pdf_extractor.py` | Standalone CLI; runs full extraction pipeline without OpenAI key |
-| `pdf_extractor/pdf_validator.py` | PDF-level structural validation |
-| `pdf_extractor/extraction/` | One file per backend (GROBID, PyMuPDF, pdfplumber, PaddleOCR); `scan_detector`; `schemas` |
-| `artifact_generation/w3c_annotation.py` | W3C JSON-LD data model (`AnnotationRecord`), projection (`project`), and serialization (`generate_w3c_jsonld`) |
-| `pdf_extractor/processing/sentence_processor.py` | Sentence segmentation and full-text assembly |
-| `pdf_extractor/layout_utils.py` | `detect_section_heading`, `location_cross_check` — layout-aware utilities |
-| `quality_control/models.py` | ALL shared dataclasses — always import from here |
-| `quality_control/quality_control.py` | Generic `run_pipeline()` + PDF-specific `run_quality_control()` |
-| `quality_control/concerns/` | Injectable strategies: `TextFidelityConcern`, `SectionVerificationConcern`, `TableFigureMergeConcern` |
-| `quality_control/checks/` | QC check classes: `SourceTextPresenceCheck`, `SemanticSourceVerificationCheck`, `ExtractorAgreementCheck`, `build_task_quality_scaffold` |
-| `quality_control/builtin_impls/` | Default concrete impls: `QualityReport`, `InterRaterReport`, `AdjudicationDecision` |
-| `quality_control/local_metrics.py` | `ExtractionCoverageReport` — 8 heuristic checks, all threshold-driven |
-| `quality_control/validator.py` | Generic `Validator` + `ValidationResult` — injectable, schema-driven, domain-agnostic |
-| `quality_control/structure_validator.py` | `StructureSchemaValidator` — sole reader of `configs/structure_schema.json` |
-| `quality_control/validate_context.py` | `validate_qc_context_input()` — QC-to-LLM handoff guard; `ValidationError` |
-| `agents/openai/api_client.py` | Async OpenAI Responses API client; retry; cache prewarm; `extract_chunk` |
-| `agents/openai/prompts.py` | `SYSTEM_PROMPT`; cache-stable `_shared_paper_prefix`; message builders |
-| `agents/validator.py` | `AgentSchemaValidator` — sole reader of `configs/agent_schema.json` |
-| `utils/config_utils.py` | `load_openai_config`, `load_qc_config`, `load_local_config`; QC defaults deep-merge |
-| `utils/path_utils.py` | `PROJECT_ROOT`, `PDF_DIR`, `OUTPUT_DIR`, `EXTRACTION_MAP`, `MANIFEST_FILE`, `QC_REPORT_FILE`; PDF source resolution |
-| `utils/logging_utils.py` | Shared `evi_trace` root logger; `setup_logging`; `log_cache_usage` |
-| `utils/grobid_manager.py` | `GrobidServerManager` context manager; Docker lifecycle; `/api/isalive` polling |
-| `text_processing/` | Standalone text processing package: ABCs, normalizers, tokenizers, matchers (lexical + semantic), embedding processor, sentence-segmentation backends |
-| `text_processing/base.py` | `TextProcessor` ABC + `SentenceSegment` ABC + 5 concrete backends (ScispaCy, WtpSplit, NLTKPunkt, SpacySentencizer, Stanza) |
-| `text_processing/normalizers.py` | `WhitespaceNormalizer`, `AggressiveNormalizer`, `LineHealingNormalizer`, `UnicodeNormalizer`, `OcrCleaner` |
-| `text_processing/tokenizers.py` | `SimpleWordTokenizer` |
-| `text_processing/matchers.py` | `LexicalMatcher` (two-pass exact match), `SemanticMatcher` (FAISS-based) |
-| `text_processing/embedding.py` | `EmbeddingProcessor` (lazy-loaded sentence-transformers + FAISS) |
+| `src/pipeline/orchestrator.py` | Top-level async runner; wires QC context into LLM extraction |
+| `src/pipeline/extraction_pipeline.py` | `build_qc_bundle()` — single source of truth for scan detection → backend routing → QC → annotation for one PDF |
+| `src/pipeline/pdf_processor.py` | Per-PDF LLM extraction orchestration (evidence bundle → chunks → synthesis → persist) |
+| `src/pipeline/evidence_index.py` | GROBID TEI → ranked evidence bundle; disk cache; addon enrichment |
+| `src/pipeline/manifest.py` | Idempotent checkpoint read/write |
+| `src/pipeline/validator.py` | Local JSON-Schema validation of LLM chunk outputs; `reconstruct_fields` |
+| `src/pipeline/extraction_map.py` | Load `extraction_map.json`; group fields by chunk; build field lookup |
+| `src/pipeline/extraction_report.py` | `generate_qc_report()` — writes `qc_report.csv` and prints pipeline summary |
+| `src/pdf_extractor/pdf_extractor.py` | Standalone CLI; runs full extraction pipeline without OpenAI key |
+| `src/pdf_extractor/pdf_validator.py` | PDF-level structural validation |
+| `src/pdf_extractor/extraction/` | One file per backend (GROBID, PyMuPDF, pdfplumber, PaddleOCR); `scan_detector`; `schemas` |
+| `src/artifact_generation/w3c_annotation.py` | W3C JSON-LD data model (`AnnotationRecord`), projection (`project`), and serialization (`generate_w3c_jsonld`) |
+| `src/pdf_extractor/processing/sentence_processor.py` | Sentence segmentation and full-text assembly |
+| `src/pdf_extractor/layout_utils.py` | `detect_section_heading`, `location_cross_check` — layout-aware utilities |
+| `src/quality_control/models.py` | ALL shared dataclasses — always import from here |
+| `src/quality_control/quality_control.py` | Generic `run_pipeline()` + PDF-specific `run_quality_control()` |
+| `src/quality_control/concerns/` | Injectable strategies: `TextFidelityConcern`, `SectionVerificationConcern`, `TableFigureMergeConcern` |
+| `src/quality_control/checks/` | QC check classes: `SourceTextPresenceCheck`, `SemanticSourceVerificationCheck`, `ExtractorAgreementCheck`, `build_task_quality_scaffold` |
+| `src/quality_control/builtin_impls/` | Default concrete impls: `QualityReport`, `InterRaterReport`, `AdjudicationDecision` |
+| `src/quality_control/local_metrics.py` | `ExtractionCoverageReport` — 8 heuristic checks, all threshold-driven |
+| `src/quality_control/validator.py` | Generic `Validator` + `ValidationResult` — injectable, schema-driven, domain-agnostic |
+| `src/quality_control/structure_validator.py` | `StructureSchemaValidator` — sole reader of `configs/structure_schema.json` |
+| `src/quality_control/validate_context.py` | `validate_qc_context_input()` — QC-to-LLM handoff guard; `ValidationError` |
+| `src/agents/openai/api_client.py` | Async OpenAI Responses API client; retry; cache prewarm; `extract_chunk` |
+| `src/agents/openai/prompts.py` | `SYSTEM_PROMPT`; cache-stable `_shared_paper_prefix`; message builders |
+| `src/agents/validator.py` | `AgentSchemaValidator` — sole reader of `configs/agent_schema.json` |
+| `src/utils/config_utils.py` | `load_openai_config`, `load_qc_config`, `load_local_config`; QC defaults deep-merge |
+| `src/utils/path_utils.py` | `PROJECT_ROOT`, `PDF_DIR`, `OUTPUT_DIR`, `EXTRACTION_MAP`, `MANIFEST_FILE`, `QC_REPORT_FILE`; PDF source resolution |
+| `src/utils/logging_utils.py` | Shared `evi_trace` root logger; `setup_logging`; `log_cache_usage` |
+| `src/utils/grobid_manager.py` | `GrobidServerManager` context manager; Docker lifecycle; `/api/isalive` polling |
+| `src/text_processing/` | Standalone text processing package: ABCs, normalizers, tokenizers, matchers (lexical + semantic), embedding processor, sentence-segmentation backends |
+| `src/text_processing/base.py` | `TextProcessor` ABC + `SentenceSegment` ABC + 5 concrete backends (ScispaCy, WtpSplit, NLTKPunkt, SpacySentencizer, Stanza) |
+| `src/text_processing/normalizers.py` | `WhitespaceNormalizer`, `AggressiveNormalizer`, `LineHealingNormalizer`, `UnicodeNormalizer`, `OcrCleaner` |
+| `src/text_processing/tokenizers.py` | `SimpleWordTokenizer` |
+| `src/text_processing/matchers.py` | `LexicalMatcher` (two-pass exact match), `SemanticMatcher` (FAISS-based) |
+| `src/text_processing/embedding.py` | `EmbeddingProcessor` (lazy-loaded sentence-transformers + FAISS) |
 
 ---
 
-## Data Models (`quality_control/models.py`)
+## Data Models (`src/quality_control/models.py`)
 
 All pipeline stages communicate through a single `QCBundle` instance mutated in place.
 
@@ -184,7 +184,7 @@ All pipeline stages communicate through a single `QCBundle` instance mutated in 
 | `VerificationResult` | `check_name`, `status` (verified/candidate_match/no_match/skipped/unavailable), `score` [0.0–1.0], `evidence`, `details` |
 | `QCBundle` | Full run state: `branches`, `reports`, `iaa_metrics`, `decision`, `unified`, `metrics_hierarchy` |
 
-Default concrete implementations live in `quality_control/builtin_impls/` and are exported from `quality_control.builtin_impls`: `QualityReport`, `InterRaterReport`, `AdjudicationDecision`.
+Default concrete implementations live in `src/quality_control/builtin_impls/` and are exported from `quality_control.builtin_impls`: `QualityReport`, `InterRaterReport`, `AdjudicationDecision`.
 
 ---
 
@@ -194,10 +194,10 @@ Three distinct validators serve different concerns:
 
 | Validator | Location | Scope |
 |---|---|---|
-| `Validator` + `ValidationResult` | `quality_control/validator.py` | Generic, injectable, schema-driven — knows nothing about PDFs or agents |
-| `StructureSchemaValidator` | `quality_control/structure_validator.py` | Validates `Candidate`, `QCBundle`, `PdfProcessorOutput`, `ExtractionMap`, `ChunkOutput` against `configs/structure_schema.json` |
-| `AgentSchemaValidator` | `agents/validator.py` | Loads `configs/agent_schema.json`; exposes `get_system_prompt()`, `get_policies()`, `get_extraction_rules()` |
-| `validate_qc_context_input` | `quality_control/validate_context.py` | Pre-flight guard before LLM extraction; raises `ValidationError` on failure |
+| `Validator` + `ValidationResult` | `src/quality_control/validator.py` | Generic, injectable, schema-driven — knows nothing about PDFs or agents |
+| `StructureSchemaValidator` | `src/quality_control/structure_validator.py` | Validates `Candidate`, `QCBundle`, `PdfProcessorOutput`, `ExtractionMap`, `ChunkOutput` against `configs/structure_schema.json` |
+| `AgentSchemaValidator` | `src/agents/validator.py` | Loads `configs/agent_schema.json`; exposes `get_system_prompt()`, `get_policies()`, `get_extraction_rules()` |
+| `validate_qc_context_input` | `src/quality_control/validate_context.py` | Pre-flight guard before LLM extraction; raises `ValidationError` on failure |
 
 ---
 

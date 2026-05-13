@@ -46,7 +46,7 @@ def _extract_imports(source_path: Path) -> list[str]:
 
 def test_text_processing_does_not_import_quality_control():
     """No file in text_processing/ shall import from quality_control/."""
-    package_dir = PROJECT_ROOT / "text_processing"
+    package_dir = PROJECT_ROOT / "src" / "text_processing"
     violations: list[str] = []
 
     for py_file in _collect_py_files(package_dir):
@@ -67,7 +67,7 @@ def test_text_processing_does_not_import_quality_control():
 
 def test_text_processing_does_not_import_pipeline():
     """No file in text_processing/ shall import from pipeline/."""
-    package_dir = PROJECT_ROOT / "text_processing"
+    package_dir = PROJECT_ROOT / "src" / "text_processing"
     violations: list[str] = []
 
     for py_file in _collect_py_files(package_dir):
@@ -88,7 +88,7 @@ def test_text_processing_does_not_import_pipeline():
 
 def test_text_processing_does_not_import_agents():
     """No file in text_processing/ shall import from agents/."""
-    package_dir = PROJECT_ROOT / "text_processing"
+    package_dir = PROJECT_ROOT / "src" / "text_processing"
     violations: list[str] = []
 
     for py_file in _collect_py_files(package_dir):

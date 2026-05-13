@@ -86,7 +86,7 @@ def _check_forbidden_imports(
 
     Returns a list of human-readable violation strings.
     """
-    package_dir = PROJECT_ROOT / source_package
+    package_dir = PROJECT_ROOT / "src" / source_package
     violations: list[str] = []
 
     py_files = _collect_py_files(package_dir)

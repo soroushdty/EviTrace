@@ -10,7 +10,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 import yaml
 
-PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent
+PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
 
 # ============================================================================
 # Centralized Path Constants

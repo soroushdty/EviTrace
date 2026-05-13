@@ -17,7 +17,7 @@ from hypothesis import strategies as st
 # regardless of how pytest resolves sys.path (--import-mode=importlib).
 # This mirrors the pattern used in test_prompts_builders.py.
 # ---------------------------------------------------------------------------
-_AGENTS_ROOT = Path(__file__).resolve().parents[3]
+_AGENTS_ROOT = Path(__file__).resolve().parents[4] / "src"
 
 # Ensure the real `agents` package is registered before loading prompts.py.
 if "agents" not in sys.modules or not hasattr(sys.modules["agents"], "agent_schema_validator"):

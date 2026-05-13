@@ -56,7 +56,7 @@ class StructureSchemaValidator:
     def __init__(self, schema_path: Path | str | None = None) -> None:
         if schema_path is None:
             resolved = (
-                Path(__file__).resolve().parent.parent
+                Path(__file__).resolve().parent.parent.parent
                 / "configs"
                 / "structure_schema.json"
             )

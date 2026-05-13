@@ -4,7 +4,7 @@ import sys
 
 from quality_control.models import QCBundle, UnifiedRecord
 
-_EVIDENCE_PATH = Path(__file__).resolve().parents[2] / "pipeline" / "evidence_index.py"
+_EVIDENCE_PATH = Path(__file__).resolve().parents[3] / "src" / "pipeline" / "evidence_index.py"
 _SPEC = importlib.util.spec_from_file_location("pipeline_evidence_index_direct", _EVIDENCE_PATH)
 assert _SPEC is not None and _SPEC.loader is not None
 _MODULE = importlib.util.module_from_spec(_SPEC)

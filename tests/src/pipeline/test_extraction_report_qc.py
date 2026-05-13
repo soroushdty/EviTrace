@@ -20,7 +20,7 @@ from unittest.mock import patch
 # Direct module import — bypasses pipeline/__init__.py → orchestrator → openai
 # ---------------------------------------------------------------------------
 _MODULE_PATH = (
-    Path(__file__).resolve().parents[2] / "pipeline" / "extraction_report.py"
+    Path(__file__).resolve().parents[3] / "src" / "pipeline" / "extraction_report.py"
 )
 _SPEC = importlib.util.spec_from_file_location(
     "pipeline.extraction_report", _MODULE_PATH
@@ -180,7 +180,7 @@ def test_write_flagged_fields_csv_header(tmp_path):
 
     assert flagged_csv.exists(), "Flagged fields CSV file was not created"
 
-    with open(qc_csv, newline="", encoding="utf-8") as f:
+    with open(flagged_csv, newline="", encoding="utf-8") as f:
         reader = csv.reader(f)
         header = next(reader)
 

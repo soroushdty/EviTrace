@@ -6,7 +6,7 @@ inclusion: always
 
 ## Single Source of Truth
 
-All tunable parameters live in `configs/config.yaml` (note: `configs/`, not `config/`). The file is loaded **once at startup** via `utils/config_utils.py` and values are passed explicitly as arguments — never mutated as globals after startup.
+All tunable parameters live in `configs/config.yaml` (note: `configs/`, not `config/`). The file is loaded **once at startup** via `src/utils/config_utils.py` and values are passed explicitly as arguments — never mutated as globals after startup.
 
 Override rule: **env > yaml > default**
 
@@ -47,7 +47,7 @@ All three functions accept an optional `config_path` argument. When `None`, they
 ## Adding New Config Keys
 
 1. Add the key to `configs/config.yaml` under the appropriate section.
-2. If it is a **top-level** key, register it in `_ALL_KNOWN_TOP_LEVEL_KEYS` in `utils/config_utils.py` — otherwise `load_local_config` raises `ValueError`.
+2. If it is a **top-level** key, register it in `_ALL_KNOWN_TOP_LEVEL_KEYS` in `src/utils/config_utils.py` — otherwise `load_local_config` raises `ValueError`.
 3. Add a default value to `_QC_DEFAULTS` (for `quality_control` / `text_processor` keys) or `_LOCAL_DEFAULTS` (for local parser keys).
 4. Document the key in the relevant section below.
 

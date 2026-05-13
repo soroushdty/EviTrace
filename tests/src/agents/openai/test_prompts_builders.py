@@ -9,7 +9,7 @@ from pathlib import Path
 
 # Load agents.openai.prompts directly from its file path so the test works
 # regardless of how pytest resolves sys.path (--import-mode=importlib).
-_AGENTS_ROOT = Path(__file__).resolve().parents[3]
+_AGENTS_ROOT = Path(__file__).resolve().parents[4] / "src"
 
 # Ensure the real `agents` package is registered before loading prompts.py,
 # so `from agents import agent_schema_validator` resolves correctly and not

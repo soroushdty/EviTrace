@@ -156,7 +156,7 @@ def _import_orchestrator():
         "pipeline.manifest": _manifest_stub,
     }
 
-    _orch_path = Path(__file__).resolve().parents[2] / "pipeline" / "orchestrator.py"
+    _orch_path = Path(__file__).resolve().parents[3] / "src" / "pipeline" / "orchestrator.py"
     _spec = importlib.util.spec_from_file_location("pipeline.orchestrator", _orch_path)
     assert _spec is not None and _spec.loader is not None
 

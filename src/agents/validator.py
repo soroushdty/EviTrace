@@ -50,7 +50,7 @@ class AgentSchemaValidator:
 
     def __init__(self, schema_path: Path | str | None = None) -> None:
         if schema_path is None:
-            schema_path = Path(__file__).resolve().parent.parent / "configs" / "agent_schema.json"
+            schema_path = Path(__file__).resolve().parent.parent.parent / "configs" / "agent_schema.json"
         schema_path = Path(schema_path)
 
         try:

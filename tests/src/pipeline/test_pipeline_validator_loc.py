@@ -3,7 +3,7 @@ import importlib.util
 import sys
 from pathlib import Path
 
-_VALIDATOR_PATH = Path(__file__).resolve().parents[2] / "pipeline" / "validator.py"
+_VALIDATOR_PATH = Path(__file__).resolve().parents[3] / "src" / "pipeline" / "validator.py"
 _SPEC = importlib.util.spec_from_file_location("pipeline_validator_direct", _VALIDATOR_PATH)
 assert _SPEC is not None and _SPEC.loader is not None
 _MODULE = importlib.util.module_from_spec(_SPEC)

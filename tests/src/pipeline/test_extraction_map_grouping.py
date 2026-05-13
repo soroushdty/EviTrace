@@ -17,7 +17,7 @@ import pytest
 # Load extraction_map directly, bypassing pipeline/__init__.py
 # ---------------------------------------------------------------------------
 
-_EM_PATH = Path(__file__).resolve().parents[2] / "pipeline" / "extraction_map.py"
+_EM_PATH = Path(__file__).resolve().parents[3] / "src" / "pipeline" / "extraction_map.py"
 _EM_SPEC = importlib.util.spec_from_file_location("pipeline_extraction_map_direct", _EM_PATH)
 assert _EM_SPEC is not None and _EM_SPEC.loader is not None
 _EM_MODULE = importlib.util.module_from_spec(_EM_SPEC)
