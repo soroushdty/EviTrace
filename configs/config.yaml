@@ -51,7 +51,7 @@ concurrency:
   # almost entirely network-wait on the client side, so overlapping PDF N's
   # GROBID call with PDF N-1's LLM calls is close to free. global_api_limit
   # below caps concurrent OpenAI calls so this never overwhelms the API.
-  pdf_processing: 3
+  pdf_processing: 1
   global_api_limit: 15 # Max concurrent OpenAI API calls across all PDFs
 
 # Retry configuration

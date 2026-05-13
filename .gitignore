@@ -223,3 +223,6 @@ input*/
 manifest.json
 test_output.csv
 result*/
+
+# GROBID TEI cache (content-addressed, regenerable from source PDFs)
+grobid_tei_cache/
