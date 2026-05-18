@@ -7,16 +7,119 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 import xml.etree.ElementTree as ET
 
 from utils.logging_utils import get_logger
-from utils.path_utils import OUTPUT_DIR
+from utils.path_utils import EXTRACTION_MAP, OUTPUT_DIR
 
 logger = get_logger(__name__)
 
 _TEI_NS = "http://www.tei-c.org/ns/1.0"
 _NS = f"{{{_TEI_NS}}}"
+
+
+# ---------------------------------------------------------------------------
+# Normalized annotation schema — uniform shape for heuristic and service
+# annotations stored in evidence_items[*].annotations.
+# ---------------------------------------------------------------------------
+
+NormalizedAnnotation = TypedDict("NormalizedAnnotation", {
+    "text": str,
+    "type": str,
+    "source": str,
+    "confidence": float | None,
+    "metadata": dict,
+})
+
+
+def _make_annotation(
+    text: str,
+    ann_type: str,
+    source: str,
+    *,
+    confidence: float | None = None,
+    metadata: dict | None = None,
+) -> NormalizedAnnotation:
+    """Create a NormalizedAnnotation dict with the required fields."""
+    return {
+        "text": text,
+        "type": ann_type,
+        "source": source,
+        "confidence": confidence,
+        "metadata": metadata or {},
+    }
+
+
+def _normalize_service_annotation(
+    raw: dict[str, Any],
+    ann_type: str,
+    source: str,
+) -> NormalizedAnnotation:
+    """Normalize a service-derived annotation dict to the NormalizedAnnotation schema.
+
+    The service-specific fields beyond the base schema are stored under
+    ``metadata``. The ``text`` field is extracted from common keys used by
+    GROBID quantities, DataStet, and entity-fishing services.
+    """
+    # Extract text from common service response keys
+    text = str(
+        raw.get("rawName")
+        or raw.get("rawForm")
+        or raw.get("normalizedForm")
+        or raw.get("name")
+        or raw.get("text")
+        or raw.get("rawValue")
+        or ""
+    )
+
+    # Extract confidence if available
+    confidence: float | None = None
+    for conf_key in ("confidence", "conf", "score", "nerd_score"):
+        val = raw.get(conf_key)
+        if val is not None:
+            try:
+                confidence = float(val)
+                # Clamp to [0.0, 1.0]
+                confidence = max(0.0, min(1.0, confidence))
+            except (TypeError, ValueError):
+                confidence = None
+            break
+
+    # Everything else goes into metadata
+    base_keys = {"rawName", "rawForm", "normalizedForm", "name", "text",
+                 "rawValue", "confidence", "conf", "score", "nerd_score"}
+    metadata = {k: v for k, v in raw.items() if k not in base_keys}
+
+    return {
+        "text": text,
+        "type": ann_type,
+        "source": source,
+        "confidence": confidence,
+        "metadata": metadata,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Extraction map hash — computed once at module load for cache key stability.
+# ---------------------------------------------------------------------------
+
+def _compute_extraction_map_hash() -> str:
+    """Return the SHA-256 hex digest of configs/extraction_map.json contents.
+
+    Computed once at module load so that changes to the extraction map
+    invalidate all evidence caches without per-call I/O overhead.
+    Returns "no_extraction_map" if the file cannot be read (e.g. in tests
+    with no configs directory).
+    """
+    try:
+        data = EXTRACTION_MAP.read_bytes()
+        return hashlib.sha256(data).hexdigest()
+    except OSError:
+        return "no_extraction_map"
+
+
+_EXTRACTION_MAP_HASH: str = _compute_extraction_map_hash()
 
 
 @dataclass
@@ -35,45 +138,40 @@ def _safe_text(text: str) -> str:
     return re.sub(r"\s+", " ", (text or "").strip())
 
 
-def _pdf_hash(source_pdf_path: str) -> str:
-    """Return a short, stable cache key for *source_pdf_path*.
+def _pdf_sha256(source_pdf_path: str) -> str:
+    """Return the full SHA-256 hex digest of the PDF file bytes.
 
-    Uses the filesystem-native (size, mtime_ns) pair plus the basename as
-    the key. This is what make / ninja / most build systems key on and is
-    always correct when the filesystem's mtime is reliable -- which is
-    every supported EviTrace target (Linux ext4/xfs/btrfs, macOS APFS,
-    Windows NTFS).
+    This is a content-addressed hash that guarantees cache invalidation
+    whenever the PDF content changes, regardless of filename, file size,
+    or modification time remaining the same.
 
-    Advantages over full SHA-256:
-      - O(1) regardless of PDF size (large papers no longer block the
-        event loop while being hashed).
-      - Zero I/O beyond a single stat() call.
-      - Same collision-resistance in practice: a user would have to edit
-        a PDF in place without changing its size AND with clock skew
-        that preserves mtime_ns to the nanosecond to collide.
+    Returns "nohash" if the file cannot be read.
+    """
+    h = hashlib.sha256()
+    try:
+        with open(source_pdf_path, "rb") as fh:
+            for chunk in iter(lambda: fh.read(65536), b""):
+                h.update(chunk)
+        return h.hexdigest()
+    except OSError:
+        return "nohash"
 
-    Falls back to a SHA-256 prefix when stat() fails (unusual paths,
-    broken symlinks) so the cache key is never empty.
+
+def _stat_fingerprint(source_pdf_path: str) -> str | None:
+    """Return a fast stat-based fingerprint for quick cache filtering.
+
+    Used as an optional fast-path: if the stat fingerprint doesn't match
+    the stored value, the cache is guaranteed stale (no need to compute
+    SHA-256). If it does match, SHA-256 is still verified before returning
+    cached data.
+
+    Returns None if stat() fails.
     """
     try:
         st = Path(source_pdf_path).stat()
     except OSError:
-        # Fallback: one-shot SHA-256 of the file. Matches the previous
-        # behaviour so existing caches are still reachable.
-        h = hashlib.sha256()
-        try:
-            with open(source_pdf_path, "rb") as fh:
-                for chunk in iter(lambda: fh.read(1024 * 1024), b""):
-                    h.update(chunk)
-            return h.hexdigest()[:16]
-        except OSError:
-            return "nohash"
-
-    # Pack (size, mtime_ns, basename) into a small hash to keep the key
-    # short and filesystem-safe. The inputs are all cheap to obtain.
-    basename = Path(source_pdf_path).name
-    payload = f"{st.st_size}:{st.st_mtime_ns}:{basename}".encode("utf-8")
-    return hashlib.blake2b(payload, digest_size=8).hexdigest()
+        return None
+    return f"{st.st_size}:{st.st_mtime_ns}"
 
 
 def _cache_dir(config: dict) -> Path:
@@ -112,6 +210,141 @@ def _tei_xpath(elem: ET.Element) -> str:
 def _extract_year_from_text(text: str) -> str:
     match = re.search(r"(19|20)\d{2}", text or "")
     return match.group(0) if match else ""
+
+
+# ---------------------------------------------------------------------------
+# Publication-year multi-source resolver (Req 8)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class YearResolution:
+    """Result of multi-source year resolution."""
+
+    year: str       # "2015" or "nr"
+    confidence: str  # "h" | "m" | "nr"
+    provenance: str  # "tei_header" | "pdf_metadata" | "first_page_text" | "filename_pattern" | ""
+
+
+# Regex for filename year patterns like "Shahn_2015.pdf" or "Author-2020.pdf"
+_FILENAME_YEAR_RE = re.compile(r"(?:^|[_\-\s.])((19|20)\d{2})(?:[_\-\s.]|$)")
+
+
+def _year_from_tei(tei_root: ET.Element | None) -> str:
+    """Extract publication year from TEI header metadata."""
+    if tei_root is None:
+        return ""
+    return _extract_publication_year_from_tei(tei_root)
+
+
+def _year_from_pdf_metadata(pdf_path: Path) -> str:
+    """Extract year from PDF document metadata (/CreationDate, /ModDate).
+
+    Uses PyMuPDF (fitz) lazily imported.
+    """
+    if not pdf_path.exists():
+        return ""
+    try:
+        import fitz  # noqa: PLC0415 — lazy; not installed in all envs
+    except ImportError:
+        return ""
+    try:
+        doc = fitz.open(str(pdf_path))
+    except Exception:
+        return ""
+    try:
+        metadata = doc.metadata or {}
+        # Try creationDate first, then modDate
+        for key in ("creationDate", "modDate"):
+            raw = metadata.get(key, "") or ""
+            year = _extract_year_from_text(raw)
+            if year:
+                return year
+    finally:
+        doc.close()
+    return ""
+
+
+def _year_from_first_page_text(pdf_path: Path) -> str:
+    """Extract year from first-page bibliographic text.
+
+    Looks for a 4-digit year pattern (19xx or 20xx) in the first page text.
+    """
+    if not pdf_path.exists():
+        return ""
+    try:
+        import fitz  # noqa: PLC0415 — lazy; not installed in all envs
+    except ImportError:
+        return ""
+    try:
+        doc = fitz.open(str(pdf_path))
+    except Exception:
+        return ""
+    try:
+        if len(doc) == 0:
+            return ""
+        page = doc[0]
+        text = page.get_text("text") or ""
+        # Look for year near the top of the page (first ~2000 chars)
+        header_text = text[:2000]
+        match = re.search(r"(19|20)\d{2}", header_text)
+        return match.group(0) if match else ""
+    finally:
+        doc.close()
+
+
+def _year_from_filename(pdf_name: str) -> str:
+    """Extract year from filename pattern (e.g., 'Shahn_2015.pdf' → '2015')."""
+    match = _FILENAME_YEAR_RE.search(pdf_name)
+    return match.group(1) if match else ""
+
+
+def resolve_publication_year(
+    tei_root: ET.Element | None,
+    pdf_path: Path,
+    pdf_name: str,
+) -> YearResolution:
+    """Resolve publication year from multiple sources in priority order.
+
+    Priority chain:
+    1. TEI metadata <date when="..."> → confidence 'h', provenance 'tei_header'
+    2. PDF document metadata (/CreationDate, /ModDate) → confidence 'h', provenance 'pdf_metadata'
+    3. First-page bibliographic text (regex near author names) → confidence 'm', provenance 'first_page_text'
+    4. Filename pattern (e.g., Shahn_2015.pdf) → confidence 'm', provenance 'filename_pattern'
+    5. None found → YearResolution(year="nr", confidence="nr", provenance="")
+
+    Corroboration: If filename year matches another source, confidence upgrades to 'h'.
+    """
+    filename_year = _year_from_filename(pdf_name)
+
+    # Priority 1: TEI metadata
+    tei_year = _year_from_tei(tei_root)
+    if tei_year:
+        confidence = "h"
+        # Corroboration: filename matches TEI → stays 'h' (already high)
+        return YearResolution(year=tei_year, confidence=confidence, provenance="tei_header")
+
+    # Priority 2: PDF document metadata
+    pdf_meta_year = _year_from_pdf_metadata(pdf_path)
+    if pdf_meta_year:
+        confidence = "h"
+        # Corroboration: filename matches PDF metadata → stays 'h' (already high)
+        return YearResolution(year=pdf_meta_year, confidence=confidence, provenance="pdf_metadata")
+
+    # Priority 3: First-page bibliographic text
+    first_page_year = _year_from_first_page_text(pdf_path)
+    if first_page_year:
+        confidence = "m"
+        # Corroboration: if filename year matches first-page year, upgrade to 'h'
+        if filename_year and filename_year == first_page_year:
+            confidence = "h"
+        return YearResolution(year=first_page_year, confidence=confidence, provenance="first_page_text")
+
+    # Priority 4: Filename pattern
+    if filename_year:
+        return YearResolution(year=filename_year, confidence="m", provenance="filename_pattern")
+
+    # Priority 5: No year found
+    return YearResolution(year="nr", confidence="nr", provenance="")
 
 
 def _extract_publication_year_from_tei(root: ET.Element) -> str:
@@ -184,7 +417,7 @@ def _section_score(path: str) -> int:
     return score
 
 
-def _build_items_from_tei(tei_xml: str, paper_id: str, source_pdf: str) -> tuple[list[dict[str, Any]], dict[int, str]]:
+def _build_items_from_tei(tei_xml: str, paper_id: str, source_pdf: str) -> tuple[list[dict[str, Any]], dict[int, str], dict[str, Any]]:
     root = ET.fromstring(tei_xml)
     items: list[dict[str, Any]] = []
     sentence_counter = 1
@@ -193,10 +426,19 @@ def _build_items_from_tei(tei_xml: str, paper_id: str, source_pdf: str) -> tuple
 
     title = root.find(f".//{_NS}titleStmt/{_NS}title")
     first_author = root.find(f".//{_NS}sourceDesc//{_NS}surname")
-    year = _extract_publication_year_from_tei(root)
     author = _safe_text("".join(first_author.itertext())) if first_author is not None else ""
 
-    prefilled = {1: author or paper_id, 2: year or "nr"}
+    # Use multi-source year resolver for robust year extraction
+    pdf_path = Path(source_pdf) if source_pdf else Path("")
+    pdf_name = pdf_path.name if source_pdf else ""
+    year_resolution = resolve_publication_year(root, pdf_path, pdf_name)
+
+    prefilled = {1: author or paper_id, 2: year_resolution.year}
+    # Store year provenance metadata for debug output
+    prefilled_meta: dict[str, Any] = {
+        "year_provenance": year_resolution.provenance,
+        "year_confidence": year_resolution.confidence,
+    }
 
     section_path = "body"
     body = root.find(f".//{_NS}body")
@@ -344,7 +586,7 @@ def _build_items_from_tei(tei_xml: str, paper_id: str, source_pdf: str) -> tuple
                     "annotations": {},
                 }
             )
-    return items, prefilled
+    return items, prefilled, prefilled_meta
 
 
 def _service_enabled(cfg: dict, key: str) -> bool:
@@ -364,16 +606,25 @@ _DATASET_RE = re.compile(
 _ENTITY_RE = re.compile(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b")
 
 
-def _heuristic_quantities(text: str) -> list[str]:
-    return _QUANTITY_RE.findall(text or "")
+def _heuristic_quantities(text: str) -> list[NormalizedAnnotation]:
+    return [
+        _make_annotation(match, "quantity", "heuristic_regex")
+        for match in _QUANTITY_RE.findall(text or "")
+    ]
 
 
-def _heuristic_datasets(text: str) -> list[str]:
-    return _DATASET_RE.findall(text or "")
+def _heuristic_datasets(text: str) -> list[NormalizedAnnotation]:
+    return [
+        _make_annotation(match, "dataset", "heuristic_regex")
+        for match in _DATASET_RE.findall(text or "")
+    ]
 
 
-def _heuristic_entities(text: str) -> list[str]:
-    return _ENTITY_RE.findall(text or "")[:10]
+def _heuristic_entities(text: str) -> list[NormalizedAnnotation]:
+    return [
+        _make_annotation(match, "entity", "heuristic_regex")
+        for match in _ENTITY_RE.findall(text or "")[:10]
+    ]
 
 
 def _preflight_addon(requests_mod: Any, name: str, info: dict) -> bool:
@@ -445,8 +696,14 @@ def _assign_by_offset(
     key: str,
     annotations_with_offset: list[dict[str, Any]],
     offset_key: str,
+    *,
+    ann_type: str,
+    source: str,
 ) -> set[int]:
     """Distribute *annotations_with_offset* into the right item by character offset.
+
+    Each raw service annotation is normalized to the ``NormalizedAnnotation``
+    schema before being stored.
 
     Returns the set of item ``id(...)`` values that received at least one
     annotation — callers use this to decide which items fall back to heuristics.
@@ -461,11 +718,13 @@ def _assign_by_offset(
             continue
         if off < 0:
             continue
+        # Normalize the raw service annotation to the standard schema.
+        normalized = _normalize_service_annotation(ann, ann_type, source)
         # Binary-search-ish linear scan; ranges are monotonically increasing.
         for start, end, item in ranges:
             if start <= off < end:
                 bucket = item.setdefault("annotations", {}).setdefault(key, [])
-                bucket.append(ann)
+                bucket.append(normalized)
                 populated.add(id(item))
                 break
     return populated
@@ -559,14 +818,17 @@ def _enrich_with_addons(items: list[dict[str, Any]], cfg: dict) -> None:
         )
         measurements = q_data.get("measurements") or q_data.get("quantities") or []
         if isinstance(measurements, list) and measurements:
-            populated = _assign_by_offset(ranges, "quantities", measurements, "offsetStart")
+            populated = _assign_by_offset(
+                ranges, "quantities", measurements, "offsetStart",
+                ann_type="quantity", source="grobid_quantities",
+            )
             # Items that received a service annotation drop their heuristic
             # fallback in favour of the richer service payload. Items that
             # received nothing keep the heuristic quantities we populated above.
             for _, _, item in ranges:
                 if id(item) in populated:
-                    # Convert from "quantities": [ann, ...] (list of dicts) —
-                    # already correct; nothing to normalise here.
+                    # Service annotations already normalized by _assign_by_offset;
+                    # nothing more to do here.
                     pass
 
     # datastet (DataStet): {"text":...} -> {"mentions":[{"offsetStart":...}, ...]}
@@ -578,7 +840,10 @@ def _enrich_with_addons(items: list[dict[str, Any]], cfg: dict) -> None:
         )
         mentions = d_data.get("mentions") or d_data.get("datasets") or []
         if isinstance(mentions, list) and mentions:
-            populated = _assign_by_offset(ranges, "datasets", mentions, "offsetStart")
+            populated = _assign_by_offset(
+                ranges, "datasets", mentions, "offsetStart",
+                ann_type="dataset", source="datastet",
+            )
             for _, _, item in ranges:
                 if id(item) in populated:
                     pass
@@ -592,7 +857,10 @@ def _enrich_with_addons(items: list[dict[str, Any]], cfg: dict) -> None:
         )
         entities = e_data.get("entities") or []
         if isinstance(entities, list) and entities:
-            populated = _assign_by_offset(ranges, "entities", entities, "offsetStart")
+            populated = _assign_by_offset(
+                ranges, "entities", entities, "offsetStart",
+                ann_type="entity", source="entity_fishing",
+            )
             for _, _, item in ranges:
                 if id(item) in populated:
                     pass
@@ -614,8 +882,8 @@ def build_or_load_evidence_bundle(qc_context, config: dict) -> EvidenceBundle:
     )
 
     cache_root = _cache_dir(config)
-    pdf_hash = _pdf_hash(source_pdf_path) if source_pdf_path and Path(source_pdf_path).exists() else "nohash"
-    cache_key = f"{paper_id}_{pdf_hash}"
+    pdf_sha256 = _pdf_sha256(source_pdf_path) if source_pdf_path and Path(source_pdf_path).exists() else "nohash"
+    cache_key = f"{paper_id}_{pdf_sha256}_{_EXTRACTION_MAP_HASH}"
     idx_path = cache_root / f"{cache_key}.evidence.json"
     logger.debug(
         "Evidence cache: root=%s, key=%s, idx_exists=%s",
@@ -669,9 +937,10 @@ def build_or_load_evidence_bundle(qc_context, config: dict) -> EvidenceBundle:
             for i, sentence in enumerate(sentences, start=1)
         ]
         prefilled = {1: paper_id, 2: "nr"}
+        prefilled_meta = {"year_provenance": "", "year_confidence": "nr"}
     else:
         try:
-            items, prefilled = _build_items_from_tei(tei_xml, paper_id, source_pdf_path)
+            items, prefilled, prefilled_meta = _build_items_from_tei(tei_xml, paper_id, source_pdf_path)
             logger.debug(
                 "TEI parsed for %s: %d items, prefilled=%s",
                 paper_id, len(items), prefilled,
@@ -680,6 +949,7 @@ def build_or_load_evidence_bundle(qc_context, config: dict) -> EvidenceBundle:
             logger.debug("TEI parse error for %s: %s", paper_id, exc)
             items = []
             prefilled = {1: paper_id, 2: "nr"}
+            prefilled_meta = {"year_provenance": "", "year_confidence": "nr"}
 
     _enrich_with_addons(items, config)
     evidence_map = {item["id"]: item for item in items if item.get("id")}
@@ -687,7 +957,14 @@ def build_or_load_evidence_bundle(qc_context, config: dict) -> EvidenceBundle:
     # TEI XML is cached upstream by extraction_pipeline; no need to mirror it here.
     idx_path.write_text(
         json.dumps(
-            {"paper_id": paper_id, "source_pdf_path": source_pdf_path, "evidence_items": items, "prefilled_fields": prefilled},
+            {
+                "paper_id": paper_id,
+                "source_pdf_path": source_pdf_path,
+                "evidence_items": items,
+                "prefilled_fields": prefilled,
+                "year_provenance": prefilled_meta.get("year_provenance", ""),
+                "year_confidence": prefilled_meta.get("year_confidence", "nr"),
+            },
             ensure_ascii=False,
             indent=2,
         ),

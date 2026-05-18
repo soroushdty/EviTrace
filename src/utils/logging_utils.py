@@ -8,6 +8,7 @@ Provides:
 - :func:`get_root_logger` – Get the root EviTrace logger.
 - :func:`setup_logging` – Wire up file and console handlers (idempotent).
 - :func:`log_cache_usage` – Log token counts and prompt-cache hits.
+- :func:`log_model_response` – Safe bounded logging of LLM model responses.
 
 Usage examples::
 
@@ -23,8 +24,10 @@ Usage examples::
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
+from pathlib import Path
 from typing import Any
 
 from utils.path_utils import PROJECT_ROOT as _PROJECT_ROOT
@@ -278,3 +281,90 @@ def setup_logging(
     )
 
     return logger
+
+
+# ============================================================================
+# Safe Model Response Logging (Requirement 6)
+# ============================================================================
+
+
+def log_model_response(
+    logger: logging.Logger,
+    response: str,
+    *,
+    pdf_name: str,
+    chunk_num: int,
+    max_chars: int = 500,
+    debug_artifact_dir: str | None = None,
+) -> None:
+    """Log a truncated model response at WARNING with SHA-256 hash for correlation.
+
+    Always logs a preview truncated to *max_chars* characters plus the full
+    SHA-256 hex digest of the response at WARNING level. This allows operators
+    to correlate log entries with debug artifacts without leaking full prompts
+    or large article excerpts into logs.
+
+    When *debug_artifact_dir* is configured **and** the logger's effective level
+    is DEBUG, the full raw response is written to a file named
+    ``{pdf_name}_chunk{chunk_num}_{hash[:12]}.raw.txt`` in that directory.
+
+    When *debug_artifact_dir* is ``None`` or empty, full raw responses are
+    **never** written to disk or logs regardless of log level.
+
+    Parameters
+    ----------
+    logger : logging.Logger
+        Logger instance to emit the WARNING message on.
+    response : str
+        The full raw model response string.
+    pdf_name : str
+        PDF identifier (used in artifact filenames and log messages).
+    chunk_num : int
+        Chunk number (used in artifact filenames and log messages).
+    max_chars : int, optional
+        Maximum number of characters to include in the log preview.
+        Defaults to 500. Corresponds to the ``max_log_response_chars``
+        config key in the ``retry`` section.
+    debug_artifact_dir : str | None, optional
+        Path to the debug artifact directory. When set and the logger is at
+        DEBUG level, the full response is written to a file in this directory.
+        When ``None`` or empty, no artifact is written.
+    """
+    # Compute SHA-256 hash of the full response for correlation
+    response_hash = hashlib.sha256(response.encode("utf-8")).hexdigest()
+
+    # Truncate preview
+    if len(response) > max_chars:
+        preview = response[:max_chars] + "..."
+    else:
+        preview = response
+
+    # Always log truncated preview + hash at WARNING
+    logger.warning(
+        "%s chunk %d model response [sha256=%s]: %s",
+        pdf_name,
+        chunk_num,
+        response_hash,
+        preview,
+    )
+
+    # Write full response to debug artifact file only when:
+    # 1. debug_artifact_dir is configured (non-None, non-empty)
+    # 2. Logger effective level is DEBUG
+    if debug_artifact_dir and logger.isEnabledFor(logging.DEBUG):
+        artifact_dir = Path(debug_artifact_dir)
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        artifact_filename = f"{pdf_name}_chunk{chunk_num}_{response_hash[:12]}.raw.txt"
+        artifact_path = artifact_dir / artifact_filename
+        try:
+            artifact_path.write_text(response, encoding="utf-8")
+            logger.debug(
+                "Wrote debug artifact: %s",
+                artifact_path,
+            )
+        except OSError as exc:
+            logger.warning(
+                "Failed to write debug artifact %s: %s",
+                artifact_path,
+                exc,
+            )

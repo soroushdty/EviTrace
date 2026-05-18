@@ -23,6 +23,7 @@ import hashlib
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +32,7 @@ from pdf_extractor.extraction.PyMuPDF import extract_with_pymupdf
 from pdf_extractor.extraction.pdfplumber import extract_with_pdfplumber
 from pdf_extractor.extraction.PaddleOCR import extract_with_paddleocr
 from pdf_extractor.extraction import scan_detector
+from pdf_extractor.extraction.scan_detector import PageScanClassification
 from artifact_generation import generate_w3c_jsonld
 from artifact_generation.w3c_annotation import project as w3c_project
 from quality_control import QCBundle, run_quality_control
@@ -38,6 +40,39 @@ from quality_control.models import Candidate
 from text_processing.base import TextProcessor
 
 logger = logging.getLogger("pdf_extractor")
+
+
+# ---------------------------------------------------------------------------
+# Per-page routing result
+# ---------------------------------------------------------------------------
+
+@dataclass
+class PageRoutingResult:
+    """Routing decision for a single page.
+
+    Attributes
+    ----------
+    page_index:
+        0-based page number within the document.
+    selected_extractor:
+        The extractor pipeline used for this page.
+        One of ``"grobid+pdfplumber"`` or ``"paddleocr+pymupdf"``.
+    fallback_extractor:
+        The fallback extractor pipeline (if any), or ``None``.
+    routing_reason:
+        Human-readable reason for the routing decision.
+        Examples: ``"all_native"``, ``"stage_1_empty_text"``,
+        ``"mixed_native_page"``, ``"mixed_scanned_page"``.
+    classification:
+        The :class:`~pdf_extractor.extraction.scan_detector.PageScanClassification`
+        result for this page.
+    """
+
+    page_index: int
+    selected_extractor: str  # "grobid+pdfplumber" | "paddleocr+pymupdf"
+    fallback_extractor: str | None
+    routing_reason: str
+    classification: PageScanClassification
 
 
 # ---------------------------------------------------------------------------
@@ -247,6 +282,7 @@ def build_qc_bundle(
     tei_xml = ""
     branches: list[Candidate] = []
     page_classifications: list = []
+    page_routing_results: list[PageRoutingResult] = []
 
     if cached_tei is not None:
         # Cache hit: skip scan_detector AND the GROBID HTTP call.
@@ -257,6 +293,21 @@ def build_qc_bundle(
         branches = [
             Candidate(source="grobid",     index=0, payload=tei_xml,        status=None),
             Candidate(source="pdfplumber", index=1, payload=plumber_blocks, status=None),
+        ]
+        # Cache hit implies all-native (GROBID would have failed on scanned).
+        # Build routing results for all pages based on pdfplumber block count.
+        _page_indices_from_plumber = sorted(set(b["page_index"] for b in plumber_blocks))
+        page_routing_results = [
+            PageRoutingResult(
+                page_index=pi,
+                selected_extractor="grobid+pdfplumber",
+                fallback_extractor=None,
+                routing_reason="all_native",
+                classification=PageScanClassification(
+                    page_index=pi, is_native=True,
+                ),
+            )
+            for pi in _page_indices_from_plumber
         ]
     else:
         # Cache miss: run scan_detector concurrently with GROBID + pdfplumber.
@@ -304,15 +355,18 @@ def build_qc_bundle(
                 )
 
             all_native = all(c.is_native for c in page_classifications)
+            all_scanned = all(not c.is_native for c in page_classifications)
             has_scanned = not all_native
+            native_indices = {c.page_index for c in page_classifications if c.is_native}
+            scanned_indices = {c.page_index for c in page_classifications if not c.is_native}
             logger.debug(
-                "scan summary: all_native=%s, has_scanned=%s, native_pages=%d/%d",
-                all_native, has_scanned,
-                sum(1 for c in page_classifications if c.is_native),
-                len(page_classifications),
+                "scan summary: all_native=%s, all_scanned=%s, native_pages=%d/%d",
+                all_native, all_scanned,
+                len(native_indices), len(page_classifications),
             )
 
             if all_native:
+                # ---- All-native path: GROBID + pdfplumber ----
                 try:
                     tei_xml, _ = grobid_future.result()
                     logger.debug("GROBID returned TEI XML: %d chars", len(tei_xml))
@@ -332,38 +386,145 @@ def build_qc_bundle(
                     Candidate(source="grobid",     index=0, payload=tei_xml,        status=None),
                     Candidate(source="pdfplumber", index=1, payload=plumber_blocks, status=None),
                 ]
+                # Build routing results: all pages native
+                page_routing_results = [
+                    PageRoutingResult(
+                        page_index=c.page_index,
+                        selected_extractor="grobid+pdfplumber",
+                        fallback_extractor=None,
+                        routing_reason="all_native",
+                        classification=c,
+                    )
+                    for c in page_classifications
+                ]
             else:
-                # Scanned: GROBID + pdfplumber results are speculative; let them
-                # finish in the background but ignore. (Their HTTP / file work
-                # was wasted, but this branch is rare for scientific PDFs.)
-                logger.debug("scan_detector flagged scanned pages; discarding speculative GROBID + pdfplumber results")
-                for _f in (grobid_future, plumber_future):
-                    _f.cancel()  # best-effort; HTTP in flight may continue
+                # ---- Mixed or all-scanned path: per-page routing ----
+                # For mixed PDFs, GROBID processes the full document but we
+                # filter its output to native page indices only. PaddleOCR
+                # already processes page-by-page so we filter to scanned indices.
+                logger.debug(
+                    "Per-page routing for %s: native_pages=%s, scanned_pages=%s",
+                    pdf_name, sorted(native_indices), sorted(scanned_indices),
+                )
 
-        if not branches:
-            if has_scanned and not ocr_enabled:
-                # Scanned path with ocr=false: skip extraction, log WARNING
-                logger.debug("Routing %s: scanned pages present + ocr=false -> skipping", pdf_name)
-                for cls in page_classifications:
-                    if not cls.is_native:
+                # Cancel speculative futures only if ALL pages are scanned
+                if all_scanned:
+                    for _f in (grobid_future, plumber_future):
+                        _f.cancel()
+
+                # --- Native page extraction (GROBID + pdfplumber) ---
+                native_blocks: list = []
+                if native_indices:
+                    # GROBID processes full document; filter output to native pages
+                    try:
+                        tei_xml, _ = grobid_future.result()
+                        logger.debug("GROBID returned TEI XML: %d chars (mixed path)", len(tei_xml))
+                        _grobid_cache_write(tei_xml, pdf_digest, tei_cache_dir)
+                    except Exception:
+                        if grobid_failure_behavior == "manifest_fail":
+                            raise
                         logger.warning(
-                            "Skipping scanned page %d in '%s' — OCR is disabled (ocr=false)",
-                            cls.page_index,
+                            "GROBID failed for %s (mixed path); continuing with pdfplumber-only for native pages",
                             pdf_name,
                         )
-            else:
-                # Scanned path with ocr=true: PaddleOCR (primary) + PyMuPDF OCR (secondary)
-                logger.debug("Routing %s: OCR path (PaddleOCR + PyMuPDF)", pdf_name)
-                paddle_blocks = extract_with_paddleocr(str(pdf_path))
-                pymupdf_blocks, _ = extract_with_pymupdf(str(pdf_path))
-                logger.debug(
-                    "paddleocr=%d blocks, pymupdf=%d blocks",
-                    len(paddle_blocks), len(pymupdf_blocks),
+                        logger.debug("GROBID exception for %s", pdf_name, exc_info=True)
+                        tei_xml = ""
+
+                    plumber_blocks = plumber_future.result()
+                    # Filter pdfplumber blocks to native page indices only
+                    native_blocks = [
+                        b for b in plumber_blocks if b["page_index"] in native_indices
+                    ]
+                    logger.debug(
+                        "pdfplumber: %d total blocks, %d native-page blocks",
+                        len(plumber_blocks), len(native_blocks),
+                    )
+
+                # --- Scanned page extraction (PaddleOCR + PyMuPDF) ---
+                scanned_blocks: list = []
+                if scanned_indices and ocr_enabled:
+                    dpi_value: int = (
+                        qc_config.get("quality_control", {})
+                        .get("ocr", {})
+                        .get("rasterization_dpi", 150)
+                    )
+                    paddle_blocks = extract_with_paddleocr(str(pdf_path), dpi=dpi_value)
+                    pymupdf_blocks, _ = extract_with_pymupdf(str(pdf_path))
+                    # Filter to scanned page indices only
+                    scanned_blocks = [
+                        b for b in paddle_blocks if b["page_index"] in scanned_indices
+                    ]
+                    scanned_pymupdf_blocks = [
+                        b for b in pymupdf_blocks if b["page_index"] in scanned_indices
+                    ]
+                    logger.debug(
+                        "OCR (scanned pages): paddleocr=%d blocks, pymupdf=%d blocks",
+                        len(scanned_blocks), len(scanned_pymupdf_blocks),
+                    )
+                elif scanned_indices and not ocr_enabled:
+                    # Scanned pages with ocr=false: log WARNING per page
+                    logger.debug("Routing %s: scanned pages present + ocr=false -> skipping OCR", pdf_name)
+                    for cls in page_classifications:
+                        if not cls.is_native:
+                            logger.warning(
+                                "Skipping scanned page %d in '%s' — OCR is disabled (ocr=false)",
+                                cls.page_index,
+                                pdf_name,
+                            )
+
+                # --- Merge page-level results in original page order ---
+                merged_blocks = sorted(
+                    native_blocks + scanned_blocks,
+                    key=lambda b: b["page_index"],
                 )
-                branches = [
-                    Candidate(source="paddleocr", index=0, payload=paddle_blocks,  status=None),
-                    Candidate(source="pymupdf",   index=1, payload=pymupdf_blocks, status=None),
-                ]
+
+                if merged_blocks or tei_xml:
+                    # Build branches from merged results
+                    branch_list: list[Candidate] = []
+                    if tei_xml:
+                        branch_list.append(
+                            Candidate(source="grobid", index=0, payload=tei_xml, status=None)
+                        )
+                    if native_blocks or scanned_blocks:
+                        # Merged blocks as the structural branch
+                        branch_list.append(
+                            Candidate(
+                                source="pdfplumber" if native_blocks and not scanned_blocks else "paddleocr",
+                                index=len(branch_list),
+                                payload=merged_blocks,
+                                status=None,
+                            )
+                        )
+                    branches = branch_list
+
+                # Build per-page routing results
+                page_routing_results = []
+                for c in page_classifications:
+                    if c.is_native:
+                        # Determine routing reason from classification
+                        routing_reason = "mixed_native_page"
+                        page_routing_results.append(PageRoutingResult(
+                            page_index=c.page_index,
+                            selected_extractor="grobid+pdfplumber",
+                            fallback_extractor="paddleocr+pymupdf" if ocr_enabled else None,
+                            routing_reason=routing_reason,
+                            classification=c,
+                        ))
+                    else:
+                        # Determine routing reason from triggered stages
+                        if 1 in c.triggered_stages:
+                            routing_reason = "stage_1_empty_text"
+                        elif c.triggered_stages:
+                            routing_reason = f"stages_{'_'.join(str(s) for s in c.triggered_stages)}"
+                        else:
+                            routing_reason = "classified_scanned"
+                        page_routing_results.append(PageRoutingResult(
+                            page_index=c.page_index,
+                            selected_extractor="paddleocr+pymupdf" if ocr_enabled else "none",
+                            fallback_extractor="grobid+pdfplumber" if native_indices else None,
+                            routing_reason=routing_reason,
+                            classification=c,
+                        ))
 
     # ------------------------------------------------------------------
     # Step 3 — QC pipeline
@@ -384,6 +545,16 @@ def build_qc_bundle(
     if ctx.unified is not None and isinstance(ctx.unified.content, dict):
         ctx.unified.content["source_pdf_path"] = str(pdf_path)
         ctx.unified.content["grobid_tei_xml"] = tei_xml
+        # Attach per-page routing metadata
+        ctx.unified.content["page_routing"] = [
+            {
+                "page_index": r.page_index,
+                "selected_extractor": r.selected_extractor,
+                "fallback_extractor": r.fallback_extractor,
+                "routing_reason": r.routing_reason,
+            }
+            for r in page_routing_results
+        ]
         logger.debug(
             "QC unified content keys for %s: %s",
             pdf_name, sorted(ctx.unified.content.keys()),

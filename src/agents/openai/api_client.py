@@ -319,17 +319,20 @@ async def extract_chunk(
     valid_location_ids: set[str] | None = None,
     prior_context: Optional[list[dict]] = None,
     pdf_name: str = "unknown",
+    repair_prompt: Optional[str] = None,
 ) -> str:
     """
     Call OpenAI for a single chunk with up to MAX_RETRIES attempts.
 
     Args:
-        chunk_num:     Chunk number from 1 to NUM_CHUNKS.
+        chunk_num:      Chunk number from 1 to NUM_CHUNKS.
         source_package: Compact evidence package extracted once upstream.
-        chunk_fields:  Extraction-map objects scoped to this chunk.
-        semaphore:     Global API concurrency gate.
-        prior_context: For the final synthesis chunk: combined output of prior chunks.
-        pdf_name:      Used in log messages only.
+        chunk_fields:   Extraction-map objects scoped to this chunk.
+        semaphore:      Global API concurrency gate.
+        prior_context:  For the final synthesis chunk: combined output of prior chunks.
+        pdf_name:       Used in log messages only.
+        repair_prompt:  Optional repair prompt appended as a follow-up user message
+                        when retrying after a validation failure.
 
     Returns:
         Raw response text from the API (validation is the caller's responsibility).
@@ -337,9 +340,11 @@ async def extract_chunk(
     model, max_tokens = _chunk_model_and_tokens(chunk_num)
     user_msg = build_user_message(source_package, chunk_fields, prior_context)
     tag = f"[{pdf_name} | chunk {chunk_num} | {model}]"
+    if repair_prompt:
+        tag = f"[{pdf_name} | chunk {chunk_num} repair | {model}]"
     logger.debug(
         "%s extract_chunk: fields=%d (indices=%s), source_package_chars=%d, "
-        "prior_context_fields=%d, user_msg_chars=%d, max_output_tokens=%d",
+        "prior_context_fields=%d, user_msg_chars=%d, max_output_tokens=%d, repair=%s",
         tag,
         len(chunk_fields),
         _expected_indices(chunk_fields),
@@ -347,6 +352,7 @@ async def extract_chunk(
         len(prior_context) if prior_context else 0,
         len(user_msg),
         max_tokens,
+        bool(repair_prompt),
     )
 
     request_kwargs = _base_request_kwargs(
@@ -355,6 +361,10 @@ async def extract_chunk(
         user_msg=user_msg,
         max_output_tokens=max_tokens,
     )
+
+    # Append repair prompt as a follow-up user message if provided
+    if repair_prompt:
+        request_kwargs["input"].append({"role": "user", "content": repair_prompt})
 
     last_exc: Exception = RuntimeError("No attempts made")
 

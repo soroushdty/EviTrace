@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import copy
 import os
+import warnings
 from pathlib import Path
 import yaml
 
@@ -191,6 +192,18 @@ def load_qc_config(config_path: str | None = None) -> dict:
     the full documented default set regardless of what is present in config.yaml.
     """
     raw = _load_config_yaml(config_path)
+
+    # Deprecation: warn if legacy top-level 'ocr_dpi' key exists alongside
+    # the modern 'quality_control.ocr' section.
+    if "ocr_dpi" in raw and raw.get("quality_control", {}).get("ocr"):
+        warnings.warn(
+            "Top-level 'ocr_dpi' config key is deprecated and will be removed in a "
+            "future release. Use 'quality_control.ocr.rasterization_dpi' instead. "
+            "The value from 'quality_control.ocr.rasterization_dpi' takes precedence.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
     user_cfg = {
         "quality_control": raw.get("quality_control", {}) or {},
         "text_processor": raw.get("text_processor", {}) or {},
@@ -221,7 +234,7 @@ _LOCAL_ALLOWED_TOP_LEVEL_KEYS: frozenset[str] = frozenset(
 # All legitimate top-level keys across any supported config layout.
 # Used to detect typos; anything outside this set raises ValueError.
 _ALL_KNOWN_TOP_LEVEL_KEYS: frozenset[str] = _LOCAL_ALLOWED_TOP_LEVEL_KEYS | frozenset(
-    {"openai", "extraction", "concurrency", "retry", "quality_control", "local", "text_processor"}
+    {"openai", "extraction", "concurrency", "retry", "quality_control", "local", "text_processor", "ocr_dpi"}
 )
 
 
@@ -338,6 +351,7 @@ def load_openai_config(config_path: str | None = None) -> dict:
     # Retry config
     max_retries = int(retry_cfg.get("max_retries", 3))
     retry_base_delay = int(retry_cfg.get("base_delay_seconds", 5))
+    max_log_response_chars = int(retry_cfg.get("max_log_response_chars", 500))
 
     # Calculate derived values
     chunk_max_tokens = _get_chunk_max_tokens(num_chunks)
@@ -361,6 +375,7 @@ def load_openai_config(config_path: str | None = None) -> dict:
         "global_api_limit": global_api_limit,
         "max_retries": max_retries,
         "retry_base_delay": retry_base_delay,
+        "max_log_response_chars": max_log_response_chars,
         "max_evidence_items_per_chunk": int(extraction_cfg.get("max_evidence_items_per_chunk", 150)),
         "max_evidence_chars_per_chunk": int(extraction_cfg.get("max_evidence_chars_per_chunk", 30000)),
         "evidence_cache_dir": evidence_cache_dir,

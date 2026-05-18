@@ -3,7 +3,11 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Optional
+
+import jsonschema
 
 from utils.logging_utils import get_logger
 
@@ -239,3 +243,106 @@ def reconstruct_fields(
             }
         )
     return output
+
+
+# ---------------------------------------------------------------------------
+# Final Output Schema Validation (Requirement 1)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ValidationResult:
+    """Result of schema validation with structured error details."""
+
+    is_valid: bool
+    errors: list[str] = field(default_factory=list)
+
+
+class FinalOutputValidator:
+    """Validates merged field lists against configs/final_output_schema.json.
+
+    Loads the JSON Schema (Draft 7) once at construction time and reuses it
+    across all subsequent ``validate()`` calls.
+    """
+
+    def __init__(self, schema_path: str = "configs/final_output_schema.json"):
+        schema_file = Path(schema_path)
+        if not schema_file.is_absolute():
+            # Resolve relative to project root (two levels up from this file)
+            project_root = Path(__file__).resolve().parent.parent.parent
+            schema_file = project_root / schema_path
+        with open(schema_file, "r", encoding="utf-8") as f:
+            self._schema: dict = json.load(f)
+        self._validator = jsonschema.Draft7Validator(self._schema)
+
+    def validate(self, fields: list[dict]) -> ValidationResult:
+        """Validate *fields* against the Final Output Schema.
+
+        Returns a :class:`ValidationResult` with ``is_valid=True`` when the
+        data conforms, or ``is_valid=False`` with human-readable error strings
+        that include field_index, field_name (when available), and JSON path.
+        """
+        errors: list[str] = []
+        for error in self._validator.iter_errors(fields):
+            errors.append(self.format_error(error, fields))
+        return ValidationResult(is_valid=len(errors) == 0, errors=errors)
+
+    def format_error(
+        self,
+        error: jsonschema.ValidationError,
+        fields: list[dict] | None = None,
+    ) -> str:
+        """Format a single validation error with contextual identifiers.
+
+        The message includes:
+        - ``field_index`` of the offending record (if determinable)
+        - ``field_name`` of the offending record (if present)
+        - The JSON path where the error occurred
+        """
+        json_path = _json_path_from_error(error)
+        field_index: int | None = None
+        field_name: str | None = None
+
+        # Try to extract field_index and field_name from the error context.
+        # The path deque contains the traversal into the array, e.g. [0, 'confidence'].
+        path_parts = list(error.absolute_path)
+        if path_parts and isinstance(path_parts[0], int):
+            idx = path_parts[0]
+            record: dict | None = None
+
+            # First try: look up from the original fields list passed in.
+            if fields is not None:
+                try:
+                    record = fields[idx]
+                except (IndexError, TypeError):
+                    pass
+
+            # Second try: if error.instance is the record dict itself
+            # (happens for top-level item errors like missing required keys).
+            if record is None and isinstance(error.instance, dict):
+                record = error.instance
+
+            if isinstance(record, dict):
+                field_index = record.get("field_index")
+                field_name = record.get("field_name")
+
+        parts: list[str] = []
+        if field_index is not None:
+            parts.append(f"field_index={field_index}")
+        if field_name:
+            parts.append(f"field_name={field_name!r}")
+        parts.append(f"path={json_path}")
+        parts.append(str(error.message))
+
+        return " | ".join(parts)
+
+
+def _json_path_from_error(error: jsonschema.ValidationError) -> str:
+    """Build a JSONPath-like string from the error's absolute_path."""
+    parts: list[str] = []
+    for segment in error.absolute_path:
+        if isinstance(segment, int):
+            parts.append(f"[{segment}]")
+        else:
+            parts.append(f".{segment}" if parts else segment)
+    return "$" + "".join(parts) if parts else "$"

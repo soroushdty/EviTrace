@@ -1,0 +1,95 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": [
+      "field_index",
+      "domain_group",
+      "field_name",
+      "extracted_value",
+      "evidence",
+      "location",
+      "location_metadata",
+      "confidence"
+    ],
+    "properties": {
+      "field_index": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "domain_group": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "field_name": {
+        "type": "string",
+        "minLength": 1
+      },
+      "extracted_value": {
+        "type": "string"
+      },
+      "evidence": {
+        "type": "string"
+      },
+      "location": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "location_metadata": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": [
+            "id"
+          ],
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string"
+            },
+            "section_path": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "page": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "coords": {},
+            "xpath": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "source_pdf": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        }
+      },
+      "confidence": {
+        "type": "string",
+        "enum": [
+          "h",
+          "m",
+          "l",
+          "nr"
+        ]
+      }
+    },
+    "additionalProperties": false
+  }
+}

@@ -101,7 +101,7 @@ def test_save_pdf_output_round_trip(tmp_path):
     fields = [
         {
             "field_index": 3,
-            "domain_group": "2. Clinical context",
+            "domain_group": 2,
             "field_name": "Study design",
             "extracted_value": "RCT",
             "evidence": "randomised controlled trial",
@@ -111,7 +111,7 @@ def test_save_pdf_output_round_trip(tmp_path):
         },
         {
             "field_index": 5,
-            "domain_group": "3. Population",
+            "domain_group": 3,
             "field_name": "Sample size",
             "extracted_value": "120",
             "evidence": "n=120 participants",
@@ -145,9 +145,11 @@ st_field_entry = st.fixed_dictionaries({
     "field_index": st.integers(min_value=1, max_value=62),
     "confidence": st_confidence,
     "extracted_value": st.one_of(st.just("nr"), st.text(min_size=1, max_size=50)),
-    "domain_group": st.text(min_size=1, max_size=30),
+    "domain_group": st.integers(min_value=1, max_value=13),
     "field_name": st.text(min_size=1, max_size=30),
     "evidence": st.text(max_size=100),
+    "location": st.just([]),
+    "location_metadata": st.just([]),
 })
 
 
@@ -218,11 +220,17 @@ def test_run_parallel_chunks_all_succeed(tmp_path):
     manifest = {"paper_test": {"status": "pending"}}
     pdf_name = "paper_test"
 
-    # A valid compact chunk result (list of field dicts with compact keys)
-    valid_result = [{"i": 3, "v": "RCT", "loc": [], "c": "h"}]
+    # extract_chunk returns raw JSON strings; RepairRetryLoop validates them.
+    # Each chunk must return a JSON string matching the expected field indices.
+    def _side_effect(chunk_num, *args, **kwargs):
+        if chunk_num == 1:
+            return json.dumps({"extractions": [{"i": 3, "v": "RCT", "loc": [], "c": "h"}]})
+        elif chunk_num == 2:
+            return json.dumps({"extractions": [{"i": 10, "v": "120", "loc": [], "c": "m"}]})
+        return json.dumps({"extractions": []})
 
     mock_api = MagicMock()
-    mock_api.extract_chunk = AsyncMock(return_value=valid_result)
+    mock_api.extract_chunk = AsyncMock(side_effect=_side_effect)
     mock_api.warm_pdf_cache = AsyncMock()
 
     with patch.dict(sys.modules, {"agents": MagicMock(), "agents.openai": MagicMock(), "agents.openai.api_client": mock_api}):
@@ -261,12 +269,10 @@ def test_run_parallel_chunks_one_fails(tmp_path):
     pdf_name = "paper_fail"
     manifest = {pdf_name: {"status": "pending"}}
 
-    valid_result = [{"i": 3, "v": "RCT", "loc": [], "c": "h"}]
-
     def _side_effect(chunk_num, *args, **kwargs):
         if chunk_num == 2:
             raise RuntimeError("API error on chunk 2")
-        return valid_result
+        return json.dumps({"extractions": [{"i": 3, "v": "RCT", "loc": [], "c": "h"}]})
 
     mock_api = MagicMock()
     mock_api.extract_chunk = AsyncMock(side_effect=_side_effect)

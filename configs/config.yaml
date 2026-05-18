@@ -62,6 +62,11 @@ retry:
   # sends a Retry-After header (standard for 429 and some 503), the client
   # honors it verbatim instead of using the exponential schedule.
   base_delay_seconds: 1
+  # Maximum number of characters to include in model-response log previews.
+  # Responses longer than this are truncated in WARNING-level log messages;
+  # the full SHA-256 hash is always included for correlation with debug
+  # artifacts. Respected by all model-response log statements.
+  max_log_response_chars: 500
 
 # Paths
 pdfs_path: "input"

@@ -161,43 +161,16 @@ class ScispaCySentenceSegment(SentenceSegment):
             raise ImportError(
                 f"scispaCy model {self._model_name!r} is not installed. Install it with:\n"
                 "  pip install scispacy\n"
-                f"  python -m spacy download {self._model_name}"
+                f"  python -m spacy download {self._model_name}\n"
+                "Models must be installed before running the pipeline."
             ) from exc
         except OSError:
-            import subprocess
-            import sys
-            import spacy
-
             url = self._SCISPACY_MODEL_URLS.get(self._model_name)
-            if url is None:
-                raise ImportError(
-                    f"scispaCy model {self._model_name!r} is not installed and no "
-                    "automatic install URL is known for it.\n"
-                    "Install it manually with:\n"
-                    "  pip install scispacy\n"
-                    f"  python -m spacy download {self._model_name}"
-                )
-
-            print(
-                f"[EviTrace] scispaCy model {self._model_name!r} not found — "
-                f"installing automatically from:\n  {url}",
-                flush=True,
+            raise ImportError(
+                f"scispaCy model {self._model_name!r} is not installed. Install it with:\n"
+                f"  pip install {url or self._model_name}\n"
+                "Models must be installed before running the pipeline."
             )
-            result = subprocess.run(
-                [sys.executable, "-m", "pip", "install", url],
-                check=False,
-            )
-            if result.returncode != 0:
-                raise ImportError(
-                    f"Automatic installation of {self._model_name!r} failed "
-                    f"(pip exit code {result.returncode}).\n"
-                    "Install it manually with:\n"
-                    f"  pip install {url}"
-                )
-
-            import importlib
-            importlib.reload(spacy)
-            return spacy.load(self._model_name)
 
     def tokenize_sentences(self, text: str) -> list[str]:
         if self._model is None:

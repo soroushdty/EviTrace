@@ -6,8 +6,9 @@ Covers:
                 no hardcoded extractor names in the function body.
   - Task 10.2: strategy injection; mock strategy drives preferred_source;
                 inspect.getsource contains no "grobid"/"pdfplumber" literals.
+  - Task 4.3: branch selection with empty GROBID — pdfplumber selected as primary.
 
-Requirements: 7.2, 10
+Requirements: 4.5, 7.2, 10
 Boundary: tests/pdf_extractor_
 """
 
@@ -19,8 +20,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from quality_control.adjudicator import adjudicate, _adjudicate_concern
-from quality_control.models import DocumentAlignment, AlignmentRecord
+from quality_control.adjudicator import adjudicate, _adjudicate_concern, select_primary_branch
+from quality_control.models import Candidate, DocumentAlignment, AlignmentRecord
 
 
 # ---------------------------------------------------------------------------
@@ -313,3 +314,96 @@ class TestDefaultStrategies:
         result = adjudicate(alignment_map, config)
 
         assert "preferred_source" in result["text_fidelity"]
+
+
+# ---------------------------------------------------------------------------
+# Task 4.3 — Branch selection with empty GROBID (Req 4.5)
+# ---------------------------------------------------------------------------
+
+
+class TestBranchSelectionEmptyGrobid:
+    """When GROBID branch is empty and pdfplumber has valid content, pdfplumber is selected."""
+
+    def test_pdfplumber_selected_when_grobid_empty_string(self) -> None:
+        """Empty-string GROBID payload → pdfplumber selected as primary."""
+        branches = [
+            Candidate(source="grobid", index=0, payload="", status=None),
+            Candidate(
+                source="pdfplumber",
+                index=1,
+                payload=[{"text": "1. Introduction\nThis study investigates the effects of treatment on patient outcomes across multiple clinical trials conducted between 2010 and 2023. Methods included randomized controlled trials with blinded assessment of primary endpoints."}],
+                status=None,
+            ),
+        ]
+        config = {"quality_control": {}}
+
+        selected_branch, score, rationale = select_primary_branch(branches, config)
+
+        assert selected_branch.source == "pdfplumber"
+        assert "GROBID branch empty" in rationale
+
+    def test_pdfplumber_selected_when_grobid_empty_list(self) -> None:
+        """Empty-list GROBID payload → pdfplumber selected as primary."""
+        branches = [
+            Candidate(source="grobid", index=0, payload=[], status=None),
+            Candidate(
+                source="pdfplumber",
+                index=1,
+                payload=[{"text": "Abstract\nWe present a comprehensive analysis of drug efficacy data spanning 500 patients enrolled in a phase III randomized trial. Results demonstrate significant improvement in primary outcome measures."}],
+                status=None,
+            ),
+        ]
+        config = {"quality_control": {}}
+
+        selected_branch, score, rationale = select_primary_branch(branches, config)
+
+        assert selected_branch.source == "pdfplumber"
+        assert "GROBID branch empty" in rationale
+
+    def test_pdfplumber_selected_when_grobid_none_payload(self) -> None:
+        """None GROBID payload → pdfplumber selected as primary."""
+        branches = [
+            Candidate(source="grobid", index=0, payload=None, status=None),
+            Candidate(
+                source="pdfplumber",
+                index=1,
+                payload=[{"text": "Results\nThe intervention group showed a 35% reduction in adverse events compared to placebo (p<0.001). Secondary endpoints including quality of life measures also improved significantly."}],
+                status=None,
+            ),
+        ]
+        config = {"quality_control": {}}
+
+        selected_branch, score, rationale = select_primary_branch(branches, config)
+
+        assert selected_branch.source == "pdfplumber"
+        assert "GROBID branch empty" in rationale
+
+    def test_pdfplumber_has_positive_composite_score(self) -> None:
+        """The selected pdfplumber branch must have a positive composite score."""
+        branches = [
+            Candidate(source="grobid", index=0, payload="", status=None),
+            Candidate(
+                source="pdfplumber",
+                index=1,
+                payload=[{"text": "Discussion\nOur findings are consistent with prior literature suggesting that early intervention leads to better long-term outcomes. The mechanism of action involves modulation of inflammatory pathways."}],
+                status=None,
+            ),
+        ]
+        config = {"quality_control": {}}
+
+        selected_branch, score, rationale = select_primary_branch(branches, config)
+
+        assert score.composite > 0.0
+        assert score.has_content is True
+
+    def test_grobid_empty_scores_zero_composite(self) -> None:
+        """An empty GROBID branch must score 0.0 composite."""
+        from quality_control.adjudicator import score_branch
+
+        grobid_branch = Candidate(source="grobid", index=0, payload="", status=None)
+        all_branches = [grobid_branch]
+
+        grobid_score = score_branch(grobid_branch, all_branches)
+
+        assert grobid_score.composite == 0.0
+        assert grobid_score.has_content is False

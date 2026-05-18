@@ -10,7 +10,57 @@ factory functions instead of raw dict literals.
 side effects.
 """
 
+from __future__ import annotations
+
 from . import schemas
+
+
+def _should_insert_space(prev_span: dict, curr_span: dict) -> bool:
+    """Determine if a space should be inserted between adjacent spans.
+
+    A space is inserted when the horizontal gap between the right edge of
+    *prev_span* and the left edge of *curr_span* exceeds 1/4 of the average
+    character width in the preceding span.  Zero-gap spans (e.g., bold +
+    normal within one word) are joined without a space.
+
+    Parameters
+    ----------
+    prev_span:
+        The preceding span dict (must have ``bbox`` and ``text`` keys).
+    curr_span:
+        The current span dict (must have ``bbox`` and ``text`` keys).
+
+    Returns
+    -------
+    bool
+        ``True`` if a space should be inserted between the two spans.
+
+    Requirements: 13.1, 13.2
+    """
+    prev_bbox = prev_span.get("bbox")
+    curr_bbox = curr_span.get("bbox")
+
+    if not prev_bbox or not curr_bbox:
+        return True  # conservative: insert space when bbox unavailable
+
+    prev_x1 = prev_bbox[2]  # right edge of previous span
+    curr_x0 = curr_bbox[0]  # left edge of current span
+    gap = curr_x0 - prev_x1
+
+    # Negative or zero gap means spans overlap or are immediately adjacent.
+    if gap <= 0:
+        return False
+
+    # Threshold: 1/4 of average character width in preceding span.
+    prev_text = prev_span.get("text", "")
+    if prev_text:
+        prev_width = prev_bbox[2] - prev_bbox[0]
+        avg_char_width = prev_width / len(prev_text)
+        threshold = avg_char_width / 4.0
+    else:
+        threshold = 1.0  # fallback: 1 point
+
+    return gap > threshold
 
 
 def extract_with_pymupdf(pdf_path: str) -> tuple:
@@ -52,16 +102,24 @@ def extract_with_pymupdf(pdf_path: str) -> tuple:
                 if block.get("type") != 0:
                     continue
 
-                block_spans_text: list[str] = []
+                block_text_parts: list[str] = []
                 block_spans: list[schemas.SpanDict] = []
 
                 for line in block.get("lines", []):
-                    for span in line.get("spans", []):
+                    line_spans = line.get("spans", [])
+                    prev_raw_span: dict | None = None
+
+                    for span in line_spans:
                         span_text: str = span.get("text", "")
                         span_size: float = span.get("size", 0.0)
 
-                        # Accumulate span text for the parent block.
-                        block_spans_text.append(span_text)
+                        # Gap-aware joining: insert space between spans
+                        # when horizontal gap exceeds threshold.
+                        if prev_raw_span is not None:
+                            if _should_insert_space(prev_raw_span, span):
+                                block_text_parts.append(" ")
+
+                        block_text_parts.append(span_text)
                         block_spans.append(
                             schemas.SpanDict(
                                 text=span_text,
@@ -82,7 +140,9 @@ def extract_with_pymupdf(pdf_path: str) -> tuple:
                             )
                         )
 
-                joined_block_text = "".join(block_spans_text).strip()
+                        prev_raw_span = span
+
+                joined_block_text = "".join(block_text_parts).strip()
                 if joined_block_text:
                     blocks.append(
                         schemas.make_block(
