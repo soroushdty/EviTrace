@@ -28,7 +28,7 @@ _QC_DEFAULTS: dict = {
     # normalizer.backend: valid values — "nfc" | "nfkc"
     "text_processor": {
         "class": "text_processing.composite.DefaultTextProcessor",
-        "sentence_tokenizer": {"backend": "scispacy", "model": "en_core_sci_sm"},
+        "sentence_tokenizer": {"backend": "nltk_punkt"},
         "word_tokenizer": {"backend": "simple"},
         "normalizer": {"backend": "nfkc"},
         "comparison": {"metric": "levenshtein", "threshold": 0.85},
