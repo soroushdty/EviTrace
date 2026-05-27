@@ -146,10 +146,11 @@ quality_control:
     #   container; matches the worker pool size reserved by GROBID.
     # - cpus: optional docker --cpus limit. Leave empty to let the container
     #   use all available CPUs (recommended).
-    # -Xms2g matches the CRF-model working set so we don't pay young-gen
-    # churn during the warm phase; -Xmx4g caps a runaway extraction.
-    java_opts: "-Xms2g -Xmx4g -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:+UseStringDeduplication"
-    concurrency: 10
+    # -Xms512m allows the JVM to start without pre-allocating 2g of heap
+    # upfront (important on no-swap systems and Docker with memory limits).
+    # -Xmx4g caps a runaway extraction.
+    java_opts: "-Xms512m -Xmx4g -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:+UseStringDeduplication"
+    concurrency: 4
     cpus: ""
     url: "http://127.0.0.1:8070"
     # When false (default), the container is left running between EviTrace
