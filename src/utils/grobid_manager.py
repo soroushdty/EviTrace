@@ -198,6 +198,7 @@ class GrobidServerManager:
             if not ready:
                 print("\nGROBID server failed to start in time.")
                 logger.error("GROBID did not report healthy within 300s (fresh container).")
+                self._print_container_logs(self.container_name, tail=40)
                 sys.exit(1)
 
         # 4. Warm up the CRF models by sending a trivial PDF.
@@ -453,6 +454,24 @@ class GrobidServerManager:
         if status in {"exited", "created", "dead"}:
             return "exited"
         return "other" if status else "missing"
+
+    @staticmethod
+    def _print_container_logs(name: str, tail: int = 40) -> None:
+        """Print the last *tail* lines of a container's logs to aid diagnosis."""
+        try:
+            result = subprocess.run(
+                ["docker", "logs", "--tail", str(tail), name],
+                capture_output=True, text=True,
+            )
+            output = (result.stdout or "") + (result.stderr or "")
+            if output.strip():
+                print(f"\n--- Last {tail} lines of GROBID container logs ---")
+                print(output.strip())
+                print("---")
+            else:
+                print("(No container log output available.)")
+        except Exception:
+            pass
 
     @staticmethod
     def _remove_container(name: str) -> None:
