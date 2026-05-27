@@ -207,6 +207,7 @@ def load_qc_config(config_path: str | None = None) -> dict:
     user_cfg = {
         "quality_control": raw.get("quality_control", {}) or {},
         "text_processor": raw.get("text_processor", {}) or {},
+        "ocr": raw.get("ocr", True),
     }
     return _deep_merge(_QC_DEFAULTS, user_cfg)
 
