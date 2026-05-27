@@ -12,6 +12,8 @@ import asyncio
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
+
 import pipeline
 from pipeline.extraction_report import generate_flagged_fields_report
 from utils.config_utils import load_openai_config, load_local_config
