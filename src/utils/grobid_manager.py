@@ -475,15 +475,15 @@ class GrobidServerManager:
                 "Docker daemon is not reachable and this session is non-interactive."
             )
             print(
-                "Docker daemon is not running. Start Docker Desktop and re-run, "
+                "Docker daemon is not running. Start Docker and re-run, "
                 "or set quality_control.grobid.auto_start: false and run GROBID externally."
             )
             return False
 
-        print("\nPlease start Docker Desktop to use GROBID extraction.")
+        print("\nPlease start Docker to use GROBID extraction.")
         try:
             ans = input(
-                "Would you like EviTrace to automatically launch Docker Desktop for you? [Y/n]: "
+                "Would you like EviTrace to automatically launch Docker for you? [Y/n]: "
             ).strip()
         except EOFError:
             return False
@@ -492,7 +492,7 @@ class GrobidServerManager:
             return False
 
         if not self._launch_docker_desktop():
-            print("\nCould not automatically launch Docker Desktop from standard locations.")
+            print("\nCould not automatically launch Docker from standard locations.")
             try:
                 path = input(
                     "Please input the exact path to your Docker executable to launch it, "
@@ -504,7 +504,7 @@ class GrobidServerManager:
                 print("Please start Docker manually and re-run EviTrace.")
                 return False
             if not self._launch_custom(path):
-                print("Failed to launch from the provided path. Please start Docker manually and re-run.")
+                print("Failed to launch from the provided path. Please start Docker manually and re-run EviTrace.")
                 return False
 
         print("Waiting for Docker daemon to start...")
@@ -551,8 +551,21 @@ class GrobidServerManager:
                 subprocess.Popen(["open", "-a", "Docker"])
                 return True
             elif system == "Linux":
-                subprocess.Popen(["systemctl", "--user", "start", "docker-desktop"])
-                return True
+                # Try Docker Desktop first, then fall back to Docker Engine variants.
+                candidates = [
+                    ["systemctl", "--user", "start", "docker-desktop"],
+                    ["sudo", "systemctl", "start", "docker"],
+                    ["sudo", "service", "docker", "start"],
+                ]
+                for cmd in candidates:
+                    try:
+                        result = subprocess.run(
+                            cmd, capture_output=True, timeout=15
+                        )
+                        if result.returncode == 0:
+                            return True
+                    except Exception:
+                        continue
         except Exception:
             pass
         return False
