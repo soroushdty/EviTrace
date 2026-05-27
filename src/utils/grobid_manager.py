@@ -464,10 +464,22 @@ class GrobidServerManager:
         except subprocess.CalledProcessError:
             pass
 
+    _DOCKER_GROUP_HINT = (
+        "\nDocker is running but your user does not have permission to access it.\n"
+        "Add yourself to the docker group and re-login to fix this permanently:\n"
+        "  sudo usermod -aG docker $USER\n"
+        "  newgrp docker        # apply in the current shell without logging out\n"
+        "Then re-run EviTrace."
+    )
+
     def _ensure_docker_running(self) -> bool:
         """Ensure the Docker daemon is reachable, prompting the user when possible."""
-        if self._is_docker_running():
+        status = self._docker_status()
+        if status == "running":
             return True
+        if status == "no_permission":
+            print(self._DOCKER_GROUP_HINT)
+            return False
 
         # Non-interactive environment: don't prompt, just fail clearly.
         if not sys.stdin.isatty():
@@ -509,8 +521,12 @@ class GrobidServerManager:
 
         print("Waiting for Docker daemon to start...")
         for _ in range(30):
-            if self._is_docker_running():
+            status = self._docker_status()
+            if status == "running":
                 return True
+            if status == "no_permission":
+                print(self._DOCKER_GROUP_HINT)
+                return False
             time.sleep(2)
         print(
             "Docker daemon did not start within the expected time. "
@@ -531,12 +547,22 @@ class GrobidServerManager:
             return False
 
     @staticmethod
-    def _is_docker_running() -> bool:
+    def _docker_status() -> str:
+        """Return 'running', 'no_permission', or 'not_running'."""
         try:
-            subprocess.run(["docker", "info"], capture_output=True, check=True)
-            return True
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            return False
+            result = subprocess.run(["docker", "info"], capture_output=True)
+            if result.returncode == 0:
+                return "running"
+            stderr = (result.stderr or b"").lower()
+            if b"permission denied" in stderr:
+                return "no_permission"
+            return "not_running"
+        except FileNotFoundError:
+            return "not_running"
+
+    @staticmethod
+    def _is_docker_running() -> bool:
+        return GrobidServerManager._docker_status() == "running"
 
     @staticmethod
     def _launch_docker_desktop() -> bool:
