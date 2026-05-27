@@ -464,10 +464,22 @@ class GrobidServerManager:
         except subprocess.CalledProcessError:
             pass
 
+    _DOCKER_GROUP_HINT = (
+        "\nDocker is running but your user does not have permission to access it.\n"
+        "Add yourself to the docker group and re-login to fix this permanently:\n"
+        "  sudo usermod -aG docker $USER\n"
+        "  newgrp docker        # apply in the current shell without logging out\n"
+        "Then re-run EviTrace."
+    )
+
     def _ensure_docker_running(self) -> bool:
         """Ensure the Docker daemon is reachable, prompting the user when possible."""
-        if self._is_docker_running():
+        status, _ = self._docker_status()
+        if status == "running":
             return True
+        if status == "no_permission":
+            print(self._DOCKER_GROUP_HINT)
+            return False
 
         # Non-interactive environment: don't prompt, just fail clearly.
         if not sys.stdin.isatty():
@@ -508,13 +520,24 @@ class GrobidServerManager:
                 return False
 
         print("Waiting for Docker daemon to start...")
+        last_diagnostic = ""
         for _ in range(30):
-            if self._is_docker_running():
+            status, diagnostic = self._docker_status()
+            if status == "running":
                 return True
+            if status == "no_permission":
+                print(self._DOCKER_GROUP_HINT)
+                return False
+            last_diagnostic = diagnostic
             time.sleep(2)
+        print("Docker daemon did not start within the expected time.")
+        if last_diagnostic:
+            print(f"Last error from 'docker info': {last_diagnostic[:400]}")
         print(
-            "Docker daemon did not start within the expected time. "
-            "Please ensure it's fully running and try again."
+            "Troubleshooting tips:\n"
+            "  • Check Docker service status : sudo systemctl status docker\n"
+            "  • View Docker logs            : sudo journalctl -u docker -n 30\n"
+            "  • Check group membership      : groups $USER"
         )
         return False
 
@@ -531,12 +554,28 @@ class GrobidServerManager:
             return False
 
     @staticmethod
-    def _is_docker_running() -> bool:
+    def _docker_status() -> tuple[str, str]:
+        """Return ('running'|'no_permission'|'not_running', diagnostic_text)."""
         try:
-            subprocess.run(["docker", "info"], capture_output=True, check=True)
-            return True
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            return False
+            result = subprocess.run(["docker", "info"], capture_output=True)
+            combined_bytes = (result.stderr or b"") + (result.stdout or b"")
+            diagnostic = combined_bytes.decode(errors="replace").strip()
+            if result.returncode == 0:
+                return "running", ""
+            if b"permission denied" in combined_bytes.lower():
+                return "no_permission", diagnostic
+            return "not_running", diagnostic
+        except FileNotFoundError:
+            return "not_running", "docker CLI not found on PATH"
+
+    @staticmethod
+    def _is_docker_running() -> bool:
+        status, _ = GrobidServerManager._docker_status()
+        return status == "running"
+
+    @staticmethod
+    def _is_docker_running() -> bool:
+        return GrobidServerManager._docker_status() == "running"
 
     @staticmethod
     def _launch_docker_desktop() -> bool:
