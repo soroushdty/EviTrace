@@ -149,7 +149,9 @@ quality_control:
     # -Xms512m allows the JVM to start without pre-allocating 2g of heap
     # upfront (important on no-swap systems and Docker with memory limits).
     # -Xmx4g caps a runaway extraction.
-    java_opts: "-Xms512m -Xmx4g -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:+UseStringDeduplication"
+    # -XX:-UseContainerSupport disables JVM cgroupv2 detection, which crashes
+    # with NullPointerException on cgroupv2-only hosts (modern Linux kernels).
+    java_opts: "-Xms512m -Xmx4g -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:+UseStringDeduplication -XX:-UseContainerSupport"
     concurrency: 4
     cpus: ""
     url: "http://127.0.0.1:8070"
