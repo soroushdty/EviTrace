@@ -12,24 +12,7 @@ import asyncio
 import sys
 from pathlib import Path
 
-# Quick runtime fix: ensure `src/` is on sys.path for local runs.
-#
-# Reason: this repository uses a `src/` layout (packages live under `src/`),
-# so running `python main.py` from the repo root doesn't automatically make
-# those packages importable. This `sys.path` insertion is a minimal, local
-# workaround so `import pipeline` succeeds during development.
-#
-# Permanent fix: make the project installable so imports work everywhere
-# (CI, `python -m`, other developers). Example permanent steps:
-#  - Add setuptools config in `pyproject.toml`:
-#      [tool.setuptools]
-#      package-dir = { "": "src" }
-#      [tool.setuptools.packages.find]
-#      where = ["src"]
-#  - Then run `pip install -e .` in your virtualenv.
-#
-# Recommendation: switch to the permanent fix for long-term use.
-sys.path.insert(0, str(Path(__file__).parent / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
 import pipeline
 from pipeline.extraction_report import generate_flagged_fields_report
