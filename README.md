@@ -99,9 +99,15 @@ agent can each be reused outside the end-to-end review workflow.
 ```bash
 git clone <repo-url> EviTrace
 cd EviTrace
+uv venv --python 3.12 .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 export OPENAI_API_KEY="sk-..."
 ```
+
+The repository is pinned to Python 3.12.x. `requirements.txt` installs the
+project dependencies with a version gate, so pip rejects unsupported
+interpreters during setup.
 
 ### Add input PDFs
 

@@ -1,6 +1,7 @@
 # Runtime dependencies
-# Requires Python >=3.10, <3.13  (scispacy==0.6.2 caps at <3.13; Python 3.14 is not supported)
-# Recommended: Python 3.12  (use: uv venv --python 3.12 .venv)
+# Requires Python 3.12.x; the repo is pinned to Python 3.12 and refuses other interpreters.
+# Create the virtualenv with: uv venv --python 3.12 .venv
+evitrace-python-version-guard==0 ; python_version != "3.12"
 gdown>=5.1.0
 PyMuPDF>=1.24.0
 numpy>=1.24.0,<2.0.0  # scispacy==0.6.2 requires numpy<2.0
