@@ -113,8 +113,7 @@ text_processor:
   class: "text_processing.composite.DefaultTextProcessor"
   # sentence_tokenizer.backend: "scispacy" | "wtpsplit" | "nltk_punkt" (default) | "spacy_sentencizer" | "stanza"
   sentence_tokenizer:
-    backend: "scispacy"
-    model: "en_core_sci_sm"
+    backend: "nltk_punkt"
   # word_tokenizer.backend: "simple" (default) | "spacy" | "nltk"
   word_tokenizer:
     backend: "spacy"
