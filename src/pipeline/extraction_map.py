@@ -70,6 +70,9 @@ def _build_field_lookup() -> Dict[int, dict]:
     with open(EXTRACTION_MAP, encoding="utf-8") as f:
         all_fields: List[dict] = json.load(f)
     return {
-        f["field_index"]: {"domain_group": f["domain_group"], "field_name": f["field_name"]}
+        f["field_index"]: {
+            "domain_group": int(f["domain_group"].split(".")[0]),
+            "field_name": f["field_name"],
+        }
         for f in all_fields
     }
