@@ -332,7 +332,27 @@ def build_qc_bundle(
         )
 
         def _run_scan_detector() -> list:
-            import fitz as _fitz  # noqa: PLC0415 — lazy; not installed in all envs
+            try:
+                import fitz as _fitz  # noqa: PLC0415 — lazy; optional (AGPL) dependency
+            except ImportError:
+                # PyMuPDF is an optional (AGPL) dependency. Without it, per-page
+                # scan detection — and the OCR path it gates — is unavailable, so
+                # treat every page as native and let the GROBID + pdfplumber path
+                # handle the document. A genuinely scanned PDF then surfaces as low
+                # extraction coverage in QC rather than being routed to OCR.
+                import pdfplumber  # noqa: PLC0415
+                logger.warning(
+                    "PyMuPDF (fitz) not installed; skipping scan detection for %s "
+                    "and treating all pages as native. Install the 'ocr' extra to "
+                    "enable scan detection and OCR for scanned PDFs.",
+                    pdf_name,
+                )
+                with pdfplumber.open(str(pdf_path)) as _pdf:
+                    page_count = len(_pdf.pages)
+                return [
+                    scan_detector.PageScanClassification(page_index=i, is_native=True)
+                    for i in range(page_count)
+                ]
             d = _fitz.open(str(pdf_path))
             try:
                 return [

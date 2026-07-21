@@ -3,7 +3,6 @@
 # Create the virtualenv with: uv venv --python 3.12 .venv
 evitrace-python-version-guard==0 ; python_version != "3.12"
 gdown>=5.1.0
-PyMuPDF>=1.24.0
 numpy>=1.24.0,<2.0.0  # scispacy==0.6.2 requires numpy<2.0
 PyYAML>=6.0
 pdfplumber>=0.10.0
@@ -18,7 +17,11 @@ jsonschema>=4.0.0      # JSON Schema validation (Draft 7) used by quality_contro
 # See quality_control.grobid.docker_image in config/config.yaml.
 
 # Optional / heavy dependencies (lazy-loaded; install only what you need)
-# OCR path (scanned PDFs)
+# OCR path (scanned PDFs) + scan detection. Installed via the "ocr" extra.
+# PyMuPDF is AGPL-licensed and is intentionally kept out of the default
+# (permissive) install; without it, native PDFs are handled by GROBID +
+# pdfplumber and scan detection / OCR are unavailable.
+# PyMuPDF>=1.24.0
 # paddleocr>=2.7.0
 # paddlepaddle>=2.5.0
 # pdf2image>=1.17.0

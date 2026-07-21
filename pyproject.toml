@@ -4,7 +4,6 @@ version = "0.1.0"
 requires-python = "==3.12.*"
 dependencies = [
     "gdown>=5.1.0",
-    "PyMuPDF>=1.24.0",
     "numpy>=1.24.0,<2.0.0",
     "PyYAML>=6.0",
     "pdfplumber>=0.10.0",
@@ -16,7 +15,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-ocr = ["paddleocr>=2.7.0", "paddlepaddle>=2.5.0", "pdf2image>=1.16.0"]
+# PyMuPDF is AGPL-licensed; it is kept out of the default (permissive) install.
+# It powers per-page scan detection, the OCR cross-check, PDF figure/table
+# crops, and PDF-metadata year heuristics. Without it, native PDFs are handled
+# by the GROBID + pdfplumber path; scan detection and OCR are unavailable.
+ocr = ["PyMuPDF>=1.24.0", "paddleocr>=2.7.0", "paddlepaddle>=2.5.0", "pdf2image>=1.16.0"]
 nlp = ["scispacy==0.5.5"]
 semantic = ["sentence-transformers>=2.2.0", "faiss-cpu>=1.7.0"]
 

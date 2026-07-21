@@ -109,6 +109,20 @@ The repository is pinned to Python 3.12.x. `requirements.txt` installs the
 project dependencies with a version gate, so pip rejects unsupported
 interpreters during setup.
 
+**PyMuPDF is an optional dependency.** It is AGPL-licensed and is kept out of
+the default install so the core stays on permissively-licensed libraries
+(GROBID + pdfplumber handle native PDFs). Install it — together with the OCR
+stack — via the `ocr` extra when you need scan detection, OCR for scanned
+pages, or PDF figure/table crops:
+
+```bash
+pip install -e ".[ocr]"
+```
+
+Without PyMuPDF, native (text-layer) PDFs extract normally; scanned pages are
+treated as native and surface as low extraction coverage in QC rather than
+being routed to OCR.
+
 ### Add input PDFs
 
 Drop PDFs into the `pdfs/` folder (or any folder pointed to by
@@ -384,7 +398,7 @@ Each extracted record looks like:
 
 - **Python 3.10+**
 - **OpenAI Responses API** (`openai>=1.0.0`) — chunked structured-output extraction with prompt caching
-- **PyMuPDF** (`PyMuPDF>=1.24.0`) — font metadata + scanned-path cross-validation
+- **PyMuPDF** (`PyMuPDF>=1.24.0`, **optional** — `ocr` extra; AGPL) — scan detection, font metadata + scanned-path cross-validation, figure/table crops
 - **pdfplumber** (`pdfplumber>=0.10.0`) — structural text blocks (native path)
 - **GROBID** — TEI XML semantic authority (optional service; auto-start via Docker)
 - **PaddleOCR** (`paddleocr`, `paddlepaddle`) — OCR backend for scanned pages (lazy import)

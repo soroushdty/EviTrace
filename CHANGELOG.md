@@ -22,6 +22,26 @@ or docs referenced the old `specs/` paths, so nothing else changed.
 - Added `.kiro/specs/xtrace-toolkit/` (Phase-1 spec: requirements, design, tech,
   research, spec.json) for the evidence-traceability toolkit.
 
+## [2026-07] — Make PyMuPDF an optional (AGPL) dependency
+
+PyMuPDF (`fitz`) is AGPL-licensed. To keep the default install on
+permissively-licensed libraries, it was moved out of the required dependencies
+into the `ocr` extra, and its runtime uses now degrade gracefully when it is
+absent. Native (text-layer) PDFs are handled by the GROBID + pdfplumber path
+with no PyMuPDF present.
+
+- Removed `PyMuPDF>=1.24.0` from required deps in `requirements.txt` and
+  `pyproject.toml`; added it to the `ocr` optional-dependencies extra.
+- `pipeline/extraction_pipeline.py`: `_run_scan_detector` now falls back to
+  treating all pages as native (page count via pdfplumber) with a warning when
+  `fitz` is not installed, instead of raising `ImportError`. Scan detection and
+  the OCR path it gates require the `ocr` extra.
+- `pipeline/evidence_index.py`: figure/table crop generation
+  (`attach_table_figure_crops`) now guards its `import fitz` and skips crops
+  with a warning when PyMuPDF is absent. (Year-heuristic fitz uses were already
+  guarded.)
+- Updated README install docs and the dependency list to mark PyMuPDF optional.
+
 ## [2026-05] — Remove `pdf_extractor/annotation/` wrapper
 
 Deleted the `pdf_extractor/annotation/` subpackage which was a thin proxy to
