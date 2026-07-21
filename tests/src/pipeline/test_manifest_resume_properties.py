@@ -71,14 +71,19 @@ _valid_field_st = st.fixed_dictionaries({
 # Strategy for valid output data (list of field dicts)
 _valid_output_st = st.lists(_valid_field_st, min_size=1, max_size=5)
 
-# Strategy for corrupt/non-JSON content
+# Strategy for corrupt/non-JSON content.
+#
+# The trailing filter is load-bearing and applies to *every* branch, not just
+# the free-text one. Several branches can incidentally emit well-formed JSON --
+# most notably the binary branch, where a single byte such as b"0" decodes to
+# "0", which json.loads accepts as the number zero. Without the filter these
+# tests assert that valid JSON is rejected as corrupt, which is the opposite of
+# the documented behaviour of _is_output_valid / _load_completed_result.
 _corrupt_content_st = st.one_of(
     # Truncated JSON
     st.builds(lambda data: json.dumps(data)[:5], _valid_output_st),
     # Random non-JSON text
-    st.text(min_size=1, max_size=200).filter(
-        lambda t: _is_not_valid_json(t)
-    ),
+    st.text(min_size=1, max_size=200),
     # Partial JSON object
     st.just('{"field_index": 1, "domain_group":'),
     # Unbalanced brackets
@@ -87,7 +92,7 @@ _corrupt_content_st = st.one_of(
     st.binary(min_size=1, max_size=50).map(
         lambda b: b.decode("latin-1")
     ),
-)
+).filter(lambda t: _is_not_valid_json(t))
 
 # Strategy for pdf names (simple alphanumeric)
 _pdf_name_st = st.text(

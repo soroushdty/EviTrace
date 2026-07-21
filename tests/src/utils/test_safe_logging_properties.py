@@ -100,9 +100,19 @@ def test_truncated_log_includes_sha256_hash_and_respects_limit(
         f"SHA-256 hash not found in log message. Expected: {expected_hash}"
     )
 
-    # The log message must NOT contain the full response (it should be truncated)
-    # The truncated preview is at most max_chars characters of the response + "..."
-    # So the full response should not appear verbatim in the log message
+    # The log message must NOT contain the full response (it should be truncated).
+    #
+    # Degenerate case, excluded below: when the withheld remainder
+    # response[max_chars:] is itself a prefix of the "..." marker (e.g. the
+    # response is "0"*14 + "." with max_chars=14), the truncated preview
+    # response[:max_chars] + "..." coincidentally contains the whole response
+    # as a substring. Nothing beyond max_chars is actually disclosed there --
+    # the extra characters come from the ellipsis marker, not from the
+    # response -- so a verbatim-substring check is the wrong formalization for
+    # that input. The real invariant is asserted immediately below: the log
+    # carries exactly response[:max_chars] plus the marker.
+    assume(not "...".startswith(response[max_chars:]))
+
     assert response not in log_message, (
         "Full response should not appear in log message when it exceeds max_chars"
     )

@@ -33,7 +33,12 @@ class WhitespaceNormalizer(TextProcessor):
     def normalize(self, text: str) -> str:
         if not text:
             return ""
-        return re.sub(r"\s+", " ", text.lower()).strip()
+        # casefold(), not lower(): str.lower() implements the Unicode
+        # Final_Sigma rule, so "Σ" lowercases to "ς" at the end of a word but
+        # "σ" elsewhere. That makes a needle ending in Σ fail to match the same
+        # substring inside a longer text -- a real defect for scientific prose,
+        # which is full of Greek letters. casefold() maps both forms to "σ".
+        return re.sub(r"\s+", " ", text.casefold()).strip()
 
     def tokenize_words(self, text: str) -> list[str]:
         raise NotImplementedError(
@@ -79,7 +84,8 @@ class AggressiveNormalizer(TextProcessor):
     def normalize(self, text: str) -> str:
         if not text:
             return ""
-        text = re.sub(r"\s+", " ", text.lower()).strip()
+        # casefold() rather than lower() -- see WhitespaceNormalizer.normalize.
+        text = re.sub(r"\s+", " ", text.casefold()).strip()
         text = re.sub(r"[^\w\s]", "", text)
         return re.sub(r"\s+", " ", text).strip()
 
