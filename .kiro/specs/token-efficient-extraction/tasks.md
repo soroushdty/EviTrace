@@ -153,7 +153,7 @@ This plan implements a token-efficiency layer for the EviTrace extraction pipeli
     - Test system prompt caching returns same object reference (Req 2.7)
     - _Requirements: 2.4, 2.7, 3.4, 3.5_
 
-- [ ] 7. Checkpoint - Ensure all tests pass
+- [x] 7. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 8. Integrate telemetry and budget into API client and pipeline
