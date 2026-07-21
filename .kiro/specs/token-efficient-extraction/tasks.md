@@ -91,7 +91,7 @@ This plan implements a token-efficiency layer for the EviTrace extraction pipeli
     - Test budget exceeded warning format includes stage, estimate, budget, top-3 sections (Req 7.4)
     - _Requirements: 7.3, 7.4, 7.5, 7.6_
 
-- [ ] 4. Checkpoint - Ensure all tests pass
+- [x] 4. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 5. Implement token report module
