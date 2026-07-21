@@ -7,7 +7,7 @@ This plan implements a token-efficiency layer for the EviTrace extraction pipeli
 ## Tasks
 
 - [ ] 1. Create telemetry module with data models and collector
-  - [ ] 1.1 Create `src/agents/openai/telemetry.py` with TelemetryRecord, PromptFingerprint, and StageSummary dataclasses
+  - [x] 1.1 Create `src/agents/openai/telemetry.py` with TelemetryRecord, PromptFingerprint, and StageSummary dataclasses
     - Define `PromptFingerprint` dataclass with `stable_prefix_hash: str` (16 hex chars) and `prompt_version: str` (max 64 chars)
     - Define `TelemetryRecord` dataclass with all fields: stage, model, timestamp, input_tokens, output_tokens, cached_input_tokens, uncached_input_tokens, total_tokens, prompt_fingerprint, optional field_index_start/end, domain_group, repair_attempt, error_type
     - Define `StageSummary` dataclass with stage, totals, request_count, mean_cache_rate
