@@ -1192,7 +1192,17 @@ def attach_table_figure_crops(
     if not _has_eligible_crop():
         return
 
-    import fitz
+    try:
+        import fitz
+    except ImportError:
+        # PyMuPDF is an optional (AGPL) dependency. Figure/table crop
+        # generation requires it; without it, skip crops (the evidence index
+        # and extraction are unaffected).
+        logger.warning(
+            "PyMuPDF (fitz) not installed; skipping figure/table crop "
+            "generation. Install the 'ocr' extra to enable crops."
+        )
+        return
 
     crop_dir = bundle.index_path.parent / "crops"
     crop_dir.mkdir(parents=True, exist_ok=True)
