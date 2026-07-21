@@ -108,7 +108,7 @@ This plan implements a token-efficiency layer for the EviTrace extraction pipeli
     - Write JSON to `output_dir / "token_report.json"`
     - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5, 10.6_
 
-  - [ ]* 5.2 Write property tests for token report in `tests/src/pipeline/test_token_report_properties.py`
+  - [x]* 5.2 Write property tests for token report in `tests/src/pipeline/test_token_report_properties.py`
     - **Property 19: Token report sum invariant**
     - **Property 20: Token report delta correctness**
     - **Validates: Requirements 9.5, 10.2, 10.3, 10.5**
