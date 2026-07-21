@@ -14,7 +14,7 @@ This plan implements a token-efficiency layer for the EviTrace extraction pipeli
     - Implement `compute_prompt_fingerprint(stable_prefix: str, prompt_version: str) -> PromptFingerprint` using SHA-256 truncated to 16 hex chars
     - _Requirements: 1.1, 1.2, 1.5, 8.1_
 
-  - [ ] 1.2 Implement `TelemetryCollector` class in `src/agents/openai/telemetry.py`
+  - [x] 1.2 Implement `TelemetryCollector` class in `src/agents/openai/telemetry.py`
     - Thread-safe collector using a list with lock protection
     - `record(record: TelemetryRecord) -> None` — append a record
     - `stage_summaries() -> list[StageSummary]` — aggregate per-stage totals and compute mean_cache_rate
