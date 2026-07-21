@@ -24,7 +24,7 @@ This plan implements a token-efficiency layer for the EviTrace extraction pipeli
     - `check_prefix_drift() -> None` — warn if same stage+prompt_version produces different stable_prefix_hash values
     - _Requirements: 1.4, 1.6, 8.3, 8.4_
 
-  - [ ]* 1.3 Write property tests for telemetry in `tests/src/agents/openai/test_telemetry_properties.py`
+  - [x]* 1.3 Write property tests for telemetry in `tests/src/agents/openai/test_telemetry_properties.py`
     - **Property 1: Telemetry record completeness and uncached token invariant**
     - **Property 2: Stage summary aggregation correctness**
     - **Property 16: Prompt fingerprint correctness**
@@ -212,6 +212,10 @@ This plan implements a token-efficiency layer for the EviTrace extraction pipeli
 - Regression tests guard against future changes increasing token usage beyond acceptable thresholds
 - All new modules follow existing project conventions: dataclasses, asyncio, `get_logger(__name__)`, lazy imports for heavy deps
 - Config additions must be registered in `_ALL_KNOWN_TOP_LEVEL_KEYS` in `src/utils/config_utils.py`
+
+## Implementation Notes
+
+- `tests/src/pipeline/test_manifest_resume_properties.py::test_property_16_is_output_valid_rejects_corrupt_files` and `test_property_16_corrupt_output_treated_as_absent` fail on a clean checkout unrelated to this feature (confirmed at commit e261fad, before any token-efficient-extraction test files existed). Hypothesis's local `.hypothesis/` example cache found a minimal falsifying case (`pdf_name='0'`, `corrupt_content='0'`) showing `_is_output_valid()` treats the bare JSON literal `"0"` as valid rather than corrupt. Pre-existing bug in manifest-resume logic, out of scope for this spec — disregard at "Checkpoint - Ensure all tests pass" gates (tasks 4, 7, 9, 11) unless a new full-suite run introduces additional failures beyond these two.
 
 ## Task Dependency Graph
 
