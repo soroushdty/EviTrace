@@ -67,7 +67,7 @@ This plan implements a token-efficiency layer for the EviTrace extraction pipeli
     - _Requirements: 4.1, 4.3, 4.5, 4.6, 4.7, 5.2_
 
 - [ ] 3. Implement token budget module
-  - [ ] 3.1 Create `src/pipeline/token_budget.py` with estimation, budget checking, and mitigation
+  - [x] 3.1 Create `src/pipeline/token_budget.py` with estimation, budget checking, and mitigation
     - Implement `estimate_tokens(text: str) -> int` — `len(text) // 4`
     - Define `BudgetCheckResult` dataclass with within_budget, estimated_tokens, budget_limit, stage, top_sections
     - Implement `check_budget(prompt_text: str, stage: str, budgets: dict[str, int]) -> BudgetCheckResult`
@@ -215,7 +215,7 @@ This plan implements a token-efficiency layer for the EviTrace extraction pipeli
 
 ## Implementation Notes
 
-- `tests/src/pipeline/test_manifest_resume_properties.py::test_property_16_is_output_valid_rejects_corrupt_files` and `test_property_16_corrupt_output_treated_as_absent` fail on a clean checkout unrelated to this feature (confirmed at commit e261fad, before any token-efficient-extraction test files existed). Hypothesis's local `.hypothesis/` example cache found a minimal falsifying case (`pdf_name='0'`, `corrupt_content='0'`) showing `_is_output_valid()` treats the bare JSON literal `"0"` as valid rather than corrupt. Pre-existing bug in manifest-resume logic, out of scope for this spec — disregard at "Checkpoint - Ensure all tests pass" gates (tasks 4, 7, 9, 11) unless a new full-suite run introduces additional failures beyond these two.
+- `tests/src/pipeline/test_manifest_resume_properties.py::test_property_16_is_output_valid_rejects_corrupt_files`, `test_property_16_corrupt_output_treated_as_absent`, and `test_property_16_identity_check_resets_corrupt_entries` fail on a clean checkout unrelated to this feature (confirmed at commit e261fad, before any token-efficient-extraction test files existed; the 3rd surfaced during task 3.1, same root cause, independently confirmed pre-existing by isolating token_budget.py out of the tree and re-running). Hypothesis's local `.hypothesis/` example cache found a minimal falsifying case (`pdf_name='0'`, `corrupt_content='0'`) showing `_is_output_valid()` treats the bare JSON literal `"0"` as valid rather than corrupt, which cascades into the identity-check test too. Pre-existing bug in manifest-resume logic, out of scope for this spec — disregard at "Checkpoint - Ensure all tests pass" gates (tasks 4, 7, 9, 11) unless a new full-suite run introduces additional failures beyond these three.
 - Task 2.1's `deterministic_merge()`: the "all agree after normalization" case emits the **normalized** value as canonical `v`, not a raw pre-normalization string tied to chunk position. Requirement 5.1's literal text ("value from the lowest-indexed chunk") is superseded here by the stronger, unconditional order-independence requirement (5.7 / Property 8) — a positional raw-string tie-break cannot be order-independent when two chunks agree post-normalization but differ in raw whitespace. Same code path also normalizes single-provider fields (Req 5.5). Downstream tasks (8.2 integration) should expect `merged_fields` values to always be whitespace-normalized, never raw chunk output verbatim.
 
 ## Task Dependency Graph
