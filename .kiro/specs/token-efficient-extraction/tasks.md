@@ -94,7 +94,7 @@ This plan implements a token-efficiency layer for the EviTrace extraction pipeli
 - [x] 4. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 5. Implement token report module
+- [x] 5. Implement token report module
   - [x] 5.1 Create `src/pipeline/token_report.py` with TokenReport dataclass and report generation
     - Define `TokenReport` dataclass with all fields: totals, rates, per_stage, top_5_expensive, telemetry_records, delta, status
     - Implement `generate_token_report(collector: TelemetryCollector, output_dir: Path) -> TokenReport`
@@ -113,7 +113,7 @@ This plan implements a token-efficiency layer for the EviTrace extraction pipeli
     - **Property 20: Token report delta correctness**
     - **Validates: Requirements 9.5, 10.2, 10.3, 10.5**
 
-  - [ ]* 5.3 Write unit tests for token report in `tests/src/pipeline/test_token_report.py`
+  - [x]* 5.3 Write unit tests for token report in `tests/src/pipeline/test_token_report.py`
     - Test file written to output directory (Req 10.1)
     - Test raw + aggregated both present when telemetry available (Req 10.4)
     - Test telemetry unavailable status output (Req 10.6)

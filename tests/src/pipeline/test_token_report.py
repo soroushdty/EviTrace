@@ -280,6 +280,45 @@ class TestTelemetryUnavailable:
         assert data["total_input_tokens"] is None
         assert data["overall_cache_rate"] is None
 
+    def test_telemetry_unavailable_full_field_set_null_or_empty_on_disk(self, tmp_path):
+        """Req 10.6 depth: every metric field -- not just the two spot-checked
+        above -- must round-trip through the actual on-disk JSON as null/empty,
+        never a misleading zero or omitted key. Mirrors the full in-memory
+        assertion set of test_no_misleading_zero_valued_metric_fields, but
+        verified against the real file bytes rather than the dataclass."""
+        collector = TelemetryCollector()
+        generate_token_report(collector, tmp_path)
+
+        with open(tmp_path / "token_report.json") as f:
+            data = json.load(f)
+
+        assert data["status"] == "telemetry_unavailable"
+        assert data["total_input_tokens"] is None
+        assert data["total_output_tokens"] is None
+        assert data["total_cached_input_tokens"] is None
+        assert data["total_uncached_input_tokens"] is None
+        assert data["overall_cache_rate"] is None
+        assert data["output_to_input_ratio"] is None
+        assert data["per_stage"] == []
+        assert data["top_5_expensive"] == []
+        assert data["telemetry_records"] == []
+        assert data["delta"] is None
+        # Every key from the dataclass schema must be present (not silently
+        # dropped by the JSON encoder for a null-heavy record).
+        assert set(data) == {
+            "total_input_tokens",
+            "total_output_tokens",
+            "total_cached_input_tokens",
+            "total_uncached_input_tokens",
+            "overall_cache_rate",
+            "output_to_input_ratio",
+            "per_stage",
+            "top_5_expensive",
+            "telemetry_records",
+            "delta",
+            "status",
+        }
+
 
 class TestDeltaComparison:
     def test_no_delta_when_no_prior_report(self, tmp_path):
@@ -358,3 +397,60 @@ class TestDeltaComparison:
         )
         report = generate_token_report(collector, tmp_path)
         assert report.delta is None
+
+    def test_delta_written_to_json_file_on_disk(self, tmp_path):
+        """Req 10.5 depth: the computed delta must actually be persisted in
+        token_report.json on disk, not merely populated on the in-memory
+        TokenReport returned to the caller. (Existing
+        test_json_file_matches_returned_report checks totals/per_stage/
+        telemetry_records/status against the file but never the delta key.)"""
+        prior_collector = _collector_with(
+            [_record("extraction_chunk", 1000, 100, 800)]  # cache_rate 0.8
+        )
+        generate_token_report(prior_collector, tmp_path)
+
+        current_collector = _collector_with(
+            [_record("extraction_chunk", 1000, 100, 900)]  # cache_rate 0.9
+        )
+        current_report = generate_token_report(current_collector, tmp_path)
+
+        with open(tmp_path / "token_report.json") as f:
+            data = json.load(f)
+
+        assert data["delta"] is not None
+        assert data["delta"] == current_report.delta
+        assert data["delta"]["cache_rate_change"] == pytest.approx(0.1)
+        assert data["delta"]["avg_uncached_per_request_change"] == pytest.approx(-100)
+        assert data["delta"]["total_tokens_change"] == pytest.approx(0)
+
+    def test_delta_chains_against_most_recently_written_prior_report(self, tmp_path):
+        """Req 10.5 depth: a third real generate_token_report() call must
+        diff against the SECOND report (the one most recently written to
+        the same output_dir), not the first -- proving the delta is a
+        genuine on-disk file comparison across separate pipeline runs
+        rather than a fixed/cached baseline. Existing
+        test_delta_computed_against_prior_report only exercises a single
+        prior-vs-current pair, which cannot distinguish "compares against
+        the latest file" from "compares against the first-ever file"."""
+        gen1_collector = _collector_with(
+            [_record("extraction_chunk", 1000, 100, 800)]  # cache_rate 0.8
+        )
+        generate_token_report(gen1_collector, tmp_path)
+
+        gen2_collector = _collector_with(
+            [_record("extraction_chunk", 1000, 100, 900)]  # cache_rate 0.9
+        )
+        generate_token_report(gen2_collector, tmp_path)
+
+        gen3_collector = _collector_with(
+            [_record("extraction_chunk", 1000, 100, 950)]  # cache_rate 0.95
+        )
+        gen3_report = generate_token_report(gen3_collector, tmp_path)
+
+        assert gen3_report.delta is not None
+        # Against gen2 (0.95 - 0.9 = 0.05) -- would be 0.15 if it had
+        # incorrectly compared against gen1 instead.
+        assert gen3_report.delta["cache_rate_change"] == pytest.approx(0.05)
+        # gen2 uncached/request = 100; gen3 = 50 -> change -50 (would be
+        # -150 if diffed against gen1's 200).
+        assert gen3_report.delta["avg_uncached_per_request_change"] == pytest.approx(-50)
