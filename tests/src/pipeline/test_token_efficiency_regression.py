@@ -20,13 +20,12 @@ domain_to_chunk mapping from src/utils/config_utils.py's
 design.md's "Integration / Regression Tests" section and this task's
 boundary (create ONLY this file; no production module may be modified).
 
-Honesty note (read before editing) -- Req 9.3 and Req 9.4
+Honesty note (read before editing) -- Req 9.3
 -----------------------------------------------------------
-Two of the six Requirement 9 criteria cannot be satisfied exactly as
+One of the six Requirement 9 criteria cannot be satisfied exactly as
 literally worded against this codebase's REAL, current configuration, for
 reasons already documented elsewhere in this spec (tasks.md
-"Implementation Notes", task 8.2's discovery re: domain_to_chunk, and task
-3.1/3.2's token_budget.py "Scope note" re: flat-text evidence pruning):
+"Implementation Notes", task 8.2's discovery re: domain_to_chunk):
 
 * Req 9.3 ("no synthesis call when all fields are non-conflicting"): this
   codebase's real ``_get_domain_to_chunk(5)`` mapping assigns every field
@@ -46,32 +45,38 @@ reasons already documented elsewhere in this spec (tasks.md
   independent, fixture-based regression guard specific to this file (not a
   duplicate import of that test).
 
-* Req 9.4 ("high-confidence Evidence_IDs remain present after evidence is
-  pruned from a chunk prompt"): confirmed by direct investigation (see
-  test_req_9_4 below) that pdf_processor.py's real integration
-  (``_check_and_mitigate_budget`` -> ``token_budget.apply_mitigation`` ->
-  ``token_budget._prune_evidence``) passes the REAL evidence package -- a
-  single-line ``json.dumps(..., ensure_ascii=False)`` string with no blank
-  lines at all -- to a pruning routine whose item-splitting convention is
-  the ``"\\n\\n"`` delimiter. Since the real evidence text never contains
-  that delimiter, item-count/trailing-item pruning is a complete no-op in
-  production, and pruning falls straight through to raw char-level
-  truncation of the JSON blob. This is confidence-blind and Evidence_ID-
-  blind by construction: whichever item happens to sort first
-  (lowest Evidence_ID) survives truncation, and whichever sorts last is
-  dropped, with zero regard for confidence labels. task 3.1/3.2's
-  ``test_token_budget_properties.py`` "Property 21 scope note" already
-  documented this gap at the token_budget.py-only level and deferred full
-  coverage to "the task 8.2 pdf_processor.py integration, which has that
-  [structured] data" -- but reading pdf_processor.py's actual integration
-  (this task's job) shows task 8.2 did NOT add confidence-aware pruning;
-  it re-uses the same flat-text ``token_budget.apply_mitigation`` verbatim.
-  Rather than fabricate a passing test that pretends the requirement is
-  met, this file documents the gap with a concrete, reproducible
-  demonstration using real production code (no faked internals), matching
-  the established precedent of "honestly characterize what the CURRENT
-  implementation actually and provably does" set by test_token_budget_
-  properties.py's Property 21 tests.
+Req 9.4 -- FIXED (previously documented here as a known limitation)
+---------------------------------------------------------------------
+Req 9.4 ("high-confidence Evidence_IDs remain present after evidence is
+pruned") was originally flagged in this file (and independently confirmed
+by /kiro-validate-impl's feature-level gate) as NOT satisfied in
+production: pdf_processor.py's synthesis-stage budget mitigation forwarded
+the real evidence package straight into token_budget.py's confidence-blind,
+flat-text ``apply_mitigation()``/``_prune_evidence()``, which has no concept
+of Evidence_ID or confidence and could drop a high-confidence reference
+while keeping a low-confidence one.
+
+This has been remediated in ``pdf_processor.py`` (see
+``_collect_protected_evidence_ids``, ``_prune_evidence_json_preserving_
+protected``, and ``_check_and_mitigate_budget``'s ``protected_evidence_ids``
+parameter): at the synthesis call site -- the only point in the pipeline
+where confidence-labeled data (deterministic-merge output, prefilled
+fields, conflict-candidate records) is actually available at prune-time --
+the union of Evidence_IDs referenced by any confidence-"h" field/candidate
+is computed and passed through so pruning never drops them, even under
+budget pressure. ``token_budget.py`` itself is intentionally left
+unchanged (still flat-text/confidence-blind in isolation, per its own
+module docstring "Scope note") since the fix lives one layer above it, in
+the integration that has the structured data; the extraction-chunk and
+validation_repair call sites are correspondingly unaffected because there
+is genuinely no confidence data to protect at those prune-time points (no
+field has been extracted yet).
+
+``test_req_9_4_evidence_pruning_preserves_high_confidence_evidence_ids``
+below now asserts the CORRECT (fixed) behavior directly against
+``pdf_processor.py``'s real pruning helpers, and
+``test_req_9_4_process_pdf_synthesis_preserves_high_confidence_evidence_id_end_to_end``
+exercises the fix through the real ``process_pdf`` synthesis call path.
 """
 from __future__ import annotations
 
@@ -523,52 +528,52 @@ def test_req_9_3_no_synthesis_call_when_all_fields_non_conflicting(tmp_path):
 
 # ---------------------------------------------------------------------------
 # Req 9.4: high-confidence Evidence_IDs preserved after evidence pruning
-# (KNOWN LIMITATION -- see module docstring's honesty note)
+# (FIXED -- see module docstring's honesty note)
 # ---------------------------------------------------------------------------
 
 
-def test_req_9_4_known_limitation_evidence_pruning_is_confidence_blind():
-    """Requirement 9.4, as literally worded, is NOT satisfied by the
-    current production code, and this test documents that concretely
-    rather than fabricating a passing check (see module docstring's
-    honesty note for the full investigation).
-
-    Setup: a fixture evidence bundle where the LOWEST Evidence_ID
-    (S000001, sorts first in the evidence package) is referenced by a
-    LOW-confidence field, and the HIGHEST Evidence_ID (S000005, sorts
-    last) is referenced by a HIGH-confidence ("h") field -- i.e. exactly
-    the scenario Req 9.4 says must survive pruning. The evidence package is
-    built via the REAL `build_paper_evidence_package` (single-line JSON,
-    no blank lines), and pruned via the REAL
-    `token_budget.apply_mitigation` under a budget small enough to force
-    truncation -- the same call path `pdf_processor.py`'s
-    `_check_and_mitigate_budget` uses in production (Requirement 7
-    integration).
-
-    Observed (and asserted) result: pruning keeps the EARLIEST-sorted
-    Evidence_ID (S000001, low confidence) and drops the LAST one (S000005,
-    high confidence) -- the opposite of what Req 9.4 requires. This is a
-    direct, structural consequence of `_prune_evidence`'s blank-line
-    ("\\n\\n") item-delimiter convention never matching a real, single-line
-    JSON evidence package: item-count/trailing-item pruning becomes a
-    no-op, and pruning falls through to raw char-level truncation, which
-    has no concept of Evidence_ID or confidence at all.
-    """
-    items = [
+def _make_req_9_4_fixture_items(n: int = 5) -> list[dict]:
+    """Deliberately long, near-identical filler evidence items so total
+    evidence size comfortably exceeds a small forced budget."""
+    return [
         {
             "id": f"S{i:06d}",
             "type": "sentence",
             "section_path": "body",
             "page": 1,
             "coords": None,
-            # Deliberately long, near-identical filler so total evidence
-            # size comfortably exceeds a small forced budget.
             "text": f"Evidence sentence number {i}. " + ("filler context text " * 20),
             "annotations": {},
             "score": 0,
         }
-        for i in range(1, 6)
+        for i in range(1, n + 1)
     ]
+
+
+def test_req_9_4_evidence_pruning_preserves_high_confidence_evidence_ids():
+    """Requirement 9.4 (FIXED -- see module docstring's honesty note):
+    a high-confidence field's Evidence_ID must survive synthesis-stage
+    evidence pruning even when it is positioned such that naive
+    tail-truncating pruning would have dropped it first.
+
+    Setup mirrors the original (now-fixed) known-limitation
+    investigation: a fixture evidence bundle where the LOWEST Evidence_ID
+    (S000001, sorts first in the evidence package -- i.e. what the old
+    flat-text truncation kept) is referenced by a LOW-confidence field,
+    and the HIGHEST Evidence_ID (S000005, sorts last -- what the old
+    flat-text truncation dropped first) is referenced by a
+    HIGH-confidence ("h") field. The evidence package is built via the
+    REAL `build_paper_evidence_package`, and pruned via
+    `pdf_processor._check_and_mitigate_budget` -- the exact function
+    `process_pdf`'s synthesis integration calls in production -- with
+    `protected_evidence_ids` computed by the real
+    `pdf_processor._collect_protected_evidence_ids` helper.
+
+    The forced budget is calibrated (not guessed) from the actual
+    protected-only serialization's token estimate, so this test
+    exercises the real threshold logic rather than an arbitrary cutoff.
+    """
+    items = _make_req_9_4_fixture_items(5)
     bundle = _make_bundle(evidence_items=items)
     all_fields = [
         {"field_index": 1, "field_name": "Low-confidence field", "definition": "d", "reviewer_question": "q"},
@@ -577,51 +582,233 @@ def test_req_9_4_known_limitation_evidence_pruning_is_confidence_blind():
     source_package = build_paper_evidence_package(bundle, all_fields, max_items=150, max_chars=100_000)
 
     # low-confidence field references the FIRST (lowest) Evidence_ID;
-    # high-confidence field references the LAST (highest) Evidence_ID.
+    # high-confidence field references the LAST (highest) Evidence_ID --
+    # the one naive tail-truncating pruning drops first.
     low_confidence_evidence_id = "S000001"
     high_confidence_evidence_id = "S000005"
     assert low_confidence_evidence_id in source_package
     assert high_confidence_evidence_id in source_package
 
-    prompt_parts = {
-        "system": "system prompt placeholder",
-        "evidence": source_package,
-        "field_definitions": json.dumps(all_fields),
-        "prior_context": "",
+    merged_fields = [
+        {"i": 1, "v": "low", "loc": [low_confidence_evidence_id], "c": "l"},
+        {"i": 2, "v": "high", "loc": [high_confidence_evidence_id], "c": "h"},
+    ]
+    protected_ids = _pdf_processor._collect_protected_evidence_ids(merged_fields, [], [])
+    assert protected_ids == {high_confidence_evidence_id}
+
+    system_text = "system prompt placeholder"
+    field_definitions_text = json.dumps(all_fields)
+    other_parts = {"system": system_text, "field_definitions": field_definitions_text, "prior_context": ""}
+
+    # Calibrate the forced budget from the real protected-only estimate
+    # (budget=0 forces the helper to drop every unprotected item), so the
+    # threshold below is derived from actual production logic rather than
+    # an arbitrary guess.
+    protected_only_text, _ = _pdf_processor._prune_evidence_json_preserving_protected(
+        source_package, protected_ids, other_parts, budget=0,
+    )
+    protected_only_tokens = token_budget.estimate_tokens(
+        token_budget._join_parts({**other_parts, "evidence": protected_only_text})
+    )
+    forced_budget = protected_only_tokens + 5
+
+    full_tokens = token_budget.estimate_tokens(
+        token_budget._join_parts({**other_parts, "evidence": source_package})
+    )
+    assert forced_budget < full_tokens, (
+        "fixture sanity check: forced budget must actually be below the "
+        "full (unpruned) prompt's estimate, or mitigation would never "
+        "trigger in the first place"
+    )
+
+    mitigated_text = _pdf_processor._check_and_mitigate_budget(
+        stage="synthesis",
+        system_text=system_text,
+        evidence_text=source_package,
+        field_definitions_text=field_definitions_text,
+        prior_context_text="",
+        budgets={"synthesis": forced_budget},
+        evidence_config={},
+        pdf_name="fixture_paper",
+        chunk_num=99,
+        protected_evidence_ids=protected_ids,
+    )
+
+    assert len(mitigated_text) < len(source_package), "expected pruning to actually shrink the evidence"
+    assert high_confidence_evidence_id in mitigated_text, (
+        "Req 9.4 regression: the high-confidence Evidence_ID must survive "
+        "synthesis-stage evidence pruning"
+    )
+    assert low_confidence_evidence_id not in mitigated_text, (
+        "expected the low-confidence, unprotected Evidence_ID to be pruned "
+        "to make room under the forced small budget -- if this now fails "
+        "pruning may not be happening at all, which would make the "
+        "high-confidence assertion above vacuous"
+    )
+
+
+def test_req_9_4_process_pdf_synthesis_preserves_high_confidence_evidence_id_end_to_end(tmp_path):
+    """Requirement 9.4 end-to-end: exercises the fix through the REAL
+    `process_pdf` synthesis call path (not just an isolated helper),
+    proving a high-confidence Evidence_ID from an extraction chunk's
+    deterministic-merge output actually reaches the synthesis LLM call
+    intact after budget-forced pruning.
+
+    Two-pass calibration (deterministic, not guessed):
+      Pass 1 runs with the default (large) synthesis Token_Budget and
+      captures the REAL, unmitigated synthesis evidence text plus the
+      real system/field-definitions/prior_context synthesis inputs
+      `process_pdf` builds for this fixture.
+      Pass 2 recomputes the exact token threshold at which pruning must
+      remove every unprotected item (via the same production helpers
+      used by pass 1's fix), sets that as the synthesis Token_Budget, and
+      reruns -- forcing real pruning through the real synthesis
+      integration.
+
+    Fixture: chunk 1 (extraction) yields field 3 with confidence "h"
+    referencing the LAST-sorted (highest) Evidence_ID -- the one naive
+    tail-truncating pruning would drop first -- and field 4 with
+    confidence "l" referencing the FIRST-sorted (lowest) Evidence_ID.
+    Chunk 2 (synthesis) owns its own exclusive field 5, so synthesis
+    always runs (Req 5.6 is not at stake here).
+    """
+    pdf_name = "paper_req_9_4_e2e"
+    items = _make_req_9_4_fixture_items(10)
+    evidence_map = {it["id"]: it for it in items}
+    bundle = _make_bundle(evidence_items=items, evidence_map=evidence_map)
+
+    low_confidence_evidence_id = "S000001"
+    high_confidence_evidence_id = "S000010"
+
+    chunk_fields = {
+        1: [
+            {"field_index": 3, "domain_group": "2. Clinical context", "field_name": "Study design"},
+            {"field_index": 4, "domain_group": "2. Clinical context", "field_name": "Sample size"},
+        ],
+        2: [{"field_index": 5, "domain_group": "13. Reviewer assessment", "field_name": "Synthesis notes"}],
     }
-    full_tokens = token_budget.estimate_tokens(token_budget._join_parts(prompt_parts))
-    # Force pruning: a budget well below the full estimate, but large
-    # enough that mitigation succeeds without raising
-    # TokenBudgetExceededError (Req 9.6's failure-reporting semantics for
-    # that error path are exercised by test_token_budget.py already; this
-    # test targets the pruning OUTCOME, not the reject path).
-    forced_budget = full_tokens // 2
+    field_lookup = {
+        3: {"domain_group": 2, "field_name": "Study design"},
+        4: {"domain_group": 2, "field_name": "Sample size"},
+        5: {"domain_group": 13, "field_name": "Synthesis notes"},
+    }
 
-    mitigated_text, warnings = token_budget.apply_mitigation(
-        prompt_parts, "extraction_chunk", forced_budget, {},
+    captured_synthesis_calls: list = []
+
+    def _make_side_effect():
+        def _side_effect(chunk_num, source, fields, *args, **kwargs):
+            if chunk_num == 1:
+                return json.dumps({
+                    "extractions": [
+                        {"i": 3, "v": "RCT", "loc": [high_confidence_evidence_id], "c": "h"},
+                        {"i": 4, "v": "120", "loc": [low_confidence_evidence_id], "c": "l"},
+                    ]
+                })
+            elif chunk_num == 2:
+                captured_synthesis_calls.append(
+                    {"source": source, "fields": fields, "prior_context": kwargs.get("prior_context")}
+                )
+                return json.dumps({"extractions": [{"i": 5, "v": "Solid paper", "loc": [], "c": "h"}]})
+            raise AssertionError(f"unexpected chunk_num {chunk_num}")
+        return _side_effect
+
+    openai_config_pass1 = _base_openai_config(num_chunks=2)
+    mock_api_1 = MagicMock()
+    mock_api_1.extract_chunk = AsyncMock(side_effect=_make_side_effect())
+    mock_api_1.warm_pdf_cache = AsyncMock()
+
+    result_1 = _run_process_pdf(
+        pdf_name, chunk_fields, field_lookup, bundle, openai_config_pass1, mock_api_1, tmp_path,
+    )
+    assert result_1 is not None
+    assert mock_api_1.extract_chunk.call_count == 2  # extraction chunk 1 + synthesis chunk 2
+    assert len(captured_synthesis_calls) == 1
+    full_synthesis_source = captured_synthesis_calls[0]["source"]
+    full_synthesis_fields = captured_synthesis_calls[0]["fields"]
+    full_prior_context = captured_synthesis_calls[0]["prior_context"]
+
+    # Sanity: with the large default synthesis budget, nothing was pruned,
+    # and both Evidence_IDs are present in the unmitigated evidence.
+    assert high_confidence_evidence_id in full_synthesis_source
+    assert low_confidence_evidence_id in full_synthesis_source
+
+    # --- Calibrate a forced synthesis budget using the REAL production
+    # helpers, from the REAL captured synthesis prompt components. ---
+    system_text = _pdf_processor.RepairRetryLoop._get_system_prompt_text()
+    field_definitions_text = json.dumps(
+        sorted(full_synthesis_fields, key=lambda f: f.get("field_index", 0))
+    )
+    prior_context_text = json.dumps(full_prior_context)
+    other_parts = {
+        "system": system_text,
+        "field_definitions": field_definitions_text,
+        "prior_context": prior_context_text,
+    }
+
+    merged_fields_for_protection = [
+        {"i": 3, "v": "RCT", "loc": [high_confidence_evidence_id], "c": "h"},
+        {"i": 4, "v": "120", "loc": [low_confidence_evidence_id], "c": "l"},
+    ]
+    protected_ids = _pdf_processor._collect_protected_evidence_ids(
+        merged_fields_for_protection, [], [],
+    )
+    assert protected_ids == {high_confidence_evidence_id}
+
+    protected_only_text, _ = _pdf_processor._prune_evidence_json_preserving_protected(
+        full_synthesis_source, protected_ids, other_parts, budget=0,
+    )
+    protected_only_tokens = token_budget.estimate_tokens(
+        token_budget._join_parts({**other_parts, "evidence": protected_only_text})
+    )
+    forced_synthesis_budget = protected_only_tokens + 5
+
+    full_tokens = token_budget.estimate_tokens(
+        token_budget._join_parts({**other_parts, "evidence": full_synthesis_source})
+    )
+    assert forced_synthesis_budget < full_tokens, (
+        "fixture sanity check: forced budget must be below the real, "
+        "unmitigated synthesis prompt's estimate, or pass 2 would never "
+        "actually trigger mitigation"
     )
 
-    assert warnings, "expected evidence pruning to have been applied for this forced-small budget"
-    assert len(mitigated_text) < len(token_budget._join_parts(prompt_parts)), (
-        "expected pruning to actually shrink the prompt"
+    # --- Pass 2: rerun with the forced-small synthesis budget. ---
+    openai_config_pass2 = _base_openai_config(num_chunks=2)
+    openai_config_pass2["token_budgets"] = {"synthesis": forced_synthesis_budget}
+    captured_synthesis_calls.clear()
+    mock_api_2 = MagicMock()
+    mock_api_2.extract_chunk = AsyncMock(side_effect=_make_side_effect())
+    mock_api_2.warm_pdf_cache = AsyncMock()
+
+    result_2 = _run_process_pdf(
+        pdf_name, chunk_fields, field_lookup, bundle, openai_config_pass2, mock_api_2, tmp_path,
     )
 
-    # This is the KNOWN LIMITATION: the high-confidence Evidence_ID is
-    # dropped, while the low-confidence one survives -- the inverse of
-    # Req 9.4's requirement. If a future change makes production pruning
-    # confidence-aware, this assertion should be revisited (it would then
-    # need to flip to asserting PRESERVATION of the high-confidence ID).
-    assert high_confidence_evidence_id not in mitigated_text, (
-        "KNOWN LIMITATION regression: expected the flat-text, confidence-"
-        "blind pruning path to drop the high-confidence Evidence_ID "
-        f"{high_confidence_evidence_id!r} under a forced small budget "
-        "(see this test's docstring and the module docstring's Req 9.4 "
-        "honesty note) -- if this now fails, either production pruning "
-        "became confidence-aware (great -- update this test to assert "
-        "preservation instead) or the pruning behavior changed in some "
-        "other way that should be investigated."
+    assert result_2 is not None, "process_pdf must still succeed under forced synthesis pruning"
+    assert len(captured_synthesis_calls) == 1
+    pruned_synthesis_source = captured_synthesis_calls[0]["source"]
+
+    assert len(pruned_synthesis_source) < len(full_synthesis_source), (
+        "expected the forced small synthesis budget to actually trigger "
+        "evidence pruning"
     )
-    assert low_confidence_evidence_id in mitigated_text
+    assert high_confidence_evidence_id in pruned_synthesis_source, (
+        "Req 9.4 regression: the high-confidence Evidence_ID "
+        f"{high_confidence_evidence_id!r} must survive real, end-to-end "
+        "synthesis-stage evidence pruning through process_pdf"
+    )
+    assert low_confidence_evidence_id not in pruned_synthesis_source, (
+        "expected the low-confidence, unprotected Evidence_ID to be "
+        "pruned -- if this now fails, pruning may not be happening at "
+        "all, which would make the high-confidence assertion above "
+        "vacuous"
+    )
+
+    # The final saved output is still correct (the fix only changes what
+    # evidence text is SENT to the LLM prompt, not the extracted values).
+    final_by_index = {f["field_index"]: f for f in result_2}
+    assert final_by_index[3]["extracted_value"] == "RCT"
+    assert final_by_index[4]["extracted_value"] == "120"
+    assert final_by_index[5]["extracted_value"] == "Solid paper"
 
 
 # ---------------------------------------------------------------------------

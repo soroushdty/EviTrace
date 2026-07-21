@@ -133,6 +133,118 @@ def _flat_prompt_size(prompt_parts: dict[str, str]) -> str:
     return "".join(prompt_parts.values())
 
 
+def _collect_protected_evidence_ids(
+    merged_fields: list[dict],
+    prefilled_fields: list[dict],
+    conflict_candidate_records: list[dict],
+) -> set[str]:
+    """Union of Evidence_IDs referenced by any high-confidence ("h") field
+    or candidate available at synthesis-prune time (Req 9.4, Property 21).
+
+    Covers every source of confidence-labeled data ``process_pdf`` has
+    already computed by the time it prunes the synthesis evidence package:
+
+    * ``merged_fields`` -- ``deterministic_merge``'s output
+      (``merged_fields_filtered``), each a compact ``{"i", "v", "loc",
+      "c"}`` dict.
+    * ``prefilled_fields`` -- TEI-prefilled fields (author/year), each
+      carrying a "confidence" and a "location" list. In today's code
+      ``location`` is always ``[]`` for these (prefilled fields are never
+      evidence-backed), so this contributes nothing in practice -- checked
+      anyway so a future change that starts attaching Evidence_IDs to
+      prefilled fields is automatically covered without another fix here.
+    * ``conflict_candidate_records`` -- the capped, highest-confidence-first
+      candidate records ``_build_conflict_candidate_records`` builds for
+      genuinely conflicting fields, each carrying "confidence" and
+      "evidence_ids".
+
+    Only fields/candidates whose confidence is exactly ``"h"`` contribute;
+    everything else (including unknown/malformed confidence values) is
+    ignored, matching Req 9.4's literal "confidence label 'h'" wording.
+    """
+    protected: set[str] = set()
+    for f in merged_fields:
+        if f.get("c") == "h":
+            protected.update(str(eid) for eid in (f.get("loc") or []))
+    for pf in prefilled_fields:
+        if pf.get("confidence") == "h":
+            protected.update(str(eid) for eid in (pf.get("location") or []))
+    for record in conflict_candidate_records:
+        if record.get("confidence") == "h":
+            protected.update(str(eid) for eid in (record.get("evidence_ids") or []))
+    return protected
+
+
+def _prune_evidence_json_preserving_protected(
+    evidence_text: str,
+    protected_ids: set[str],
+    other_parts: dict[str, str],
+    budget: int,
+) -> tuple[str, bool]:
+    """Prune a ``build_paper_evidence_package()``-shaped evidence JSON
+    string, never dropping an item whose ``"id"`` is in ``protected_ids``
+    (Req 9.4, Property 21).
+
+    ``evidence_text`` is expected to be the ``{"paper_id", "evidence_count",
+    "evidence": [...]}`` shape produced by
+    ``evidence_index.build_paper_evidence_package()`` (each item a dict with
+    an ``"id"`` key). If it doesn't parse as that shape -- e.g. a
+    non-JSON/test-only fixture string, or a future format change -- this
+    returns ``(evidence_text, False)`` unchanged so the caller can fall back
+    to ``token_budget.apply_mitigation``'s generic flat-text pruning
+    instead. This is a deliberate, narrow-scope helper: it is used ONLY by
+    the synthesis call site in ``process_pdf`` (via
+    ``_check_and_mitigate_budget``'s ``protected_evidence_ids`` parameter),
+    never by the extraction-chunk/validation_repair call sites, which have
+    no confidence data to protect at prune-time (see this module's
+    ``_check_and_mitigate_budget`` docstring).
+
+    Unprotected items are dropped one at a time from the tail of the
+    existing stable, id-sorted order -- mirroring
+    ``token_budget._prune_evidence``'s "earlier-listed items survive
+    pruning over later ones" convention -- until the reconstituted prompt
+    fits ``budget`` or no unprotected items remain. Every protected item is
+    always kept, even if the result still exceeds ``budget`` -- the caller
+    (``_check_and_mitigate_budget``) is responsible for handling that case
+    per Requirement 7.2(b)/(c).
+    """
+    try:
+        package = json.loads(evidence_text)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return evidence_text, False
+    if not isinstance(package, dict) or not isinstance(package.get("evidence"), list):
+        return evidence_text, False
+
+    items = package["evidence"]
+    protected_items = [
+        it for it in items if isinstance(it, dict) and str(it.get("id")) in protected_ids
+    ]
+    unprotected_items = [
+        it for it in items if not (isinstance(it, dict) and str(it.get("id")) in protected_ids)
+    ]
+
+    def _serialize(subset: list[dict]) -> str:
+        combined = protected_items + subset
+        combined.sort(key=lambda x: str(x.get("id", "")))
+        new_package = dict(package)
+        new_package["evidence"] = combined
+        new_package["evidence_count"] = len(combined)
+        return json.dumps(new_package, ensure_ascii=False, sort_keys=False)
+
+    def _estimate(ev_text: str) -> int:
+        candidate = dict(other_parts)
+        candidate["evidence"] = ev_text
+        return token_budget.estimate_tokens(_flat_prompt_size(candidate))
+
+    remaining_unprotected = list(unprotected_items)
+    current_text = _serialize(remaining_unprotected)
+    while remaining_unprotected and _estimate(current_text) > budget:
+        remaining_unprotected = remaining_unprotected[:-1]
+        current_text = _serialize(remaining_unprotected)
+
+    return current_text, current_text != evidence_text
+
+
 def _check_and_mitigate_budget(
     *,
     stage: str,
@@ -144,18 +256,30 @@ def _check_and_mitigate_budget(
     evidence_config: dict,
     pdf_name: str,
     chunk_num: int,
+    protected_evidence_ids: "set[str] | None" = None,
 ) -> str:
     """Check a prompt's estimated token count against its stage budget.
 
     An additive safety net (Requirements 7.1, 7.2): for normally-sized
     prompts this returns ``evidence_text`` unchanged after a cheap
     ``check_budget`` call. Only when the estimate exceeds the configured
-    Token_Budget does this apply ``token_budget.apply_mitigation()`` (evidence
-    pruning) and return the mitigated evidence text. Propagates
-    ``TokenBudgetExceededError`` when mitigation cannot bring the prompt
-    within budget (Req 7.2(c) rejection) -- callers let this surface as an
-    ordinary chunk/synthesis failure, consistent with how other extraction
-    errors are already handled.
+    Token_Budget does this apply mitigation and return the mitigated
+    evidence text. Propagates ``TokenBudgetExceededError`` when mitigation
+    cannot bring the prompt within budget (Req 7.2(c) rejection) --
+    callers let this surface as an ordinary chunk/synthesis failure,
+    consistent with how other extraction errors are already handled.
+
+    ``protected_evidence_ids`` (Req 9.4, Property 21): when non-empty,
+    switches mitigation to a confidence-aware pruning path
+    (``_prune_evidence_json_preserving_protected``) that never drops an
+    Evidence_ID in this set, even under budget pressure. This is passed
+    ONLY by the synthesis call site in ``process_pdf``, the one place
+    where confidence-labeled data (from ``deterministic_merge`` output,
+    prefilled fields, and conflict-candidate records) genuinely exists at
+    prune-time. The extraction-chunk and ``validation_repair`` call sites
+    never pass this argument (default ``None``) and therefore fall through
+    to the original, unmodified ``token_budget.apply_mitigation`` flat-text
+    behavior -- identical to before this parameter existed.
     """
     prompt_parts = {
         "system": system_text,
@@ -172,6 +296,63 @@ def _check_and_mitigate_budget(
         "applying mitigation",
         pdf_name, chunk_num, stage, check_result.estimated_tokens, check_result.budget_limit,
     )
+
+    if protected_evidence_ids:
+        other_parts = {k: v for k, v in prompt_parts.items() if k != "evidence"}
+        pruned_evidence, changed = _prune_evidence_json_preserving_protected(
+            evidence_text, protected_evidence_ids, other_parts, check_result.budget_limit,
+        )
+        candidate_parts = dict(prompt_parts)
+        candidate_parts["evidence"] = pruned_evidence
+        new_estimate = token_budget.estimate_tokens(_flat_prompt_size(candidate_parts))
+
+        if changed:
+            logger.warning(
+                "%s chunk %d: stage %r protected-evidence-aware pruning applied "
+                "(protecting %d high-confidence Evidence_ID(s)): estimated tokens "
+                "reduced from %d to %d (budget %d)",
+                pdf_name, chunk_num, stage, len(protected_evidence_ids),
+                check_result.estimated_tokens, new_estimate, check_result.budget_limit,
+            )
+
+        if new_estimate <= check_result.budget_limit:
+            return pruned_evidence
+
+        # Every unprotected item was removed and the prompt still exceeds
+        # budget -- the protected (high-confidence) evidence alone is too
+        # large. Do NOT fall back to token_budget.apply_mitigation's
+        # char-level last-resort truncation here: that operates blindly on
+        # the evidence string and could truncate a protected Evidence_ID
+        # out of the prompt, exactly what Req 9.4 forbids. Instead follow
+        # the same (b) split-signal -> (c) reject convention
+        # token_budget.apply_mitigation itself uses when pruning alone
+        # cannot succeed (Req 7.2(b)/(c), Property 22).
+        logger.warning(
+            "%s chunk %d: stage %r request splitting required: field-group "
+            "splitting cannot be performed here either; all %d protected "
+            "high-confidence Evidence_ID(s) were preserved but the prompt "
+            "still exceeds budget",
+            pdf_name, chunk_num, stage, len(protected_evidence_ids),
+        )
+        top_sections = sorted(
+            (
+                (name, token_budget.estimate_tokens(text))
+                for name, text in candidate_parts.items()
+            ),
+            key=lambda item: item[1], reverse=True,
+        )[:3]
+        logger.warning(
+            "Token budget exceeded for stage %r after protected-evidence-aware "
+            "pruning: estimated=%d budget=%d top_sections=%s",
+            stage, new_estimate, check_result.budget_limit, top_sections,
+        )
+        raise token_budget.TokenBudgetExceededError(
+            stage=stage,
+            estimated=new_estimate,
+            budget=check_result.budget_limit,
+            top_sections=top_sections,
+        )
+
     mitigated_text, warnings = token_budget.apply_mitigation(
         prompt_parts, stage, check_result.budget_limit, evidence_config,
     )
@@ -1243,6 +1424,7 @@ async def process_pdf(
                         "confidence": pf["confidence"],
                     }
                 )
+            all_conflict_candidate_records: list[dict] = []
             for field_idx in conflicts_filtered:
                 candidates = _gather_field_candidates(
                     field_idx, extraction_chunks, validated_results
@@ -1250,6 +1432,7 @@ async def process_pdf(
                 records = _build_conflict_candidate_records(
                     field_idx, candidates, field_lookup, bundle.evidence_map,
                 )
+                all_conflict_candidate_records.extend(records)
                 compact_prior_context.append(
                     {
                         "field_index": field_idx,
@@ -1259,6 +1442,17 @@ async def process_pdf(
                     }
                 )
             compact_prior_context.sort(key=lambda x: x["field_index"])
+
+            # Req 9.4 / Property 21: every Evidence_ID referenced by a
+            # high-confidence ("h") field or candidate feeding this
+            # synthesis call must survive evidence pruning below, even
+            # under tight token-budget pressure. This is computed HERE
+            # (synthesis) and nowhere else, because this is the only point
+            # in the pipeline where confidence-labeled data actually exists
+            # at prune-time -- see _check_and_mitigate_budget's docstring.
+            protected_evidence_ids = _collect_protected_evidence_ids(
+                merged_fields_filtered, prefilled_fields, all_conflict_candidate_records,
+            )
 
             synthesis_source = chunk_sources.get(
                 synthesis_chunk,
@@ -1276,6 +1470,7 @@ async def process_pdf(
                 evidence_config=evidence_config,
                 pdf_name=pdf_name,
                 chunk_num=synthesis_chunk,
+                protected_evidence_ids=protected_evidence_ids,
             )
 
             synthesis_raw = await extract_chunk(
