@@ -39,7 +39,7 @@ This plan implements a token-efficiency layer for the EviTrace extraction pipeli
     - Test graceful handling of missing usage fields (Req 1.6)
     - _Requirements: 1.2, 1.3, 1.6, 6.5, 8.2_
 
-- [ ] 2. Implement deterministic merge module
+- [x] 2. Implement deterministic merge module
   - [x] 2.1 Create `src/pipeline/deterministic_merge.py` with MergeResult dataclass and merge logic
     - Define `MergeResult` dataclass with `merged_fields: list[dict]`, `conflicts: list[int]`, `skipped_synthesis: bool`
     - Implement `normalize_value(value: str | None) -> str | None` — strip + collapse internal whitespace
@@ -58,7 +58,7 @@ This plan implements a token-efficiency layer for the EviTrace extraction pipeli
     - **Property 12: Synthesis candidate limiting**
     - **Validates: Requirements 5.7, 5.1, 5.5, 5.6, 4.3, 5.3, 5.4, 4.7**
 
-  - [ ]* 2.3 Write unit tests for deterministic merge in `tests/src/pipeline/test_deterministic_merge.py`
+  - [x]* 2.3 Write unit tests for deterministic merge in `tests/src/pipeline/test_deterministic_merge.py`
     - Test zero-candidate fields get "nr" confidence (Req 4.5, 5.2)
     - Test synthesis output schema conformance with compact keys (Req 4.6)
     - Test synthesis prompt excludes full evidence (Req 4.1)

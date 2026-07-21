@@ -18,10 +18,43 @@ Full property-based coverage of these rules (order-independence /
 confluence, non-conflicting merge, dedup, confidence resolution) is the
 scope of tasks 2.2/2.3; this file only establishes the TDD RED/GREEN cycle
 and basic example coverage for task 2.1.
+
+Task 2.3 note (read before editing the section at the bottom of this file):
+task 2.3's checklist bullets are worded as if they all describe
+`deterministic_merge()` behavior, but reading `src/pipeline/
+deterministic_merge.py` in full shows several of them actually describe the
+SYNTHESIS PROMPT CONSTRUCTION step (task 8.2, `pdf_processor.py`
+integration, not yet implemented) rather than this module. This mirrors the
+precedent already established in `test_deterministic_merge_properties.py`
+(task 2.2) for Property 12. Per-bullet disposition:
+
+- "Zero-candidate fields get 'nr' confidence" (Req 4.5, 5.2): REAL, tested
+  here directly against `deterministic_merge()` -- Req 5.2 is exactly this
+  behavior.
+- "Synthesis output schema conformance with compact keys" (Req 4.6): the
+  synthesis model's own output schema doesn't exist as code yet (task 8.2).
+  `deterministic_merge()`'s `merged_fields` already uses the identical
+  {i, v, loc, c} compact-key schema for its non-conflicting fields, so that
+  is tested here as the closest current, real analog.
+- "Synthesis prompt excludes full evidence" (Req 4.1): DEFERRED. No prompt
+  construction code exists in this module to exercise; belongs to task 8.2.
+- "Single-candidate with no conflict skips synthesis" (Req 4.3): REAL,
+  tested here -- Req 5.5's single-provider rule plus `skipped_synthesis`
+  cover exactly this case today.
+- "Max 5 candidates per conflicting field" (Req 4.7): DEFERRED, same
+  treatment as task 2.2's Property 12 -- `deterministic_merge()` has no
+  per-field candidate list or truncation logic (`MergeResult.conflicts` is
+  only a list of field indices, not candidate values), so the 5-candidate
+  cap cannot be tested here. What IS tested is the precondition it will
+  need: a conflicting field with more than 5 disagreeing contributors is
+  still recorded as a single conflict entry, not silently
+  dropped/fragmented, by the module as it exists today.
 """
 from __future__ import annotations
 
 from pipeline.deterministic_merge import (
+    NOT_REPORTED_CONFIDENCE,
+    NOT_REPORTED_VALUE,
     MergeResult,
     deterministic_merge,
     normalize_value,
@@ -322,3 +355,237 @@ def test_multi_field_end_to_end_over_total_fields_range():
     assert merged[2]["loc"] == ["S000002", "S000003"]
     assert merged[3]["v"] == "nr"
     assert result.skipped_synthesis is True
+
+
+# ---------------------------------------------------------------------------
+# Task 2.3
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Zero-candidate fields get "nr" confidence (Req 4.5, 5.2) -- REAL
+# ---------------------------------------------------------------------------
+
+
+def test_zero_candidates_across_multiple_chunks_assigns_nr_confidence():
+    """Req 4.5 ("IF a field has zero candidates that passed chunk-level
+    validation, THEN THE Pipeline SHALL record the field with a
+    not-reported value and confidence 'nr' without invoking synthesis") and
+    Req 5.2 (the identical rule stated for Deterministic_Merge). A field
+    with zero non-empty candidates -- mixing None, empty string, and total
+    absence across three chunks -- must resolve to "nr"/"nr" and must not
+    be a conflict or require synthesis.
+    """
+    chunk_results = [
+        [{"i": 9, "v": None, "loc": [], "c": "nr"}],
+        [{"i": 9, "v": "", "loc": [], "c": "nr"}],
+        [],  # chunk omits field 9 entirely
+    ]
+    result = deterministic_merge(chunk_results, total_fields=9)
+    merged = {f["i"]: f for f in result.merged_fields}
+
+    assert merged[9]["v"] == NOT_REPORTED_VALUE
+    assert merged[9]["c"] == NOT_REPORTED_CONFIDENCE
+    assert merged[9]["loc"] == []
+    assert 9 not in result.conflicts
+
+
+def test_zero_candidates_field_not_present_in_any_chunk_at_all():
+    """A field_index that no chunk mentions at all (not even with a null
+    value) is the purest "zero candidates" case for Req 4.5/5.2: still
+    resolves to not-reported without being flagged as needing synthesis.
+    """
+    chunk_results = [
+        [{"i": 1, "v": "only field 1", "loc": [], "c": "h"}],
+    ]
+    result = deterministic_merge(chunk_results, total_fields=4)
+    merged = {f["i"]: f for f in result.merged_fields}
+
+    for absent_index in (2, 3, 4):
+        assert merged[absent_index]["v"] == NOT_REPORTED_VALUE
+        assert merged[absent_index]["c"] == NOT_REPORTED_CONFIDENCE
+        assert absent_index not in result.conflicts
+    assert result.skipped_synthesis is True
+
+
+# ---------------------------------------------------------------------------
+# merged_fields conforms to the compact-key schema {i, v, loc, c}
+# (Req 4.6 -- closest current analog; the synthesis model's own output
+# schema is task 8.2, not yet implemented; see module docstring)
+# ---------------------------------------------------------------------------
+
+
+def test_merged_fields_conform_to_compact_key_schema():
+    """Req 4.6 requires synthesis output to conform "to the existing final
+    extraction JSON schema (compact keys: i, v, loc, c) with all required
+    keys preserved." No synthesis-output-schema code exists yet (task 8.2),
+    but `deterministic_merge()`'s own `merged_fields` already produces
+    entries in this exact compact-key schema for every field it resolves
+    without synthesis -- this test locks that down as the current, real
+    analog: every entry has exactly the keys {i, v, loc, c}, with the
+    documented types, and no extra/missing keys.
+    """
+    chunk_results = [
+        [
+            {"i": 1, "v": "agreed", "loc": ["S000001"], "c": "h"},
+            {"i": 2, "v": None, "loc": [], "c": "nr"},
+        ],
+        [
+            {"i": 1, "v": "agreed", "loc": ["S000002"], "c": "m"},
+        ],
+        # field 3 provided by no chunk at all -> "nr" via absence.
+    ]
+    result = deterministic_merge(chunk_results, total_fields=3)
+
+    # field 3 (a conflict-free "nr" field) is included; nothing here should
+    # be a conflict, since every field_index in 1..3 resolves deterministically.
+    assert result.conflicts == []
+    assert len(result.merged_fields) == 3
+
+    for entry in result.merged_fields:
+        assert set(entry.keys()) == {"i", "v", "loc", "c"}
+        assert isinstance(entry["i"], int)
+        assert entry["v"] is None or isinstance(entry["v"], str)
+        assert isinstance(entry["loc"], list)
+        assert all(isinstance(x, str) for x in entry["loc"])
+        assert isinstance(entry["c"], str)
+        assert entry["c"] in {"h", "m", "l", "nr"}
+
+
+# ---------------------------------------------------------------------------
+# Synthesis prompt excludes full evidence (Req 4.1) -- DEFERRED
+#
+# Req 4.1: "WHEN synthesis is invoked, THE Pipeline SHALL NOT include full
+# prior chunk prompt text or full evidence packages in the synthesis
+# prompt." This is a property of PROMPT CONSTRUCTION for the synthesis LLM
+# call, which is implemented in task 8.2 (pdf_processor.py integration),
+# not in `src/pipeline/deterministic_merge.py`. Reading deterministic_merge.py
+# in full (module docstring, `deterministic_merge()`, `MergeResult`)
+# confirms there is no prompt-building code here at all -- the module never
+# constructs, receives, or references an LLM prompt string or an evidence
+# package; it only merges already-parsed compact-format field dicts. There
+# is therefore no real behavior in this module to exercise for Req 4.1, and
+# no test is added for it here (mirrors the deferral precedent set by task
+# 2.2 for Property 12 in test_deterministic_merge_properties.py). Task 8.2
+# owns this behavior and should add the corresponding test alongside its
+# synthesis prompt builder.
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Single-candidate with no conflict skips synthesis (Req 4.3) -- REAL
+# ---------------------------------------------------------------------------
+
+
+def test_single_candidate_field_is_not_a_conflict_and_skips_synthesis():
+    """Req 4.3: "WHEN a field has a single candidate that passed
+    chunk-level validation with no Conflict, THE Pipeline SHALL skip LLM
+    synthesis for that field and use the candidate value directly." At the
+    deterministic_merge() level this is Req 5.5's single-provider rule: a
+    field with exactly one chunk contributing a non-empty value, and no
+    other field in the batch conflicting, must not appear in `conflicts`
+    and must produce `skipped_synthesis = True` for the whole merge.
+    """
+    chunk_results = [
+        [{"i": 1, "v": "sole candidate", "loc": ["S000007"], "c": "m"}],
+    ]
+    result = deterministic_merge(chunk_results, total_fields=1)
+
+    assert 1 not in result.conflicts
+    assert result.conflicts == []
+    assert result.skipped_synthesis is True
+    merged = {f["i"]: f for f in result.merged_fields}
+    assert merged[1]["v"] == "sole candidate"
+    assert merged[1]["loc"] == ["S000007"]
+    assert merged[1]["c"] == "m"
+
+
+def test_single_candidate_field_among_other_non_conflicting_fields_skips_synthesis():
+    """Extends Req 4.3 to a multi-field batch: a single-candidate field
+    alongside other fields that are also individually non-conflicting
+    (all-agree, or all-null "nr") must still leave `conflicts` empty and
+    `skipped_synthesis` True for the whole batch -- the single-candidate
+    field is not, by itself, treated as needing synthesis.
+    """
+    chunk_results = [
+        [
+            {"i": 1, "v": "only candidate", "loc": ["S000001"], "c": "h"},
+            {"i": 2, "v": "same", "loc": ["S000002"], "c": "h"},
+        ],
+        [
+            {"i": 2, "v": "same", "loc": ["S000003"], "c": "l"},
+            {"i": 3, "v": None, "loc": [], "c": "nr"},
+        ],
+    ]
+    result = deterministic_merge(chunk_results, total_fields=3)
+
+    assert result.conflicts == []
+    assert result.skipped_synthesis is True
+    merged = {f["i"]: f for f in result.merged_fields}
+    assert merged[1]["v"] == "only candidate"
+    assert merged[3]["v"] == NOT_REPORTED_VALUE
+
+
+def test_single_candidate_field_does_not_prevent_other_fields_conflicting():
+    """A single-candidate field (Req 4.3/5.5) resolves independently of a
+    genuinely conflicting field elsewhere in the same batch: the
+    non-conflicting field must not appear in `conflicts`, while the
+    conflicting field must, and `skipped_synthesis` must be False overall
+    (since not every field resolved deterministically).
+    """
+    chunk_results = [
+        [
+            {"i": 1, "v": "only candidate", "loc": ["S000001"], "c": "h"},
+            {"i": 2, "v": "value-a", "loc": [], "c": "h"},
+        ],
+        [
+            {"i": 2, "v": "value-b", "loc": [], "c": "h"},
+        ],
+    ]
+    result = deterministic_merge(chunk_results, total_fields=2)
+
+    assert 1 not in result.conflicts
+    assert 2 in result.conflicts
+    assert result.skipped_synthesis is False
+    merged = {f["i"]: f for f in result.merged_fields}
+    assert merged[1]["v"] == "only candidate"
+    assert 2 not in merged
+
+
+# ---------------------------------------------------------------------------
+# Max 5 candidates per conflicting field (Req 4.7) -- DEFERRED, with a
+# testable precondition (same treatment as task 2.2's Property 12)
+#
+# Req 4.7: "THE Pipeline SHALL limit the number of candidates sent to
+# synthesis per conflicting field to a maximum of 5 candidates, selecting
+# those with the highest confidence labels when more exist." Reading
+# deterministic_merge.py in full confirms `MergeResult.conflicts` is only
+# `list[int]` (field indices) -- there is no per-field candidate list, no
+# confidence-based ranking/selection, and no truncation logic anywhere in
+# this module. The actual 5-candidate cap belongs to the synthesis prompt
+# builder (task 8.2), which does not exist yet, so no test can genuinely
+# exercise the cap here. What CAN be verified now -- and is a precondition
+# any future candidate-limiting step depends on -- is that a conflicting
+# field with more than 5 disagreeing contributors is still correctly
+# recorded as exactly one conflict entry by today's code, rather than being
+# silently dropped, fragmented, or truncated by this module.
+# ---------------------------------------------------------------------------
+
+
+def test_conflicting_field_with_more_than_five_candidates_is_a_single_conflict_entry():
+    """Precondition for Req 4.7 (see deferral note above): six chunks each
+    contribute a distinct non-empty value for the same field (i.e. more
+    "candidates" than the future 5-candidate synthesis cap). Today,
+    `deterministic_merge()` has no candidate-list/limiting concept -- it
+    must still record this as exactly one conflict for field_index 6,
+    appearing exactly once in `conflicts` and excluded from
+    `merged_fields`, with no partial/limited candidate data leaked out.
+    """
+    chunk_results = [
+        [{"i": 6, "v": f"candidate-{n}", "loc": [f"S00000{n}"], "c": "h"}]
+        for n in range(1, 7)  # 6 distinct candidates, one per chunk
+    ]
+    result = deterministic_merge(chunk_results, total_fields=6)
+
+    assert result.conflicts == [6]
+    assert result.conflicts.count(6) == 1
+    assert 6 not in {f["i"] for f in result.merged_fields}
+    assert result.skipped_synthesis is False
