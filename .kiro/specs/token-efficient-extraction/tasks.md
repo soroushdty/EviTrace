@@ -40,7 +40,7 @@ This plan implements a token-efficiency layer for the EviTrace extraction pipeli
     - _Requirements: 1.2, 1.3, 1.6, 6.5, 8.2_
 
 - [ ] 2. Implement deterministic merge module
-  - [ ] 2.1 Create `src/pipeline/deterministic_merge.py` with MergeResult dataclass and merge logic
+  - [x] 2.1 Create `src/pipeline/deterministic_merge.py` with MergeResult dataclass and merge logic
     - Define `MergeResult` dataclass with `merged_fields: list[dict]`, `conflicts: list[int]`, `skipped_synthesis: bool`
     - Implement `normalize_value(value: str | None) -> str | None` — strip + collapse internal whitespace
     - Implement `deterministic_merge(chunk_results: list[list[dict]], total_fields: int = 62) -> MergeResult`
@@ -216,6 +216,7 @@ This plan implements a token-efficiency layer for the EviTrace extraction pipeli
 ## Implementation Notes
 
 - `tests/src/pipeline/test_manifest_resume_properties.py::test_property_16_is_output_valid_rejects_corrupt_files` and `test_property_16_corrupt_output_treated_as_absent` fail on a clean checkout unrelated to this feature (confirmed at commit e261fad, before any token-efficient-extraction test files existed). Hypothesis's local `.hypothesis/` example cache found a minimal falsifying case (`pdf_name='0'`, `corrupt_content='0'`) showing `_is_output_valid()` treats the bare JSON literal `"0"` as valid rather than corrupt. Pre-existing bug in manifest-resume logic, out of scope for this spec — disregard at "Checkpoint - Ensure all tests pass" gates (tasks 4, 7, 9, 11) unless a new full-suite run introduces additional failures beyond these two.
+- Task 2.1's `deterministic_merge()`: the "all agree after normalization" case emits the **normalized** value as canonical `v`, not a raw pre-normalization string tied to chunk position. Requirement 5.1's literal text ("value from the lowest-indexed chunk") is superseded here by the stronger, unconditional order-independence requirement (5.7 / Property 8) — a positional raw-string tie-break cannot be order-independent when two chunks agree post-normalization but differ in raw whitespace. Same code path also normalizes single-provider fields (Req 5.5). Downstream tasks (8.2 integration) should expect `merged_fields` values to always be whitespace-normalized, never raw chunk output verbatim.
 
 ## Task Dependency Graph
 
