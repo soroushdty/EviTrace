@@ -37,9 +37,12 @@ It is the productized successor to the `EviTrace` pipeline; the retired
 - A default install that is permissively licensed and dependency-light.
 
 **Non-goals**
-- **No GUI.** The toolkit is library + CLI only. No web app, no viewer, no
-  server-rendered dashboards. (A static machine-readable report is allowed; an
-  interactive UI is not.)
+- **No GUI in this spec.** The toolkit is library + CLI only. No web app, no
+  viewer, no server-rendered dashboards. (A static machine-readable report is
+  allowed; an interactive UI is not.) This is a scope boundary for the toolkit,
+  not a product-wide prohibition: a reviewer UI is sequenced separately as the
+  `reviewer-ui` spec and consumes these packages without any of them depending
+  on it. See `.kiro/steering/roadmap.md`.
 - Not a systematic-review manager, reference manager, or annotation editor.
 - Not a hosting/SaaS product in v1 (though the license must not preclude one).
 
@@ -159,7 +162,11 @@ It is the productized successor to the `EviTrace` pipeline; the retired
 
 ## 7. Out of scope (v1)
 
-- GUI / interactive viewer (permanently out — see NFR-2).
+- GUI / interactive viewer (out of scope for this spec; sequenced separately as
+  the `reviewer-ui` spec — see `.kiro/steering/roadmap.md`). NFR-2 still holds
+  and is unaffected: extraction and QC must remain runnable headlessly, so any
+  future UI is a separate consumer of these packages, never a dependency of
+  them.
 - The `lit_synth` post-hoc spreadsheet-audit workflow and GROBID metadata
   conflict detection (explicitly dropped; see `research.md`).
 - Multi-tenant hosting, auth, billing.

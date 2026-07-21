@@ -82,7 +82,7 @@ repos (the consolidation targets):
 |---|---|---|
 | D1 | **Do not publish "Lydia" as a clinical context-engineering platform.** | Lydia is a PKM/document-routing control plane; its clinical/LLM value is `[future scope]`; the label mismatches the code. Its *patterns* (HITL gate, provenance) are the real contribution. |
 | D2 | **Center the product on EviTrace + Lydia's governance patterns.** | EviTrace already *is* the evidence-trace engine; it outgrew lit_synth. True to the code and to the owner's research identity. |
-| D3 | **Headless only — no GUI, ever.** | Owner directive; keeps scope tight and the product library-shaped. |
+| D3 | ~~**Headless only — no GUI, ever.**~~ **Superseded 2026-07-21** → *Headless core first; reviewer UI sequenced separately.* | Original rationale: owner directive; keeps scope tight and the product library-shaped. Revised by owner decision during roadmap discovery: `evitrace_multiagent.md` R19 requires a PDF annotation UI, which "no GUI, ever" contradicted outright. Resolution keeps the original intent — the toolkit stays library-shaped and every package remains headless-installable — while allowing a `reviewer-ui` spec to be built *on top* as a consumer. NFR-2 is unchanged and still binding. |
 | D4 | **Permissive license target (MIT/Apache); PyMuPDF optional.** | Enables adoption/SaaS later. PyMuPDF (AGPL) made optional in EviTrace (done, this branch). |
 | D5 | **Retire `lit_synth`; salvage nothing.** | Fully absorbed; the two unique bits are unwanted. |
 | D6 | **Monorepo of four packages + tiny `xtrace-core`.** | Coherent umbrella, shared CI/docs, each lib independently useful; owner-selected. |

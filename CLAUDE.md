@@ -98,7 +98,7 @@ Single source of truth: `configs/config.yaml` (note: `configs/`, not `config/`).
 
 ### Steering docs and specs
 
-`.kiro/steering/` (`product.md`, `config.md`, `testing.md`, `changelog-rules.md`) are Kiro spec-workflow steering docs (`inclusion: always`) kept in sync with the code — more current and more detailed than this file for deep dives; consult them before non-trivial changes. `.kiro/specs/feature/` and `.kiro/specs/archive/` hold point-in-time feature specs and completed-migration records — treat those as historical, not necessarily current.
+`.kiro/steering/` (`product.md`, `config.md`, `testing.md`, `changelog-rules.md`, `roadmap.md`) are Kiro spec-workflow steering docs (`inclusion: always`) kept in sync with the code — more current and more detailed than this file for deep dives; consult them before non-trivial changes. `.kiro/steering/roadmap.md` is the plan of record: it holds the spec decomposition in dependency order, the cross-cutting NFRs, the standing product boundaries, and the unresolved open questions. `.kiro/specs/<feature>/` holds active specs (each with `brief.md`, then `requirements.md` → `design.md` → `tasks.md`). `.kiro/specs/archive/` holds completed specs plus `original-idea-documents/`, the superseded source documents the briefs still cite — treat everything under `archive/` as historical, not current.
 
 `CHANGELOG.md` at the repo root is permanent — never delete or truncate it. Follow `.kiro/steering/changelog-rules.md` for when/how to add an entry.
 

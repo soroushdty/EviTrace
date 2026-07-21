@@ -5,6 +5,40 @@ and should never be deleted. Add a brief entry whenever a spec is implemented,
 steering docs change, README files change, or any other significant code change
 occurs.
 
+## [2026-07] — Add roadmap steering doc; decompose idea docs into specs
+
+Turned the three loose idea documents in `.kiro/specs/feature/` into a dependency-ordered
+spec decomposition and removed that non-standard directory. No production code changed.
+
+- Added `.kiro/steering/roadmap.md` (new steering doc, `inclusion: always`): the plan of
+  record — 12 new specs in dependency order, 2 existing-spec updates, direct-implementation
+  items, cross-cutting NFRs, standing product boundaries, and 10 unresolved open questions
+  carried over from the multiagent doc.
+- Added `brief.md` for 12 new specs: `provenance-core`, `provenance-audit-export`,
+  `public-private-provenance`, `privacy-core`, `privacy-transformations`,
+  `agreement-statistics`, `evidence-routing`, `multiagent-extraction`, `evaluation-harness`,
+  `corpus-and-schema-builder`, `cost-and-run-reporting`, `reviewer-ui`.
+- Moved `.kiro/specs/feature/{evitrace_multiagent,privacy_requirements,provenance_requirements}.md`
+  to `.kiro/specs/archive/original-idea-documents/`. Archived rather than deleted: ~300
+  requirement citations across the briefs resolve against them. All three number their
+  requirements `R1`–`R14`+, so citations must carry a `multiagent`/`priv`/`prov` prefix.
+- Moved the parked, deliberately-unread `merckle tree.md` to
+  `.kiro/specs/public-private-provenance/parked-merkle-tree-idea.md`, beside the spec that
+  will own it (prov R10). `.kiro/specs/feature/` is now removed.
+- Resolved a product contradiction: the multiagent doc required a PDF annotation GUI while
+  `xtrace-toolkit` ruled one out permanently. Decision: headless core first, reviewer UI
+  sequenced last as a consumer. `xtrace-toolkit/requirements.md` §2 and §7 amended
+  accordingly (NFR-2 itself unchanged — it constrains extraction/QC, which a separate UI
+  consumer does not violate); `xtrace-toolkit/research.md` decision D3 annotated as
+  superseded rather than deleted.
+- Added `.kiro/specs/risk-remediation/` (requirements only) from the loose
+  `.kiro/specs/risk-mediation.md`, which moved to that spec's `legacy-design-reference.md`.
+  **Its finding C1 was found invalid**: `final_output_schema.json` declaring `domain_group`
+  as `integer` is correct, because `extraction_map.py::_build_field_lookup` parses the
+  descriptive string to its integer prefix before emission. Recorded in the spec so the
+  schema is not "fixed" into breaking. The audit predates commit `8daf0a0`.
+- `CLAUDE.md`: repointed the steering/specs paragraph at the new layout and `roadmap.md`.
+
 ## [2026-07] — Update stale tests to match intentional config/parsing fixes
 
 Five tests had been left behind by two earlier `fix:` commits and were failing
