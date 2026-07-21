@@ -173,7 +173,7 @@ This plan implements a token-efficiency layer for the EviTrace extraction pipeli
     - Record failed chunks with metadata (chunk number, last error, error type, attempt count) after max repair attempts
     - _Requirements: 4.1, 4.2, 4.3, 4.4, 5.6, 6.1, 6.2, 6.3, 6.4, 6.5, 7.1, 7.2_
 
-  - [ ] 8.3 Update `src/pipeline/orchestrator.py` to invoke token report generation after run completion
+  - [x] 8.3 Update `src/pipeline/orchestrator.py` to invoke token report generation after run completion
     - After `run_pipeline` completes, call `generate_token_report(collector, output_dir)`
     - Call `collector.check_cache_diagnostics()` and `collector.check_prefix_drift()` before report generation
     - Write aggregate summary to run log (Req 1.7)

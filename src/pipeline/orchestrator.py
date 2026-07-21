@@ -14,6 +14,8 @@ from utils.path_utils import OUTPUT_DIR
 from .extraction_map import load_chunk_fields, _build_field_lookup
 from . import pdf_processor
 from .manifest import load_manifest, save_manifest
+from .token_report import generate_token_report
+from agents.openai.telemetry import TelemetryCollector
 
 logger = get_logger(__name__)
 
@@ -94,8 +96,22 @@ async def run_pipeline(
     manifest_lock = asyncio.Lock()
     api_semaphore = asyncio.Semaphore(GLOBAL_API_LIMIT)
     pdf_semaphore = asyncio.Semaphore(effective_concurrency)
+    # Single TelemetryCollector shared across every PDF processed in this run
+    # (Requirement 1.7, 10.1). Created once here -- never per-PDF -- so that
+    # stage_summaries()/check_cache_diagnostics()/check_prefix_drift() and the
+    # final token_report.json aggregate telemetry across the whole run rather
+    # than a single PDF. TelemetryCollector guards its records list with a
+    # threading.Lock (agents/openai/telemetry.py, task 1.2); that is safe here
+    # even though this orchestrator uses asyncio (not OS threads) for
+    # concurrency -- a threading.Lock's acquire/release is a fast, uncontended
+    # in-process operation that never yields to the event loop, so sharing it
+    # across concurrent asyncio tasks cannot deadlock or starve other tasks
+    # the way an `await`-ing lock could; it also transparently covers the case
+    # where a future backend issues real OpenAI calls from worker threads.
+    collector = TelemetryCollector()
     logger.debug(
-        "Manifest loaded with %d previously-seen entries; semaphores ready",
+        "Manifest loaded with %d previously-seen entries; semaphores ready; "
+        "TelemetryCollector created for this run",
         len(manifest),
     )
 
@@ -118,6 +134,7 @@ async def run_pipeline(
             return await pdf_processor.process_pdf(
                 qc_context, chunk_fields, field_lookup,
                 api_semaphore, manifest, manifest_lock, runtime_config,
+                collector=collector,
             )
 
     results = await asyncio.gather(
@@ -135,6 +152,50 @@ async def run_pipeline(
     logger.debug(
         "run_pipeline done: %d/%d PDFs produced output",
         len(output), len(pdf_paths),
+    )
+
+    # --- Token telemetry finalization (Requirements 1.7, 10.1) ---
+    # Runs after every PDF in this run has finished (the gather() above has
+    # already returned), so diagnostics and the report reflect the entire
+    # run's telemetry, not a single PDF's.
+    collector.check_cache_diagnostics()
+    collector.check_prefix_drift()
+
+    # Req 1.7: "write the aggregate summary to the run log" -- this pipeline
+    # has no separate run-log artifact distinct from the process logger, so
+    # the aggregate per-stage summary is logged at INFO through `logger`
+    # (which main.py wires to the configured run log file via
+    # utils.logging_utils.setup_logging()).
+    stage_summaries = collector.stage_summaries()
+    if stage_summaries:
+        total_requests = sum(s.request_count for s in stage_summaries)
+        logger.info(
+            "Token telemetry summary for this run: %d request(s) across %d stage(s)",
+            total_requests, len(stage_summaries),
+        )
+        for summary in stage_summaries:
+            logger.info(
+                "  stage=%s requests=%d input_tokens=%d output_tokens=%d "
+                "cached_input_tokens=%d uncached_input_tokens=%d mean_cache_rate=%.1f%%",
+                summary.stage, summary.request_count,
+                summary.total_input_tokens, summary.total_output_tokens,
+                summary.total_cached_input_tokens, summary.total_uncached_input_tokens,
+                summary.mean_cache_rate * 100,
+            )
+    else:
+        logger.info("No token telemetry recorded for this run; skipping stage summary log")
+
+    # Req 1.7: "make per-request TelemetryRecords available in the audit
+    # package for that run" -- token_report.json (written below) IS that
+    # audit package: it embeds every raw TelemetryRecord for the run
+    # (generate_token_report()'s `telemetry_records` field) alongside the
+    # aggregated per-stage summary, so no separate artifact is needed.
+    token_report = generate_token_report(collector, OUTPUT_DIR)
+    logger.info(
+        "Token report written to %s (status=%s, %d telemetry record(s) available for audit)",
+        OUTPUT_DIR / "token_report.json",
+        token_report.status,
+        len(token_report.telemetry_records),
     )
 
     if export_csv:

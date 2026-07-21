@@ -144,16 +144,30 @@ def _import_orchestrator():
     _manifest_stub.load_manifest = MagicMock(return_value={})
     _manifest_stub.save_manifest = MagicMock()
 
+    # Stubs for the telemetry/token-report wiring added in task 8.3. Both are
+    # real, lightweight modules with no dependency on the `openai` SDK, but
+    # they are stubbed here anyway for the same reason api_client is stubbed:
+    # to keep this test's module-level import of orchestrator.py fully
+    # isolated from real config/module state. `TelemetryCollector` and
+    # `generate_token_report` are plain MagicMocks so tests can assert on
+    # construction/call counts and arguments.
+    _telemetry_stub = MagicMock()
+    _telemetry_stub.TelemetryCollector = MagicMock(name="TelemetryCollector")
+    _token_report_stub = MagicMock()
+    _token_report_stub.generate_token_report = MagicMock(name="generate_token_report")
+
     extra_stubs = {
         "openai": _openai_stub,
         "agents": MagicMock(),
         "agents.openai": MagicMock(),
         "agents.openai.api_client": _api_client_stub,
+        "agents.openai.telemetry": _telemetry_stub,
         "pipeline": _pipeline_pkg_stub,
         "pipeline.extraction_pipeline": _extraction_pipeline_stub,
         "pipeline.pdf_processor": _pdf_processor_stub,
         "pipeline.extraction_map": _extraction_map_stub,
         "pipeline.manifest": _manifest_stub,
+        "pipeline.token_report": _token_report_stub,
     }
 
     _orch_path = Path(__file__).resolve().parents[3] / "src" / "pipeline" / "orchestrator.py"
@@ -414,7 +428,7 @@ def test_run_pipeline_cache_prewarm_false_propagated():
 
     async def fake_process_pdf(qc_context, chunk_fields, field_lookup,
                                 api_semaphore, manifest, manifest_lock,
-                                runtime_config):
+                                runtime_config, collector=None):
         captured_runtime_configs.append(runtime_config)
         return fake_fields
 
@@ -458,3 +472,119 @@ def test_run_pipeline_optional_csv_export_hook():
     args, _kwargs = mock_export.call_args
     assert args[0] == orch.OUTPUT_DIR
     assert args[1] == Path("combined.csv")
+
+
+# ---------------------------------------------------------------------------
+# Token telemetry wiring tests (Task 8.3 — Requirements 1.7, 10.1)
+# ---------------------------------------------------------------------------
+
+
+def test_run_pipeline_creates_single_shared_telemetry_collector():
+    """8.3 — run_pipeline SHALL construct exactly one TelemetryCollector for
+    the whole run and thread that same instance into every process_pdf call
+    (never a fresh collector per PDF), so cross-PDF stage aggregation is
+    possible.
+
+    Requirements: 1.7, 10.1
+    """
+    import asyncio
+
+    orch = _import_orchestrator()
+
+    pdf_paths = [Path("paper_a.pdf"), Path("paper_b.pdf"), Path("paper_c.pdf")]
+    mock_qc_ctx = MagicMock()
+    fake_fields = [{"field_index": 1, "extracted_value": "Smith"}]
+    captured_collectors: list = []
+
+    async def fake_process_pdf(qc_context, chunk_fields, field_lookup,
+                                api_semaphore, manifest, manifest_lock,
+                                runtime_config, collector=None):
+        captured_collectors.append(collector)
+        return fake_fields
+
+    with patch.object(orch, "build_qc_bundle", return_value=mock_qc_ctx), \
+         patch.object(orch.pdf_processor, "process_pdf", side_effect=fake_process_pdf):
+        asyncio.run(orch.run_pipeline(pdf_paths, pdf_concurrency=3))
+
+    orch.TelemetryCollector.assert_called_once()
+    assert len(captured_collectors) == 3, (
+        f"Expected process_pdf to be called for all 3 PDFs, got {len(captured_collectors)} calls"
+    )
+    assert all(c is not None for c in captured_collectors), (
+        "Expected a real collector (not None) threaded into every process_pdf call"
+    )
+    assert all(c is captured_collectors[0] for c in captured_collectors), (
+        "Expected the SAME TelemetryCollector instance threaded into every "
+        "process_pdf call, got distinct collectors per PDF"
+    )
+    assert captured_collectors[0] is orch.TelemetryCollector.return_value
+
+
+def test_run_pipeline_calls_diagnostics_and_generates_token_report():
+    """8.3 — After all PDFs in the run complete, run_pipeline SHALL call
+    collector.check_cache_diagnostics() and collector.check_prefix_drift()
+    before calling generate_token_report(collector, OUTPUT_DIR).
+
+    Requirements: 1.7, 10.1
+    """
+    import asyncio
+    from unittest.mock import AsyncMock
+
+    orch = _import_orchestrator()
+
+    pdf_paths = [Path("paper_x.pdf")]
+    mock_qc_ctx = MagicMock()
+    fake_fields = [{"field_index": 1, "extracted_value": "Jones 2021"}]
+
+    collector_mock = orch.TelemetryCollector.return_value
+    collector_mock.stage_summaries.return_value = []
+
+    # Attach the relevant mocks to a shared manager so call order across
+    # distinct mock objects can be verified via manager.mock_calls.
+    manager = MagicMock()
+    manager.attach_mock(collector_mock.check_cache_diagnostics, "check_cache_diagnostics")
+    manager.attach_mock(collector_mock.check_prefix_drift, "check_prefix_drift")
+    manager.attach_mock(orch.generate_token_report, "generate_token_report")
+
+    with patch.object(orch, "build_qc_bundle", return_value=mock_qc_ctx), \
+         patch.object(orch.pdf_processor, "process_pdf",
+                      new=AsyncMock(return_value=fake_fields)):
+        asyncio.run(orch.run_pipeline(pdf_paths))
+
+    collector_mock.check_cache_diagnostics.assert_called_once_with()
+    collector_mock.check_prefix_drift.assert_called_once_with()
+    orch.generate_token_report.assert_called_once_with(collector_mock, orch.OUTPUT_DIR)
+
+    call_names = [call[0] for call in manager.mock_calls]
+    assert call_names.index("check_cache_diagnostics") < call_names.index("generate_token_report"), (
+        f"Expected check_cache_diagnostics before generate_token_report, got order: {call_names}"
+    )
+    assert call_names.index("check_prefix_drift") < call_names.index("generate_token_report"), (
+        f"Expected check_prefix_drift before generate_token_report, got order: {call_names}"
+    )
+
+
+def test_run_pipeline_token_report_uses_run_output_dir():
+    """8.3 — generate_token_report SHALL be invoked with the run's
+    OUTPUT_DIR as the output directory (the run's own audit-package
+    location), not a per-PDF or hardcoded path.
+
+    Requirements: 1.7, 10.1
+    """
+    import asyncio
+    from unittest.mock import AsyncMock
+
+    orch = _import_orchestrator()
+
+    pdf_paths = [Path("paper_x.pdf")]
+    mock_qc_ctx = MagicMock()
+    fake_fields = [{"field_index": 1, "extracted_value": "Jones 2021"}]
+    orch.TelemetryCollector.return_value.stage_summaries.return_value = []
+
+    with patch.object(orch, "build_qc_bundle", return_value=mock_qc_ctx), \
+         patch.object(orch.pdf_processor, "process_pdf",
+                      new=AsyncMock(return_value=fake_fields)):
+        asyncio.run(orch.run_pipeline(pdf_paths))
+
+    args, _kwargs = orch.generate_token_report.call_args
+    assert args[1] == orch.OUTPUT_DIR
