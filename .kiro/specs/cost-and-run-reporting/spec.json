@@ -1,0 +1,22 @@
+{
+  "feature_name": "cost-and-run-reporting",
+  "created_at": "2026-07-21T18:20:51Z",
+  "updated_at": "2026-07-21T18:39:23Z",
+  "language": "en",
+  "phase": "tasks-generated",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": true
+    },
+    "design": {
+      "generated": true,
+      "approved": true
+    },
+    "tasks": {
+      "generated": true,
+      "approved": true
+    }
+  },
+  "ready_for_implementation": true
+}
