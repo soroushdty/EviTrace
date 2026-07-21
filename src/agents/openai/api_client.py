@@ -4,13 +4,15 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from openai import APIConnectionError, APIStatusError, APITimeoutError, AsyncOpenAI, RateLimitError
 
 from utils.config_utils import load_openai_config
-from .prompts import get_system_prompt, build_cache_warmup_message, build_user_message
-from utils.logging_utils import get_logger, log_cache_usage
+from .prompts import get_system_prompt, build_cache_warmup_message, build_user_message, compute_stable_prefix
+from .telemetry import TelemetryCollector, TelemetryRecord, compute_prompt_fingerprint
+from utils.logging_utils import get_logger, log_cache_usage, _get_attr_or_key
 
 _openai_config = load_openai_config()
 
@@ -22,6 +24,11 @@ OPENAI_API_KEY: str = _openai_config["api_key"]
 OPENAI_BASE_URL: str | None = _openai_config["base_url"]
 PROMPT_CACHE_KEY_PREFIX: str = _openai_config["prompt_cache_key_prefix"]
 PROMPT_CACHE_RETENTION: str = _openai_config["prompt_cache_retention"]
+# Prompt-version identifier used for telemetry fingerprinting (Requirement 1.5).
+# Deliberately the same value as PROMPT_CACHE_KEY_PREFIX -- the requirement
+# defines prompt_version as "matching the prompt_cache_key_prefix from
+# configuration".
+PROMPT_VERSION: str = PROMPT_CACHE_KEY_PREFIX
 RETRY_BASE_DELAY: int = _openai_config["retry_base_delay"]
 SYNTHESIS_MODEL: str = _openai_config["synthesis_model"]
 NUM_CHUNKS: int = _openai_config["num_chunks"]
@@ -278,6 +285,106 @@ async def _call_api_with_retries(
     return None
 
 
+def _default_extract_stage(chunk_num: int, repair_prompt: Optional[str]) -> str:
+    """Return the default telemetry Stage label for an extract_chunk() call.
+
+    Callers (task 8.2/8.3) may always override this via the explicit ``stage``
+    parameter -- this is only the sensible default when they don't.
+    """
+    if repair_prompt:
+        return "validation_repair"
+    if chunk_num == NUM_CHUNKS:
+        return "synthesis"
+    return "extraction_chunk"
+
+
+def _record_telemetry(
+    *,
+    collector: Optional[TelemetryCollector],
+    response: Any,
+    stage: str,
+    model: str,
+    source_package: str,
+    field_index_start: Optional[int] = None,
+    field_index_end: Optional[int] = None,
+    domain_group: Optional[str] = None,
+    repair_attempt: Optional[int] = None,
+    error_type: Optional[str] = None,
+) -> None:
+    """Record a TelemetryRecord for one completed API call, if a collector is present.
+
+    This is a no-op-safe addition to the live extraction path:
+
+    - When ``collector`` is None (the default for every existing call site),
+      this function returns immediately and executes zero new code paths --
+      behavior is identical to before this function existed.
+    - When ``collector`` is provided, this function NEVER raises and NEVER
+      blocks the caller's response flow: any failure while extracting usage,
+      computing the prompt fingerprint, or recording the TelemetryRecord is
+      logged as a WARNING and swallowed (Requirement 1.6).
+    - A missing/falsy ``usage`` field on the response is handled gracefully:
+      a TelemetryRecord with zero token counts is still recorded, and a
+      WARNING is logged (Requirement 1.6).
+    """
+    if collector is None:
+        return
+
+    try:
+        usage = _get_attr_or_key(response, "usage")
+        if not usage:
+            logger.warning(
+                "Telemetry: response missing 'usage' field for stage=%s model=%s; "
+                "recording zero token counts",
+                stage, model,
+            )
+            input_tokens = 0
+            output_tokens = 0
+            cached_tokens = 0
+        else:
+            input_tokens = _get_attr_or_key(usage, "input_tokens", 0) or 0
+            output_tokens = _get_attr_or_key(usage, "output_tokens", 0) or 0
+            details = _get_attr_or_key(usage, "input_tokens_details")
+            cached_tokens = 0
+            if details:
+                cached_tokens = _get_attr_or_key(details, "cached_tokens", 0) or 0
+
+        uncached_tokens = max(input_tokens - cached_tokens, 0)
+        total_tokens = input_tokens + output_tokens
+
+        # Stable_Prefix for fingerprinting: system prompt + paper evidence
+        # package. No separate "rules" text exists as a distinct artifact in
+        # this codebase yet, so it's passed as "" -- this keeps the
+        # fingerprint stable across all chunk calls for the same paper
+        # within a run, which is what cache-diagnostics needs.
+        stable_prefix = compute_stable_prefix(get_system_prompt(), source_package, "")
+        fingerprint = compute_prompt_fingerprint(stable_prefix, PROMPT_VERSION)
+
+        record = TelemetryRecord(
+            stage=stage,
+            model=model,
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cached_input_tokens=cached_tokens,
+            uncached_input_tokens=uncached_tokens,
+            total_tokens=total_tokens,
+            prompt_fingerprint=fingerprint,
+            field_index_start=field_index_start,
+            field_index_end=field_index_end,
+            domain_group=domain_group,
+            repair_attempt=repair_attempt,
+            error_type=error_type,
+        )
+        collector.record(record)
+
+    except Exception:
+        # Telemetry must never interrupt the actual extraction flow.
+        logger.warning(
+            "Telemetry: failed to record TelemetryRecord for stage=%s model=%s",
+            stage, model, exc_info=True,
+        )
+
+
 async def warm_pdf_cache(
     source_package: str,
     semaphore: asyncio.Semaphore,
@@ -286,6 +393,8 @@ async def warm_pdf_cache(
     required: bool = False,
     chunk_fields: Optional[list[dict]] = None,
     tag_suffix: str = "warmup",
+    collector: Optional[TelemetryCollector] = None,
+    stage: str = "cache_warmup",
 ) -> bool:
     """
     Prewarm the shared PDF prefix for a model.
@@ -298,6 +407,11 @@ async def warm_pdf_cache(
     Warmup failures are logged and, by default, do not fail the extraction
     run. This preserves output quality and lets the real extraction proceed
     even when cache warmup is unavailable for the selected model/account.
+
+    ``collector``, when provided, receives a TelemetryRecord for this call
+    (Requirements 1.1, 1.3, 1.5, 1.6). Defaults to None, in which case no
+    telemetry is recorded and behavior is unchanged from before telemetry
+    support was added.
     """
     tag = f"[{pdf_name} | {tag_suffix} | {model}]"
     user_msg = build_cache_warmup_message(source_package, chunk_fields=chunk_fields)
@@ -308,6 +422,14 @@ async def warm_pdf_cache(
         max_output_tokens=CACHE_WARMUP_MAX_TOKENS,
     )
     response = await _call_api_with_retries(request_kwargs, semaphore, tag, required=required)
+    if response is not None:
+        _record_telemetry(
+            collector=collector,
+            response=response,
+            stage=stage,
+            model=model,
+            source_package=source_package,
+        )
     return response is not None
 
 
@@ -320,6 +442,11 @@ async def extract_chunk(
     prior_context: Optional[list[dict]] = None,
     pdf_name: str = "unknown",
     repair_prompt: Optional[str] = None,
+    collector: Optional[TelemetryCollector] = None,
+    stage: Optional[str] = None,
+    domain_group: Optional[str] = None,
+    repair_attempt: Optional[int] = None,
+    error_type: Optional[str] = None,
 ) -> str:
     """
     Call OpenAI for a single chunk with up to MAX_RETRIES attempts.
@@ -333,6 +460,21 @@ async def extract_chunk(
         pdf_name:       Used in log messages only.
         repair_prompt:  Optional repair prompt appended as a follow-up user message
                         when retrying after a validation failure.
+        collector:      Optional TelemetryCollector. When provided, a TelemetryRecord
+                        is recorded for the successful API call (Requirements 1.1, 1.2,
+                        1.3, 1.5, 1.6). Defaults to None: no telemetry is recorded and
+                        behavior is identical to before telemetry support was added.
+        stage:          Optional explicit telemetry Stage label override (e.g.
+                        "validation_repair"). Defaults to a sensible value computed
+                        from chunk_num/repair_prompt when not given -- see
+                        _default_extract_stage().
+        domain_group:   Optional domain-group name to attach to the TelemetryRecord
+                        for extraction-chunk requests.
+        repair_attempt: Optional 1-based repair attempt number, for validation-repair
+                        telemetry (Requirement 6.5 metadata; recording it is this
+                        function's concern, not deciding when a repair occurs).
+        error_type:     Optional validation error type ("parse" | "schema") that
+                        triggered a repair, for validation-repair telemetry.
 
     Returns:
         Raw response text from the API (validation is the caller's responsibility).
@@ -366,6 +508,9 @@ async def extract_chunk(
     if repair_prompt:
         request_kwargs["input"].append({"role": "user", "content": repair_prompt})
 
+    resolved_stage = stage or _default_extract_stage(chunk_num, repair_prompt)
+    field_indices = _expected_indices(chunk_fields) if chunk_fields else []
+
     last_exc: Exception = RuntimeError("No attempts made")
 
     for attempt in range(1, MAX_RETRIES + 1):
@@ -375,6 +520,18 @@ async def extract_chunk(
                 response = await _client.responses.create(**request_kwargs)
 
             log_cache_usage(response, tag)
+            _record_telemetry(
+                collector=collector,
+                response=response,
+                stage=resolved_stage,
+                model=model,
+                source_package=source_package,
+                field_index_start=field_indices[0] if field_indices else None,
+                field_index_end=field_indices[-1] if field_indices else None,
+                domain_group=domain_group,
+                repair_attempt=repair_attempt,
+                error_type=error_type,
+            )
             raw = _response_text(response)
             logger.debug(
                 "%s attempt %d raw response: %d chars, preview=%r",

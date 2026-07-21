@@ -157,7 +157,7 @@ This plan implements a token-efficiency layer for the EviTrace extraction pipeli
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 8. Integrate telemetry and budget into API client and pipeline
-  - [ ] 8.1 Update `src/agents/openai/api_client.py` to emit TelemetryRecords after each API call
+  - [x] 8.1 Update `src/agents/openai/api_client.py` to emit TelemetryRecords after each API call
     - After each OpenAI API response, create a TelemetryRecord with usage data, stage label, and prompt fingerprint
     - Pass stage label and field range metadata from caller context
     - Handle missing `usage` field gracefully: log warning, continue processing (Req 1.6)

@@ -559,3 +559,362 @@ class TestRetryAfterBackoff:
             assert m._backoff_delay(attempt=11, exc=exc) == m._MAX_RETRY_AFTER_SECONDS
         finally:
             m.RETRY_BASE_DELAY = original
+
+
+# ---------------------------------------------------------------------------
+# Task 8.1 — telemetry integration in extract_chunk() / warm_pdf_cache()
+# Requirements: 1.1, 1.2, 1.3, 1.5, 1.6
+#
+# Feature Flag Protocol: the "flag" is the optional ``collector`` parameter
+# (default None). All tests above this section already prove the
+# collector-absent (flag OFF) behavior is unchanged -- they call
+# extract_chunk()/warm_pdf_cache() without a collector and were written
+# before telemetry support existed. The tests below (flag ON) prove
+# telemetry is correctly recorded when a collector IS supplied, and that a
+# missing usage field is handled gracefully per Requirement 1.6.
+#
+# NOTE: TelemetryCollector is deliberately NOT imported at module level here
+# (e.g. ``from agents.openai.telemetry import TelemetryCollector``). Under
+# this project's ``--import-mode=importlib`` pytest configuration, a bare
+# top-level ``agents.*`` import in a file under ``tests/src/agents/openai/``
+# can resolve against the test-tree's own ``tests/src/agents/__init__.py`` /
+# ``tests/src/agents/openai/__init__.py`` package (which mirrors the real
+# package name) instead of the real ``src/agents`` package, depending on
+# collection order -- the same hazard ``_import_api_client()``'s docstring
+# already documents for ``agents.openai.api_client`` itself. Every test
+# below instead reaches ``TelemetryCollector`` via the module object
+# returned by ``_import_api_client()`` (``api_client_mod.TelemetryCollector``),
+# which is guaranteed to be the same class object ``api_client.py`` imported
+# from ``.telemetry`` in the same call.
+# ---------------------------------------------------------------------------
+
+
+def _make_response_no_usage(text: str):
+    """Response mock with output_text set but usage=None (simulates a
+    response payload with a missing usage field)."""
+    resp = MagicMock()
+    resp.output_text = text
+    resp.usage = None
+    return resp
+
+
+class TestExtractChunkTelemetry:
+    """Requirements 1.1, 1.2, 1.3, 1.5, 1.6: extract_chunk() telemetry recording."""
+
+    def _chunk_fields(self):
+        return [
+            {"field_index": 3, "field_name": "Field 3", "definition": "def3"},
+            {"field_index": 4, "field_name": "Field 4", "definition": "def4"},
+        ]
+
+    def test_no_collector_records_nothing_and_behavior_is_unchanged(self):
+        """Flag OFF: collector=None (the default) must execute zero new code
+        paths and return the exact same result as every pre-existing test
+        above -- no TelemetryCollector needs to even exist for callers that
+        don't pass one."""
+        api_client_mod = _import_api_client()
+        chunk_fields = self._chunk_fields()
+        valid_json = _json.dumps({"extractions": [{"i": 3, "v": "v3", "loc": [], "c": "h"}]})
+
+        mock_client = MagicMock()
+        mock_client.responses = MagicMock()
+        mock_client.responses.create = AsyncMock(return_value=_make_response(valid_json))
+        api_client_mod._client = mock_client
+
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            result = asyncio.run(
+                api_client_mod.extract_chunk(
+                    chunk_num=1,
+                    source_package="test-package",
+                    chunk_fields=chunk_fields,
+                    semaphore=_make_semaphore(),
+                )
+            )
+
+        assert isinstance(result, str)
+        assert "extractions" in result
+
+    def test_collector_present_records_one_telemetry_record(self):
+        """Requirements 1.1, 1.5: a TelemetryRecord is appended to the
+        collector with usage-derived token counts and a PromptFingerprint."""
+        api_client_mod = _import_api_client()
+        chunk_fields = self._chunk_fields()
+        valid_json = _json.dumps({"extractions": [{"i": 3, "v": "v3", "loc": [], "c": "h"}]})
+
+        mock_client = MagicMock()
+        mock_client.responses = MagicMock()
+        mock_client.responses.create = AsyncMock(return_value=_make_response(valid_json))
+        api_client_mod._client = mock_client
+
+        collector = api_client_mod.TelemetryCollector()
+
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            asyncio.run(
+                api_client_mod.extract_chunk(
+                    chunk_num=1,
+                    source_package="test-package",
+                    chunk_fields=chunk_fields,
+                    semaphore=_make_semaphore(),
+                    collector=collector,
+                )
+            )
+
+        records = collector.all_records()
+        assert len(records) == 1
+        record = records[0]
+        assert record.stage == "extraction_chunk"
+        assert record.model == api_client_mod.CHUNK_MODEL
+        assert record.input_tokens == 10
+        assert record.output_tokens == 5
+        assert record.cached_input_tokens == 0
+        assert record.uncached_input_tokens == 10
+        assert record.total_tokens == 15
+        assert record.field_index_start == 3
+        assert record.field_index_end == 4
+        assert record.prompt_fingerprint.prompt_version == api_client_mod.PROMPT_VERSION
+        assert len(record.prompt_fingerprint.stable_prefix_hash) == 16
+
+    def test_collector_present_synthesis_chunk_labeled_synthesis(self):
+        """Requirement 1.3: the final chunk (chunk_num == NUM_CHUNKS) defaults
+        to Stage "synthesis" when no explicit stage override is given."""
+        api_client_mod = _import_api_client()
+        num_chunks = api_client_mod.NUM_CHUNKS
+        chunk_fields = [{"field_index": 1, "field_name": "Field 1", "definition": "def1"}]
+        valid_json = _json.dumps({"extractions": [{"i": 1, "v": "v1", "loc": [], "c": "h"}]})
+
+        mock_client = MagicMock()
+        mock_client.responses = MagicMock()
+        mock_client.responses.create = AsyncMock(return_value=_make_response(valid_json))
+        api_client_mod._client = mock_client
+
+        collector = api_client_mod.TelemetryCollector()
+
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            asyncio.run(
+                api_client_mod.extract_chunk(
+                    chunk_num=num_chunks,
+                    source_package="test-package",
+                    chunk_fields=chunk_fields,
+                    semaphore=_make_semaphore(),
+                    collector=collector,
+                )
+            )
+
+        [record] = collector.all_records()
+        assert record.stage == "synthesis"
+        assert record.model == api_client_mod.SYNTHESIS_MODEL
+
+    def test_collector_present_explicit_stage_override_wins(self):
+        """Callers may override the default stage label (e.g. task 8.2's
+        repair-loop caller will pass stage="validation_repair" explicitly)."""
+        api_client_mod = _import_api_client()
+        chunk_fields = self._chunk_fields()
+        valid_json = _json.dumps({"extractions": [{"i": 3, "v": "v3", "loc": [], "c": "h"}]})
+
+        mock_client = MagicMock()
+        mock_client.responses = MagicMock()
+        mock_client.responses.create = AsyncMock(return_value=_make_response(valid_json))
+        api_client_mod._client = mock_client
+
+        collector = api_client_mod.TelemetryCollector()
+
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            asyncio.run(
+                api_client_mod.extract_chunk(
+                    chunk_num=1,
+                    source_package="test-package",
+                    chunk_fields=chunk_fields,
+                    semaphore=_make_semaphore(),
+                    collector=collector,
+                    stage="validation_repair",
+                    repair_attempt=2,
+                    error_type="schema",
+                    domain_group="study_design",
+                )
+            )
+
+        [record] = collector.all_records()
+        assert record.stage == "validation_repair"
+        assert record.repair_attempt == 2
+        assert record.error_type == "schema"
+        assert record.domain_group == "study_design"
+
+    def test_collector_present_repair_prompt_defaults_to_validation_repair_stage(self):
+        """Requirement 1.3: when repair_prompt is set and no explicit stage is
+        given, the default stage label is "validation_repair"."""
+        api_client_mod = _import_api_client()
+        chunk_fields = self._chunk_fields()
+        valid_json = _json.dumps({"extractions": [{"i": 3, "v": "v3", "loc": [], "c": "h"}]})
+
+        mock_client = MagicMock()
+        mock_client.responses = MagicMock()
+        mock_client.responses.create = AsyncMock(return_value=_make_response(valid_json))
+        api_client_mod._client = mock_client
+
+        collector = api_client_mod.TelemetryCollector()
+
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            asyncio.run(
+                api_client_mod.extract_chunk(
+                    chunk_num=1,
+                    source_package="test-package",
+                    chunk_fields=chunk_fields,
+                    semaphore=_make_semaphore(),
+                    collector=collector,
+                    repair_prompt="fix field 3",
+                )
+            )
+
+        [record] = collector.all_records()
+        assert record.stage == "validation_repair"
+
+    def test_missing_usage_field_records_zero_counts_and_does_not_raise(self, caplog):
+        """Requirement 1.6: a response with usage=None must not raise --
+        extract_chunk() still returns the raw text, and a zero-count
+        TelemetryRecord is recorded with a WARNING logged."""
+        import logging
+
+        api_client_mod = _import_api_client()
+        chunk_fields = self._chunk_fields()
+        valid_json = _json.dumps({"extractions": [{"i": 3, "v": "v3", "loc": [], "c": "h"}]})
+
+        mock_client = MagicMock()
+        mock_client.responses = MagicMock()
+        mock_client.responses.create = AsyncMock(
+            return_value=_make_response_no_usage(valid_json)
+        )
+        api_client_mod._client = mock_client
+
+        collector = api_client_mod.TelemetryCollector()
+
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            with caplog.at_level(logging.WARNING):
+                result = asyncio.run(
+                    api_client_mod.extract_chunk(
+                        chunk_num=1,
+                        source_package="test-package",
+                        chunk_fields=chunk_fields,
+                        semaphore=_make_semaphore(),
+                        collector=collector,
+                    )
+                )
+
+        # The actual response flow is completely unaffected.
+        assert isinstance(result, str)
+        assert "extractions" in result
+
+        [record] = collector.all_records()
+        assert record.input_tokens == 0
+        assert record.output_tokens == 0
+        assert record.cached_input_tokens == 0
+        assert record.uncached_input_tokens == 0
+        assert record.total_tokens == 0
+        assert any("usage" in r.message for r in caplog.records)
+
+    def test_telemetry_recording_exception_never_breaks_extract_chunk(self):
+        """The telemetry-recording call itself must never break the real
+        extraction flow, even if it raises internally (e.g. a malformed
+        collector). extract_chunk() must still return the raw response text."""
+        api_client_mod = _import_api_client()
+        chunk_fields = self._chunk_fields()
+        valid_json = _json.dumps({"extractions": [{"i": 3, "v": "v3", "loc": [], "c": "h"}]})
+
+        mock_client = MagicMock()
+        mock_client.responses = MagicMock()
+        mock_client.responses.create = AsyncMock(return_value=_make_response(valid_json))
+        api_client_mod._client = mock_client
+
+        class ExplodingCollector:
+            def record(self, record):
+                raise RuntimeError("collector is broken")
+
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            result = asyncio.run(
+                api_client_mod.extract_chunk(
+                    chunk_num=1,
+                    source_package="test-package",
+                    chunk_fields=chunk_fields,
+                    semaphore=_make_semaphore(),
+                    collector=ExplodingCollector(),
+                )
+            )
+
+        assert isinstance(result, str)
+        assert "extractions" in result
+
+
+class TestWarmPdfCacheTelemetry:
+    """Requirements 1.1, 1.3, 1.5, 1.6: warm_pdf_cache() telemetry recording."""
+
+    def test_no_collector_records_nothing_and_behavior_is_unchanged(self):
+        api_client_mod = _import_api_client()
+
+        mock_client = MagicMock()
+        mock_client.responses = MagicMock()
+        mock_client.responses.create = AsyncMock(return_value=_make_response("warmup ok"))
+        api_client_mod._client = mock_client
+
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            result = asyncio.run(
+                api_client_mod.warm_pdf_cache(
+                    source_package="test-package",
+                    semaphore=_make_semaphore(),
+                )
+            )
+
+        assert result is True
+
+    def test_collector_present_records_cache_warmup_stage(self):
+        api_client_mod = _import_api_client()
+
+        mock_client = MagicMock()
+        mock_client.responses = MagicMock()
+        mock_client.responses.create = AsyncMock(return_value=_make_response("warmup ok"))
+        api_client_mod._client = mock_client
+
+        collector = api_client_mod.TelemetryCollector()
+
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            result = asyncio.run(
+                api_client_mod.warm_pdf_cache(
+                    source_package="test-package",
+                    semaphore=_make_semaphore(),
+                    collector=collector,
+                )
+            )
+
+        assert result is True
+        [record] = collector.all_records()
+        assert record.stage == "cache_warmup"
+        assert record.model == api_client_mod.CHUNK_MODEL
+        assert record.input_tokens == 10
+        assert record.output_tokens == 5
+
+    def test_collector_present_but_all_attempts_failed_records_nothing(self):
+        """When warm_pdf_cache() exhausts retries with no successful response
+        (required=False), there is no response to attribute usage to -- no
+        TelemetryRecord should be fabricated."""
+        api_client_mod = _import_api_client()
+
+        mock_client = MagicMock()
+        mock_client.responses = MagicMock()
+        mock_client.responses.create = AsyncMock(
+            side_effect=RateLimitError(
+                message="rate limited", response=MagicMock(status_code=429, headers={}), body=None,
+            )
+        )
+        api_client_mod._client = mock_client
+
+        collector = api_client_mod.TelemetryCollector()
+
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            result = asyncio.run(
+                api_client_mod.warm_pdf_cache(
+                    source_package="test-package",
+                    semaphore=_make_semaphore(),
+                    collector=collector,
+                )
+            )
+
+        assert result is False
+        assert collector.all_records() == []
