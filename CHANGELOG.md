@@ -39,6 +39,53 @@ spec decomposition and removed that non-standard directory. No production code c
   schema is not "fixed" into breaking. The audit predates commit `8daf0a0`.
 - `CLAUDE.md`: repointed the steering/specs paragraph at the new layout and `roadmap.md`.
 
+## [2026-07] — Case-insensitive matching now uses `casefold()`; 5 property tests repaired
+
+Five Hypothesis property tests failed on a clean checkout. One had found a real
+defect in the lexical matching path; the other four were imprecise strategies.
+
+**Behaviour change (`text_processing`):** `WhitespaceNormalizer.normalize()` and
+`AggressiveNormalizer.normalize()` now call `str.casefold()` instead of
+`str.lower()`. `str.lower()` implements the Unicode Final_Sigma rule, so `"Σ"`
+lowercases to `"ς"` at the end of a word but `"σ"` elsewhere. A needle ending in
+`Σ` therefore normalised differently from the identical substring inside a
+longer text, and `LexicalMatcher.search()` returned `None` for a substring that
+was demonstrably present. Scientific prose is full of Greek letters, so this was
+a genuine matching gap rather than a theoretical one. `casefold()` maps both
+sigma forms to `"σ"`.
+
+Callers should be aware this is a real semantic change, not a refactor: both
+normalisers are used by `LexicalMatcher` (Pass 1 and Pass 2), which backs
+Tier-2 `exact_match_search` in QC. Matching is now slightly more permissive —
+`casefold()` also folds e.g. `"ß"` to `"ss"` and `"İ"` to `"i̇"`. Neither
+normaliser preserved length or character offsets before this change (both
+collapse whitespace; `AggressiveNormalizer` also strips punctuation), so the
+length changes casefold introduces add no new constraint on callers. No
+offset-dependent code consumes their output.
+
+- `src/text_processing/normalizers.py`: `.lower()` → `.casefold()` in both
+  `normalize()` implementations, each with a comment recording why.
+
+**Test-only fixes** (no production change; distinct from the similarly-named
+entry below, which concerned config/parsing boundaries):
+
+- `tests/src/pipeline/test_manifest_resume_properties.py`: `_corrupt_content_st`
+  applied its `_is_not_valid_json` filter to the free-text branch only, while the
+  binary branch could emit `b"0"`, which decodes to `"0"` and parses as the JSON
+  number zero. Three tests then asserted that `_is_output_valid` and
+  `_load_completed_result` reject *valid* JSON as corrupt — the inverse of their
+  documented contract. Moved the filter onto the whole strategy.
+- `tests/src/utils/test_safe_logging_properties.py`: the test asserted the full
+  response never appears verbatim in the log. That is false when the withheld
+  remainder is itself a prefix of the `"..."` marker (response `"0"*14 + "."`
+  with `max_chars=14`), because the marker supplies the trailing dot. No content
+  beyond `max_chars` is disclosed, so a verbatim-substring check was the wrong
+  formalisation for that input; excluded via `assume()`. The precise invariant —
+  the log carries exactly `response[:max_chars]` plus the marker — was already
+  asserted separately and is unchanged.
+
+Full suite after the change: 1448 passed, 2 skipped (fast); 22 passed (slow).
+
 ## [2026-07] — Update stale tests to match intentional config/parsing fixes
 
 Five tests had been left behind by two earlier `fix:` commits and were failing
