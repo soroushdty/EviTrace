@@ -1,11 +1,13 @@
 """Unit tests for agents.openai.telemetry — data models, prompt fingerprinting,
 and the TelemetryCollector.
 
-Requirements: 1.1, 1.2, 1.4, 1.5, 1.6, 8.1, 8.3, 8.4
+Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 6.5, 8.1, 8.2, 8.3, 8.4
 """
 import hashlib
 import logging
 import threading
+
+import pytest
 
 from agents.openai.telemetry import (
     PromptFingerprint,
@@ -424,3 +426,241 @@ def test_collector_is_thread_safe_under_concurrent_record_calls():
         t.join()
 
     assert len(collector.all_records()) == num_threads * records_per_thread
+
+
+# ---------------------------------------------------------------------------
+# Task 1.4: stage labeling, repair telemetry, fingerprint inclusion, and
+# graceful handling of missing usage fields.
+# Requirements: 1.2, 1.3, 1.6, 6.5, 8.2
+# ---------------------------------------------------------------------------
+
+_ALL_STAGE_VALUES = [
+    "extraction_chunk",
+    "synthesis",
+    "validation_repair",
+    "cache_warmup",
+    "finalization",
+]
+
+
+@pytest.mark.parametrize("stage", _ALL_STAGE_VALUES)
+def test_stage_labeling_round_trips_through_collector_for_every_stage_value(stage):
+    """Requirement 1.2 / 1.3: extraction_chunk, synthesis, validation_repair,
+    cache_warmup, and finalization are all plain stage-label strings that the
+    collector groups and reports on identically — none is treated specially
+    or rejected."""
+    collector = TelemetryCollector()
+    record = _make_record(stage=stage, input_tokens=1000, cached_input_tokens=250)
+
+    collector.record(record)
+
+    all_records = collector.all_records()
+    assert len(all_records) == 1
+    assert all_records[0].stage == stage
+
+    summaries = collector.stage_summaries()
+    assert len(summaries) == 1
+    assert summaries[0].stage == stage
+    assert summaries[0].request_count == 1
+    assert summaries[0].total_input_tokens == 1000
+
+
+def test_stage_labeling_groups_all_five_stage_values_independently():
+    """Requirement 1.3: synthesis, validation_repair, and finalization (in
+    addition to extraction_chunk and cache_warmup) must each be labeled with
+    their own distinguishable Stage name and aggregated separately, not
+    collapsed into a single bucket."""
+    collector = TelemetryCollector()
+    for stage in _ALL_STAGE_VALUES:
+        collector.record(_make_record(stage=stage, input_tokens=100, cached_input_tokens=0))
+
+    summaries = {s.stage: s for s in collector.stage_summaries()}
+
+    assert set(summaries.keys()) == set(_ALL_STAGE_VALUES)
+    for stage in _ALL_STAGE_VALUES:
+        assert summaries[stage].request_count == 1
+
+
+def test_repair_telemetry_includes_attempt_number_and_error_type():
+    """Requirement 6.5: validation_repair records carry a 1-based
+    repair_attempt and the error_type ("parse" or "schema") that triggered
+    the repair, distinguishing them from plain extraction_chunk requests."""
+    record = TelemetryRecord(
+        stage="validation_repair",
+        model="gpt-5.5",
+        timestamp="2025-01-15T10:31:00Z",
+        input_tokens=500,
+        output_tokens=80,
+        cached_input_tokens=0,
+        uncached_input_tokens=500,
+        total_tokens=580,
+        prompt_fingerprint=_make_fingerprint(),
+        repair_attempt=1,
+        error_type="parse",
+    )
+
+    assert record.stage == "validation_repair"
+    assert record.repair_attempt == 1
+    assert record.error_type == "parse"
+
+
+@pytest.mark.parametrize("repair_attempt,error_type", [(1, "parse"), (2, "schema"), (3, "schema")])
+def test_repair_telemetry_attempt_and_error_type_preserved_through_collector(
+    repair_attempt, error_type
+):
+    """Requirement 6.5: repair_attempt and error_type must survive the
+    collector's record()/all_records() round trip unchanged, for any
+    attempt number up to the configured maximum (default 3) and either
+    documented error_type value."""
+    collector = TelemetryCollector()
+    record = TelemetryRecord(
+        stage="validation_repair",
+        model="gpt-5.5",
+        timestamp="2025-01-15T10:31:00Z",
+        input_tokens=500,
+        output_tokens=80,
+        cached_input_tokens=0,
+        uncached_input_tokens=500,
+        total_tokens=580,
+        prompt_fingerprint=_make_fingerprint(),
+        repair_attempt=repair_attempt,
+        error_type=error_type,
+    )
+
+    collector.record(record)
+
+    [stored] = collector.all_records()
+    assert stored.repair_attempt == repair_attempt
+    assert stored.error_type == error_type
+
+
+def test_repair_telemetry_fields_preserved_through_top_n_expensive():
+    """Requirement 6.5: repair metadata must remain intact on records
+    surfaced via top_n_expensive(), not just all_records()."""
+    collector = TelemetryCollector()
+    plain_chunk = _make_record(stage="extraction_chunk", input_tokens=100, output_tokens=10)
+    repair_record = TelemetryRecord(
+        stage="validation_repair",
+        model="gpt-5.5",
+        timestamp="2025-01-15T10:31:00Z",
+        input_tokens=9000,
+        output_tokens=700,
+        cached_input_tokens=0,
+        uncached_input_tokens=9000,
+        total_tokens=9700,
+        prompt_fingerprint=_make_fingerprint(),
+        repair_attempt=2,
+        error_type="schema",
+    )
+
+    collector.record(plain_chunk)
+    collector.record(repair_record)
+
+    top1 = collector.top_n_expensive(n=1)
+    assert top1 == [repair_record]
+    assert top1[0].repair_attempt == 2
+    assert top1[0].error_type == "schema"
+
+
+# ---------------------------------------------------------------------------
+# Requirement 8.2: Prompt_Fingerprint inclusion in every TelemetryRecord.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("stage", _ALL_STAGE_VALUES)
+def test_every_telemetry_record_carries_a_prompt_fingerprint(stage):
+    """Requirement 8.2: every TelemetryRecord, regardless of stage, must
+    carry a PromptFingerprint (stable_prefix_hash + prompt_version) — it is
+    not optional metadata reserved for a subset of stages."""
+    record = _make_record(stage=stage, prompt_version="scoping-review-v3", stable_prefix="abc")
+
+    assert isinstance(record.prompt_fingerprint, PromptFingerprint)
+    assert record.prompt_fingerprint.prompt_version == "scoping-review-v3"
+    assert len(record.prompt_fingerprint.stable_prefix_hash) == 16
+
+
+def test_prompt_fingerprint_round_trips_through_collector_all_records():
+    """Requirement 8.2: all_records() must return the exact PromptFingerprint
+    values recorded (not a copy that loses precision, not a default), for
+    each stage independently."""
+    collector = TelemetryCollector()
+    expected_fingerprints = {}
+    for stage in _ALL_STAGE_VALUES:
+        fp = compute_prompt_fingerprint(f"stable prefix for {stage}", f"{stage}-v1")
+        record = _make_record(stage=stage)
+        record.prompt_fingerprint = fp
+        expected_fingerprints[stage] = fp
+        collector.record(record)
+
+    for stored in collector.all_records():
+        assert stored.prompt_fingerprint == expected_fingerprints[stored.stage]
+        assert stored.prompt_fingerprint.prompt_version == f"{stored.stage}-v1"
+
+
+# ---------------------------------------------------------------------------
+# Requirement 1.6: graceful handling of missing usage fields.
+#
+# There is no live API response parser yet (that lands in a later task), so
+# this is exercised at the data-model layer available today: a caller that
+# receives a response with a missing `usage` field builds a TelemetryRecord
+# with every token count zeroed, and the collector must handle it (in
+# particular stage_summaries()'s division for mean_cache_rate) without
+# raising.
+# ---------------------------------------------------------------------------
+
+def test_telemetry_record_accepts_all_zero_token_counts_for_missing_usage_field():
+    """Requirement 1.6: a TelemetryRecord representing a response with a
+    missing usage field (all counts zeroed) must construct successfully."""
+    record = TelemetryRecord(
+        stage="extraction_chunk",
+        model="gpt-5.5",
+        timestamp="2025-01-15T10:32:00Z",
+        input_tokens=0,
+        output_tokens=0,
+        cached_input_tokens=0,
+        uncached_input_tokens=0,
+        total_tokens=0,
+        prompt_fingerprint=_make_fingerprint(),
+    )
+
+    assert record.input_tokens == 0
+    assert record.output_tokens == 0
+    assert record.cached_input_tokens == 0
+    assert record.uncached_input_tokens == 0
+    assert record.total_tokens == 0
+
+
+def test_collector_stage_summaries_does_not_crash_on_all_zero_usage_record():
+    """Requirement 1.6: stage_summaries() must not raise ZeroDivisionError
+    (or any other exception) when the only record for a stage has zero
+    input tokens, and must report mean_cache_rate as 0.0 (continuing
+    processing rather than interrupting on the missing-usage case)."""
+    collector = TelemetryCollector()
+    collector.record(
+        _make_record(stage="extraction_chunk", input_tokens=0, output_tokens=0, cached_input_tokens=0)
+    )
+
+    summaries = collector.stage_summaries()
+
+    assert len(summaries) == 1
+    assert summaries[0].request_count == 1
+    assert summaries[0].total_input_tokens == 0
+    assert summaries[0].mean_cache_rate == 0.0
+
+
+def test_collector_stage_summaries_handles_mixed_zero_and_nonzero_usage_records():
+    """Requirement 1.6: a zero-usage record (missing usage field) mixed with
+    normal records for the same stage must not crash the aggregation and
+    must still contribute its (zero) totals correctly."""
+    collector = TelemetryCollector()
+    collector.record(
+        _make_record(stage="extraction_chunk", input_tokens=8000, output_tokens=1000, cached_input_tokens=6000)
+    )
+    collector.record(
+        _make_record(stage="extraction_chunk", input_tokens=0, output_tokens=0, cached_input_tokens=0)
+    )
+
+    summary = collector.stage_summaries()[0]
+
+    assert summary.request_count == 2
+    assert summary.total_input_tokens == 8000
+    assert summary.mean_cache_rate == 6000 / 8000

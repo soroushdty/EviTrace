@@ -6,7 +6,7 @@ This plan implements a token-efficiency layer for the EviTrace extraction pipeli
 
 ## Tasks
 
-- [ ] 1. Create telemetry module with data models and collector
+- [x] 1. Create telemetry module with data models and collector
   - [x] 1.1 Create `src/agents/openai/telemetry.py` with TelemetryRecord, PromptFingerprint, and StageSummary dataclasses
     - Define `PromptFingerprint` dataclass with `stable_prefix_hash: str` (16 hex chars) and `prompt_version: str` (max 64 chars)
     - Define `TelemetryRecord` dataclass with all fields: stage, model, timestamp, input_tokens, output_tokens, cached_input_tokens, uncached_input_tokens, total_tokens, prompt_fingerprint, optional field_index_start/end, domain_group, repair_attempt, error_type
@@ -32,7 +32,7 @@ This plan implements a token-efficiency layer for the EviTrace extraction pipeli
     - **Property 18: Prefix drift detection**
     - **Validates: Requirements 1.1, 1.4, 1.5, 8.1, 8.3, 8.4**
 
-  - [ ]* 1.4 Write unit tests for telemetry in `tests/src/agents/openai/test_telemetry.py`
+  - [x]* 1.4 Write unit tests for telemetry in `tests/src/agents/openai/test_telemetry.py`
     - Test stage labeling for extraction_chunk, synthesis, validation_repair, cache_warmup, finalization (Req 1.2, 1.3)
     - Test repair telemetry includes attempt number and error_type (Req 6.5)
     - Test fingerprint inclusion in TelemetryRecord (Req 8.2)
