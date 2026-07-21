@@ -78,7 +78,7 @@ This plan implements a token-efficiency layer for the EviTrace extraction pipeli
     - Default budgets: extraction_chunk=100000, validation_repair=20000, synthesis=120000, cache_warmup=10000
     - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6_
 
-  - [ ]* 3.2 Write property tests for token budget in `tests/src/pipeline/test_token_budget_properties.py`
+  - [x]* 3.2 Write property tests for token budget in `tests/src/pipeline/test_token_budget_properties.py`
     - **Property 15: Token estimation is chars divided by 4**
     - **Property 21: Evidence pruning preserves high-confidence references**
     - **Property 22: Budget mitigation ordering**
