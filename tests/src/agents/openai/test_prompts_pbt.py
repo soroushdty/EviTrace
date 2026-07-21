@@ -41,6 +41,7 @@ _SPEC.loader.exec_module(_PROMPTS_MODULE)
 
 _shared_paper_prefix = _PROMPTS_MODULE._shared_paper_prefix
 build_user_message = _PROMPTS_MODULE.build_user_message
+build_cache_warmup_message = _PROMPTS_MODULE.build_cache_warmup_message
 
 # ---------------------------------------------------------------------------
 # Hypothesis strategies
@@ -120,4 +121,66 @@ def test_source_package_in_prefix(
     assert source_package in prefix_section, (
         f"source_package not found within the shared prefix section of the message. "
         f"source_package (first 80 chars): {source_package[:80]!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Property 5: Field definitions ordered by field_index
+# ---------------------------------------------------------------------------
+
+@given(st_source_package, st_chunk_fields)
+@settings(max_examples=100)
+def test_build_user_message_field_definitions_ordered_by_field_index(
+    source_package: str,
+    chunk_fields: list,
+) -> None:
+    """
+    **Property 5: Field definitions ordered by field_index**
+
+    For any list of field definitions passed as chunk_fields, the serialized
+    extraction map within build_user_message SHALL list them in ascending
+    numeric order of field_index, regardless of input order.
+
+    Validates: Requirements 2.3
+    """
+    message = build_user_message(source_package, chunk_fields)
+
+    extracted_indices = [
+        int(line.split(":")[-1].strip().rstrip(","))
+        for line in message.splitlines()
+        if line.strip().startswith('"field_index"')
+    ]
+
+    assert extracted_indices == sorted(extracted_indices), (
+        f"field_index values are not in ascending order in build_user_message output: "
+        f"{extracted_indices}"
+    )
+
+
+@given(st_source_package, st_chunk_fields)
+@settings(max_examples=100)
+def test_build_cache_warmup_message_field_definitions_ordered_by_field_index(
+    source_package: str,
+    chunk_fields: list,
+) -> None:
+    """
+    **Property 5: Field definitions ordered by field_index (warmup variant)**
+
+    For any list of field definitions passed as chunk_fields to
+    build_cache_warmup_message, the serialized extraction map SHALL list
+    them in ascending numeric order of field_index.
+
+    Validates: Requirements 2.3
+    """
+    message = build_cache_warmup_message(source_package, chunk_fields=chunk_fields)
+
+    extracted_indices = [
+        int(line.split(":")[-1].strip().rstrip(","))
+        for line in message.splitlines()
+        if line.strip().startswith('"field_index"')
+    ]
+
+    assert extracted_indices == sorted(extracted_indices), (
+        f"field_index values are not in ascending order in build_cache_warmup_message "
+        f"output: {extracted_indices}"
     )

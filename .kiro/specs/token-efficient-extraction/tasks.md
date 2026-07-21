@@ -121,7 +121,7 @@ This plan implements a token-efficiency layer for the EviTrace extraction pipeli
     - _Requirements: 10.1, 10.4, 10.5, 10.6_
 
 - [ ] 6. Modify prompt construction for stable prefix and evidence ordering
-  - [ ] 6.1 Update `src/agents/openai/prompts.py` for system prompt caching and stable serialization
+  - [x] 6.1 Update `src/agents/openai/prompts.py` for system prompt caching and stable serialization
     - Cache `get_system_prompt()` result as module-level singleton (same object reference on every call)
     - Ensure evidence items in `source_package` are serialized sorted by Evidence_ID ascending
     - Ensure field definitions in extraction map are sorted by `field_index` ascending

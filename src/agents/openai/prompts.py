@@ -4,10 +4,24 @@ from typing import Optional
 
 from agents import agent_schema_validator
 
+# Module-level cache for get_system_prompt(). Populated lazily on first call
+# and never reassigned afterward, guaranteeing every caller within the
+# process lifetime receives the exact same string object (``is`` identity).
+# This makes the invariant explicit at this layer rather than depending on
+# agent_schema_validator's internal caching (Requirements: 2.7).
+_CACHED_SYSTEM_PROMPT: Optional[str] = None
+
 
 def get_system_prompt() -> str:
-    """Return the system prompt from agent_schema.json via the singleton."""
-    return agent_schema_validator.get_system_prompt()
+    """Return the system prompt from agent_schema.json via the singleton.
+
+    Cached as a module-level singleton: the same object reference is
+    returned on every call within the process lifetime (Requirements: 2.7).
+    """
+    global _CACHED_SYSTEM_PROMPT
+    if _CACHED_SYSTEM_PROMPT is None:
+        _CACHED_SYSTEM_PROMPT = agent_schema_validator.get_system_prompt()
+    return _CACHED_SYSTEM_PROMPT
 
 
 def _shared_paper_prefix(source_package: str) -> str:
@@ -29,6 +43,30 @@ def _shared_paper_prefix(source_package: str) -> str:
         "END SHARED EVIDENCE PACKAGE",
         "",
     ])
+
+
+def _sorted_by_field_index(chunk_fields: list[dict]) -> list[dict]:
+    """Return a new list of field definitions sorted by field_index ascending.
+
+    Does not mutate the caller's list. Requirements: 2.3.
+    """
+    return sorted(chunk_fields, key=lambda field: field["field_index"])
+
+
+def compute_stable_prefix(system_prompt: str, evidence_package: str, rules: str) -> str:
+    """Build the canonical Stable_Prefix string used for cache fingerprinting.
+
+    Concatenates ``system_prompt``, ``evidence_package``, and ``rules`` in a
+    fixed order with a stable separator so identical inputs always produce
+    byte-identical output. This function performs no hashing itself — callers
+    (e.g. telemetry) SHA-256 hash the UTF-8 bytes of the returned string to
+    obtain the Stable_Prefix fingerprint (Requirements: 2.4, 2.6, 2.7).
+
+    Callers MUST NOT pass runtime metadata (timestamps, run IDs, chunk
+    numbers, PDF file names) in any of the three arguments — those belong in
+    the Dynamic_Suffix, never in the Stable_Prefix.
+    """
+    return "\n".join([system_prompt, evidence_package, rules])
 
 
 def build_cache_warmup_message(
@@ -54,8 +92,9 @@ def build_cache_warmup_message(
     """
     parts: list[str] = [_shared_paper_prefix(source_package)]
     if chunk_fields is not None:
-        parts.append(f"EXTRACTION MAP ({len(chunk_fields)} fields to extract):")
-        parts.append(json.dumps(chunk_fields, indent=2, ensure_ascii=False))
+        ordered_fields = _sorted_by_field_index(chunk_fields)
+        parts.append(f"EXTRACTION MAP ({len(ordered_fields)} fields to extract):")
+        parts.append(json.dumps(ordered_fields, indent=2, ensure_ascii=False))
         parts.append("")
     parts.append(
         "CACHE WARMUP ONLY. Return the strict JSON object now with an empty "
@@ -81,8 +120,9 @@ def build_user_message(
     """
     parts: list[str] = [_shared_paper_prefix(source_package)]
 
-    parts.append(f"EXTRACTION MAP ({len(chunk_fields)} fields to extract):")
-    parts.append(json.dumps(chunk_fields, indent=2, ensure_ascii=False))
+    ordered_fields = _sorted_by_field_index(chunk_fields)
+    parts.append(f"EXTRACTION MAP ({len(ordered_fields)} fields to extract):")
+    parts.append(json.dumps(ordered_fields, indent=2, ensure_ascii=False))
     parts.append("")
 
     if prior_context is not None:

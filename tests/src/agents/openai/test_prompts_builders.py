@@ -37,6 +37,8 @@ SYSTEM_PROMPT = _PROMPTS_MODULE.get_system_prompt()
 _shared_paper_prefix = _PROMPTS_MODULE._shared_paper_prefix
 build_cache_warmup_message = _PROMPTS_MODULE.build_cache_warmup_message
 build_user_message = _PROMPTS_MODULE.build_user_message
+get_system_prompt = _PROMPTS_MODULE.get_system_prompt
+compute_stable_prefix = _PROMPTS_MODULE.compute_stable_prefix
 
 
 # ---------------------------------------------------------------------------
@@ -111,3 +113,108 @@ def test_build_user_message_different_fields_same_prefix():
     assert msg_a[:prefix_len] == expected_prefix
     assert msg_b[:prefix_len] == expected_prefix
     assert msg_a[:prefix_len] == msg_b[:prefix_len]
+
+
+# ---------------------------------------------------------------------------
+# get_system_prompt() singleton caching (Requirements: 2.7)
+# ---------------------------------------------------------------------------
+
+def test_get_system_prompt_returns_same_object_reference():
+    """get_system_prompt() must return the identical cached object (``is``,
+    not just ``==``) on every call within the process lifetime."""
+    first = get_system_prompt()
+    second = get_system_prompt()
+    third = get_system_prompt()
+    assert first is second
+    assert second is third
+
+
+def test_get_system_prompt_module_level_cache_populated():
+    """The module-level cache variable must be populated after a call and
+    must be the same object returned by get_system_prompt()."""
+    result = get_system_prompt()
+    assert _PROMPTS_MODULE._CACHED_SYSTEM_PROMPT is result
+
+
+# ---------------------------------------------------------------------------
+# Field definitions sorted by field_index (Requirements: 2.3)
+# ---------------------------------------------------------------------------
+
+def test_build_user_message_sorts_field_definitions_by_field_index():
+    """build_user_message must serialize chunk_fields sorted by field_index
+    ascending, regardless of the order the caller supplies them in."""
+    pkg = '{"sentences": [{"id": "s1", "text": "Evidence."}]}'
+    fields_out_of_order = [
+        {"field_index": 20, "field_name": "Outcome", "definition": "Primary outcome"},
+        {"field_index": 3, "field_name": "Study design", "definition": "RCT or observational"},
+        {"field_index": 11, "field_name": "Comparator", "definition": "Comparator description"},
+    ]
+    result = build_user_message(pkg, fields_out_of_order)
+
+    sorted_fields = sorted(fields_out_of_order, key=lambda f: f["field_index"])
+    assert json.dumps(sorted_fields, indent=2, ensure_ascii=False) in result
+
+    # The unsorted serialization must NOT appear (would indicate no sorting happened).
+    unsorted_json = json.dumps(fields_out_of_order, indent=2, ensure_ascii=False)
+    if unsorted_json != json.dumps(sorted_fields, indent=2, ensure_ascii=False):
+        assert unsorted_json not in result
+
+
+def test_build_cache_warmup_message_sorts_field_definitions_by_field_index():
+    """build_cache_warmup_message must also sort chunk_fields by field_index
+    ascending when chunk_fields is provided."""
+    pkg = '{"sentences": [{"id": "s1", "text": "Evidence."}]}'
+    fields_out_of_order = [
+        {"field_index": 45, "field_name": "Adverse events", "definition": "AE summary"},
+        {"field_index": 1, "field_name": "Author", "definition": "First author and year"},
+    ]
+    result = build_cache_warmup_message(pkg, chunk_fields=fields_out_of_order)
+
+    sorted_fields = sorted(fields_out_of_order, key=lambda f: f["field_index"])
+    assert json.dumps(sorted_fields, indent=2, ensure_ascii=False) in result
+
+
+def test_build_user_message_does_not_mutate_caller_chunk_fields():
+    """Sorting must not mutate the caller's original list in place."""
+    pkg = '{"sentences": []}'
+    fields = [
+        {"field_index": 9, "field_name": "B", "definition": ""},
+        {"field_index": 2, "field_name": "A", "definition": ""},
+    ]
+    original_order = list(fields)
+    build_user_message(pkg, fields)
+    assert fields == original_order
+
+
+# ---------------------------------------------------------------------------
+# compute_stable_prefix() helper (Requirements: 2.4, 2.6, 2.7)
+# ---------------------------------------------------------------------------
+
+def test_compute_stable_prefix_deterministic():
+    """The same inputs must produce byte-identical output across calls."""
+    result_a = compute_stable_prefix("SYSTEM", "EVIDENCE", "RULES")
+    result_b = compute_stable_prefix("SYSTEM", "EVIDENCE", "RULES")
+    assert result_a == result_b
+
+
+def test_compute_stable_prefix_contains_all_three_inputs_in_order():
+    """The stable prefix must contain system_prompt, then evidence_package,
+    then rules, in that fixed order (so it can be used as a canonical
+    fingerprinting input for the Stable_Prefix hash)."""
+    result = compute_stable_prefix("SYS_PART", "EVID_PART", "RULES_PART")
+    assert "SYS_PART" in result
+    assert "EVID_PART" in result
+    assert "RULES_PART" in result
+    assert result.index("SYS_PART") < result.index("EVID_PART") < result.index("RULES_PART")
+
+
+def test_compute_stable_prefix_differs_when_evidence_differs():
+    """Changing any one input must change the computed stable prefix."""
+    base = compute_stable_prefix("SYS", "EVIDENCE_A", "RULES")
+    changed = compute_stable_prefix("SYS", "EVIDENCE_B", "RULES")
+    assert base != changed
+
+
+def test_compute_stable_prefix_returns_str():
+    result = compute_stable_prefix("s", "e", "r")
+    assert isinstance(result, str)
