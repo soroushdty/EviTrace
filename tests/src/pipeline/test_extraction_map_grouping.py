@@ -74,7 +74,14 @@ def test_build_field_lookup_size(tmp_path):
 
 
 def test_build_field_lookup_keys_and_values(tmp_path):
-    """Each lookup entry contains domain_group and field_name with correct values."""
+    """Each lookup entry contains domain_group and field_name with correct values.
+
+    domain_group crosses a type boundary here: extraction_map.json stores the
+    descriptive string ("1. Study identification", per structure_schema.json),
+    while the output field dicts carry just its integer prefix (per
+    final_output_schema.json). _build_field_lookup is where that conversion
+    happens.
+    """
     fake_path = _write_fake_map(tmp_path, _FIELDS_TWO_DOMAINS)
     with patch.object(_EM_MODULE, "EXTRACTION_MAP", fake_path):
         lookup = _build_field_lookup()
@@ -83,7 +90,7 @@ def test_build_field_lookup_keys_and_values(tmp_path):
         entry = lookup[field["field_index"]]
         assert "domain_group" in entry
         assert "field_name" in entry
-        assert entry["domain_group"] == field["domain_group"]
+        assert entry["domain_group"] == int(field["domain_group"].split(".")[0])
         assert entry["field_name"] == field["field_name"]
 
 
@@ -157,9 +164,18 @@ def test_infer_chunk_field_ranges_missing_domain_raises(tmp_path):
 from hypothesis import given, settings, HealthCheck
 from hypothesis import strategies as st
 
+# domain_group must keep the "<int>. <label>" shape that structure_schema.json
+# mandates and extraction_map.json uses — _build_field_lookup parses the integer
+# prefix out of it, so arbitrary text is not a valid input to this function.
+st_domain_group = st.builds(
+    lambda n, label: f"{n}. {label}",
+    st.integers(min_value=1, max_value=13),
+    st.text(min_size=1, max_size=25).filter(lambda s: "." not in s),
+)
+
 st_field_dict = st.fixed_dictionaries({
     "field_index": st.integers(min_value=1, max_value=62),
-    "domain_group": st.text(min_size=1, max_size=30),
+    "domain_group": st_domain_group,
     "field_name": st.text(min_size=1, max_size=30),
 })
 
@@ -195,6 +211,11 @@ def test_build_field_lookup_pbt(tmp_path, fields):
     for idx, entry in lookup.items():
         assert "domain_group" in entry, f"Entry for field_index={idx} missing 'domain_group'"
         assert "field_name" in entry, f"Entry for field_index={idx} missing 'field_name'"
+        # final_output_schema.json requires an integer domain_group downstream.
+        assert isinstance(entry["domain_group"], int), (
+            f"Entry for field_index={idx} has non-integer domain_group "
+            f"{entry['domain_group']!r}"
+        )
 
 
 # ---------------------------------------------------------------------------

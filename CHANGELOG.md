@@ -5,6 +5,25 @@ and should never be deleted. Add a brief entry whenever a spec is implemented,
 steering docs change, README files change, or any other significant code change
 occurs.
 
+## [2026-07] — Update stale tests to match intentional config/parsing fixes
+
+Five tests had been left behind by two earlier `fix:` commits and were failing
+on a clean checkout. In both cases the source was correct and the tests were
+stale; no production code changed.
+
+- `tests/src/pipeline/test_extraction_map_grouping.py`: commit `8daf0a0` made
+  `_build_field_lookup` parse `domain_group` to its integer prefix. This is a
+  deliberate type boundary — `structure_schema.json` requires the raw
+  `extraction_map.json` value to be the descriptive string
+  (`"1. Study identification"`), while `final_output_schema.json` requires the
+  emitted field dicts to carry an `integer`. Updated the value assertion, and
+  fixed the Hypothesis strategy which generated arbitrary `st.text()` for
+  `domain_group` instead of the mandated `"<int>. <label>"` shape. Added an
+  `isinstance(..., int)` assertion to pin the output side of the boundary.
+- `tests/src/utils/test_quality_control_config.py`: commit `c7ea055` switched the
+  default sentence tokenizer from `scispacy` to `nltk_punkt`. Updated three
+  assertions to match `_QC_DEFAULTS` and `configs/config.yaml`.
+
 ## [2026-07] — Add Kiro agentic-SDLC skills; fix stale `specs/` paths
 
 Committed the `.claude/skills/kiro-*` spec-driven-development skills and

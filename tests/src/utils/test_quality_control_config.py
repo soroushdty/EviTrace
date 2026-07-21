@@ -512,8 +512,8 @@ class TestTextProcessorDefaults:
         assert _QC_DEFAULTS["text_processor"]["class"] == "text_processing.composite.DefaultTextProcessor"
 
     def test_text_processor_sentence_tokenizer_backend_default(self):
-        """sentence_tokenizer.backend must default to 'scispacy'."""
-        assert _QC_DEFAULTS["text_processor"]["sentence_tokenizer"]["backend"] == "scispacy"
+        """sentence_tokenizer.backend must default to 'nltk_punkt'."""
+        assert _QC_DEFAULTS["text_processor"]["sentence_tokenizer"]["backend"] == "nltk_punkt"
 
     def test_text_processor_word_tokenizer_backend_default(self):
         """word_tokenizer.backend must default to 'simple'."""
@@ -539,7 +539,7 @@ class TestTextProcessorDefaults:
     def test_load_qc_config_text_processor_sentence_backend_default(self, tmp_path):
         cfg_file = _write_config(tmp_path, {"pdfs_path": "data/pdfs"})
         cfg = load_qc_config(str(cfg_file))
-        assert cfg["text_processor"]["sentence_tokenizer"]["backend"] == "scispacy"
+        assert cfg["text_processor"]["sentence_tokenizer"]["backend"] == "nltk_punkt"
 
     # --- deep-merge: user value wins ---
 
@@ -558,7 +558,7 @@ class TestTextProcessorDefaults:
             "text_processor": {"class": "my.module.MyTextProcessor"},
         })
         cfg = load_qc_config(str(cfg_file))
-        assert cfg["text_processor"]["sentence_tokenizer"]["backend"] == "scispacy"
+        assert cfg["text_processor"]["sentence_tokenizer"]["backend"] == "nltk_punkt"
 
 
 # ---------------------------------------------------------------------------
