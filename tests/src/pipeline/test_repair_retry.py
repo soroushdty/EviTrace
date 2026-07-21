@@ -38,8 +38,24 @@ with patch.dict(
         RepairRetryLoop,
         RepairExhaustedError,
         _COMPACT_SCHEMA_FORMAT,
+        _MAX_REPAIR_FRAGMENT_CHARS,
+        token_budget,
     )
     from pipeline.validator import ValidationError
+
+# NOTE: `token_budget` (and any other module reached only via `pipeline.*`)
+# MUST be imported here, inside this same patch.dict(sys.modules, ...) block,
+# not later at module level. `unittest.mock.patch.dict.__exit__` restores
+# `sys.modules` to a full snapshot taken at __enter__ time (it clears and
+# rebuilds the *entire* dict, not just the keys it touched) -- so anything
+# first imported inside this block (pipeline, pipeline.pdf_processor,
+# pipeline.token_budget, ...) is evicted from sys.modules the moment this
+# `with` exits. A later top-level `from pipeline import token_budget` would
+# therefore trigger a *second*, independent import producing a distinct
+# `TokenBudgetExceededError` class object -- silently breaking
+# `pytest.raises(token_budget.TokenBudgetExceededError)` / isinstance checks
+# against exceptions raised from inside RepairRetryLoop (which holds a
+# reference to the *first* import's module).
 
 
 # ---------------------------------------------------------------------------
@@ -341,3 +357,336 @@ class TestExtractWithRepair:
         # 1 initial + 3 repair attempts = 4 total calls
         assert mock_extract.call_count == 4
         assert exc_info.value.metadata["attempts"] == 3
+
+
+# ---------------------------------------------------------------------------
+# _build_repair_prompt: invalid-output fragment (Requirement 6.1)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildRepairPromptRawResponse:
+    """Tests for the optional raw_response fragment in _build_repair_prompt()."""
+
+    def setup_method(self):
+        self.loop = RepairRetryLoop(max_repair_attempts=2)
+
+    def test_raw_response_omitted_by_default(self):
+        """Without raw_response, no invalid-output section is added (backward compatible)."""
+        error = json.JSONDecodeError("Expecting value", "doc", 0)
+        prompt = self.loop._build_repair_prompt(error, [1, 2, 3])
+
+        assert "INVALID OUTPUT" not in prompt
+
+    def test_raw_response_included_when_provided(self):
+        """Requirement 6.1: the invalid output fragment that failed validation
+        is included in the repair prompt when raw_response is given."""
+        error = json.JSONDecodeError("Expecting value", "doc", 0)
+        bad_output = '{"extractions": [{"i": 1, "v": "broken"'
+        prompt = self.loop._build_repair_prompt(error, [1, 2, 3], raw_response=bad_output)
+
+        assert "INVALID OUTPUT THAT FAILED VALIDATION" in prompt
+        assert bad_output in prompt
+
+    def test_raw_response_truncated_when_large(self):
+        """Requirement 6.2 / Property 14: a large invalid-output fragment is
+        truncated so the repair prompt doesn't balloon in size."""
+        error = ValidationError("Item 0 is missing keys: {'c'}")
+        huge_output = "x" * (_MAX_REPAIR_FRAGMENT_CHARS * 5)
+        prompt = self.loop._build_repair_prompt(error, [1, 2, 3], raw_response=huge_output)
+
+        assert huge_output not in prompt
+        assert "[truncated]" in prompt
+        # The fragment portion of the prompt must not exceed the configured cap.
+        fragment_start = prompt.index("INVALID OUTPUT THAT FAILED VALIDATION:") + len(
+            "INVALID OUTPUT THAT FAILED VALIDATION:\n"
+        )
+        fragment = prompt[fragment_start:]
+        assert len(fragment) <= _MAX_REPAIR_FRAGMENT_CHARS + len("... [truncated]")
+
+
+# ---------------------------------------------------------------------------
+# extract_with_repair: telemetry threading (Requirement 6.5)
+# ---------------------------------------------------------------------------
+
+
+class TestRepairTelemetry:
+    """Tests that extract_with_repair threads collector/stage/repair_attempt/
+    error_type into extract_chunk calls (Requirement 6.5)."""
+
+    def test_no_collector_by_default(self):
+        """Default collector=None is passed through unchanged -- no telemetry."""
+        loop = RepairRetryLoop(max_repair_attempts=2)
+        indices = [1, 2]
+        valid_response = json.dumps(
+            {"extractions": [{"i": i, "v": f"v{i}", "loc": [], "c": "h"} for i in indices]}
+        )
+        mock_extract = AsyncMock(return_value=valid_response)
+        with patch.dict(
+            sys.modules,
+            {"agents.openai.api_client": MagicMock(extract_chunk=mock_extract)},
+        ):
+            asyncio.run(loop.extract_with_repair(
+                chunk_num=1,
+                source="test_source",
+                fields=[{"field_index": i} for i in indices],
+                semaphore=asyncio.Semaphore(5),
+                valid_location_ids={"ev1"},
+                expected_indices=indices,
+                pdf_name="test_pdf",
+            ))
+
+        _, kwargs = mock_extract.call_args
+        assert kwargs.get("collector") is None
+
+    def test_collector_passed_to_every_dispatch(self):
+        """A configured collector is passed to both the initial dispatch and
+        every repair-attempt dispatch."""
+        collector = MagicMock()
+        loop = RepairRetryLoop(max_repair_attempts=2, collector=collector)
+        indices = [1, 2]
+        malformed = '{"extractions": [{"broken": true'
+        valid_response = json.dumps(
+            {"extractions": [{"i": i, "v": f"v{i}", "loc": [], "c": "h"} for i in indices]}
+        )
+        mock_extract = AsyncMock(side_effect=[malformed, valid_response])
+        with patch.dict(
+            sys.modules,
+            {"agents.openai.api_client": MagicMock(extract_chunk=mock_extract)},
+        ):
+            asyncio.run(loop.extract_with_repair(
+                chunk_num=1,
+                source="test_source",
+                fields=[{"field_index": i} for i in indices],
+                semaphore=asyncio.Semaphore(5),
+                valid_location_ids={"ev1"},
+                expected_indices=indices,
+                pdf_name="test_pdf",
+            ))
+
+        assert mock_extract.call_count == 2
+        for call in mock_extract.call_args_list:
+            assert call.kwargs.get("collector") is collector
+
+    def test_repair_dispatch_includes_stage_attempt_and_error_type(self):
+        """Requirement 6.5: repair dispatches are labeled stage='validation_repair'
+        with a 1-based attempt number and the error_type that triggered repair."""
+        loop = RepairRetryLoop(max_repair_attempts=2)
+        indices = [1, 2]
+        malformed = '{"extractions": [{"broken": true'  # -> parse error
+        valid_response = json.dumps(
+            {"extractions": [{"i": i, "v": f"v{i}", "loc": [], "c": "h"} for i in indices]}
+        )
+        mock_extract = AsyncMock(side_effect=[malformed, valid_response])
+        with patch.dict(
+            sys.modules,
+            {"agents.openai.api_client": MagicMock(extract_chunk=mock_extract)},
+        ):
+            asyncio.run(loop.extract_with_repair(
+                chunk_num=1,
+                source="test_source",
+                fields=[{"field_index": i} for i in indices],
+                semaphore=asyncio.Semaphore(5),
+                valid_location_ids={"ev1"},
+                expected_indices=indices,
+                pdf_name="test_pdf",
+            ))
+
+        assert mock_extract.call_count == 2
+        # First call: initial attempt -- no repair-specific metadata.
+        first_kwargs = mock_extract.call_args_list[0].kwargs
+        assert first_kwargs.get("repair_attempt") is None
+        assert first_kwargs.get("error_type") is None
+        # Second call: repair attempt 1, labeled with the parse error type.
+        second_kwargs = mock_extract.call_args_list[1].kwargs
+        assert second_kwargs.get("stage") == "validation_repair"
+        assert second_kwargs.get("repair_attempt") == 1
+        assert second_kwargs.get("error_type") == "parse"
+
+    def test_repair_dispatch_error_type_schema(self):
+        """Schema validation failures label the repair dispatch error_type='schema'."""
+        loop = RepairRetryLoop(max_repair_attempts=1)
+        indices = [5, 6]
+        invalid_schema = json.dumps(
+            {"extractions": [{"i": i, "v": f"v{i}", "loc": []} for i in indices]}  # missing "c"
+        )
+        valid_response = json.dumps(
+            {"extractions": [{"i": i, "v": f"v{i}", "loc": [], "c": "h"} for i in indices]}
+        )
+        mock_extract = AsyncMock(side_effect=[invalid_schema, valid_response])
+        with patch.dict(
+            sys.modules,
+            {"agents.openai.api_client": MagicMock(extract_chunk=mock_extract)},
+        ):
+            asyncio.run(loop.extract_with_repair(
+                chunk_num=1,
+                source="test_source",
+                fields=[{"field_index": i} for i in indices],
+                semaphore=asyncio.Semaphore(5),
+                valid_location_ids={"ev1"},
+                expected_indices=indices,
+                pdf_name="test_pdf",
+            ))
+
+        second_kwargs = mock_extract.call_args_list[1].kwargs
+        assert second_kwargs.get("error_type") == "schema"
+
+    def test_repair_prompt_includes_invalid_output_fragment_at_runtime(self):
+        """Requirement 6.1: the actual runtime repair dispatch (not just direct
+        _build_repair_prompt() calls) includes the invalid output fragment."""
+        loop = RepairRetryLoop(max_repair_attempts=1)
+        indices = [1]
+        malformed = '{"extractions": [{"i": 1, "v": "SENTINEL_BAD_VALUE"'
+        valid_response = json.dumps(
+            {"extractions": [{"i": 1, "v": "good", "loc": [], "c": "h"}]}
+        )
+        mock_extract = AsyncMock(side_effect=[malformed, valid_response])
+        with patch.dict(
+            sys.modules,
+            {"agents.openai.api_client": MagicMock(extract_chunk=mock_extract)},
+        ):
+            asyncio.run(loop.extract_with_repair(
+                chunk_num=1,
+                source="test_source",
+                fields=[{"field_index": 1}],
+                semaphore=asyncio.Semaphore(5),
+                valid_location_ids={"ev1"},
+                expected_indices=indices,
+                pdf_name="test_pdf",
+            ))
+
+        repair_kwargs = mock_extract.call_args_list[1].kwargs
+        assert "SENTINEL_BAD_VALUE" in repair_kwargs["repair_prompt"]
+
+
+# ---------------------------------------------------------------------------
+# extract_with_repair: token budget enforcement (Requirements 7.1, 7.2)
+# ---------------------------------------------------------------------------
+
+
+class TestRepairBudgetEnforcement:
+    """Tests for the additive token-budget safety net in extract_with_repair()."""
+
+    def test_no_budgets_is_a_no_op(self):
+        """Default budgets=None: source is dispatched unchanged (identical to
+        pre-token-budget behavior)."""
+        loop = RepairRetryLoop(max_repair_attempts=1)
+        indices = [1]
+        source = "evidence " * 50
+        valid_response = json.dumps(
+            {"extractions": [{"i": 1, "v": "x", "loc": [], "c": "h"}]}
+        )
+        mock_extract = AsyncMock(return_value=valid_response)
+        with patch.dict(
+            sys.modules,
+            {"agents.openai.api_client": MagicMock(extract_chunk=mock_extract)},
+        ):
+            asyncio.run(loop.extract_with_repair(
+                chunk_num=1,
+                source=source,
+                fields=[{"field_index": 1}],
+                semaphore=asyncio.Semaphore(5),
+                valid_location_ids={"ev1"},
+                expected_indices=indices,
+                pdf_name="test_pdf",
+            ))
+
+        kwargs = mock_extract.call_args.kwargs
+        # source is a positional arg; check via call.args instead.
+        assert mock_extract.call_args.args[1] == source
+
+    def test_well_formed_prompt_within_budget_is_unchanged(self):
+        """A normal-sized prompt passes check_budget() and dispatches unchanged
+        (additive safety net -- no mitigation for well-formed inputs)."""
+        loop = RepairRetryLoop(
+            max_repair_attempts=1,
+            budgets={"extraction_chunk": 100_000, "validation_repair": 20_000},
+        )
+        indices = [1]
+        source = "small evidence package"
+        valid_response = json.dumps(
+            {"extractions": [{"i": 1, "v": "x", "loc": [], "c": "h"}]}
+        )
+        mock_extract = AsyncMock(return_value=valid_response)
+        with patch.dict(
+            sys.modules,
+            {"agents.openai.api_client": MagicMock(extract_chunk=mock_extract)},
+        ):
+            asyncio.run(loop.extract_with_repair(
+                chunk_num=1,
+                source=source,
+                fields=[{"field_index": 1}],
+                semaphore=asyncio.Semaphore(5),
+                valid_location_ids={"ev1"},
+                expected_indices=indices,
+                pdf_name="test_pdf",
+            ))
+
+        assert mock_extract.call_args.args[1] == source
+
+    def test_oversized_evidence_is_mitigated(self):
+        """An evidence package that blows the extraction_chunk budget is
+        pruned before dispatch (Requirement 7.2(a))."""
+        loop = RepairRetryLoop(
+            max_repair_attempts=1,
+            # Large enough that system-prompt + field-definitions text alone
+            # fit comfortably (so mitigation succeeds by pruning evidence
+            # alone), but far smaller than the oversized evidence package.
+            budgets={"extraction_chunk": 200},
+            evidence_config={
+                "max_evidence_items_per_chunk": 1,
+                "max_evidence_chars_per_chunk": 100,
+            },
+        )
+        indices = [1]
+        # Many blank-line-delimited "items" so evidence pruning has room to work.
+        oversized_source = "\n\n".join(f"evidence item {i} " * 20 for i in range(30))
+        valid_response = json.dumps(
+            {"extractions": [{"i": 1, "v": "x", "loc": [], "c": "h"}]}
+        )
+        mock_extract = AsyncMock(return_value=valid_response)
+        with patch.dict(
+            sys.modules,
+            {"agents.openai.api_client": MagicMock(extract_chunk=mock_extract)},
+        ):
+            asyncio.run(loop.extract_with_repair(
+                chunk_num=1,
+                source=oversized_source,
+                fields=[{"field_index": 1}],
+                semaphore=asyncio.Semaphore(5),
+                valid_location_ids={"ev1"},
+                expected_indices=indices,
+                pdf_name="test_pdf",
+            ))
+
+        dispatched_source = mock_extract.call_args.args[1]
+        assert len(dispatched_source) < len(oversized_source)
+
+    def test_budget_exceeded_after_mitigation_raises(self):
+        """When even full mitigation cannot bring the prompt within budget,
+        TokenBudgetExceededError propagates (Requirement 7.2(c))."""
+        loop = RepairRetryLoop(
+            max_repair_attempts=1,
+            # An impossibly small budget that no amount of evidence pruning
+            # (which only ever touches the "evidence" section) can satisfy,
+            # since the field_definitions text alone already exceeds it.
+            budgets={"extraction_chunk": 1},
+            evidence_config={},
+        )
+        indices = [1]
+        mock_extract = AsyncMock()
+        with patch.dict(
+            sys.modules,
+            {"agents.openai.api_client": MagicMock(extract_chunk=mock_extract)},
+        ):
+            with pytest.raises(token_budget.TokenBudgetExceededError):
+                asyncio.run(loop.extract_with_repair(
+                    chunk_num=1,
+                    source="some evidence text",
+                    fields=[{"field_index": 1, "field_name": "x" * 100}],
+                    semaphore=asyncio.Semaphore(5),
+                    valid_location_ids={"ev1"},
+                    expected_indices=indices,
+                    pdf_name="test_pdf",
+                ))
+
+        mock_extract.assert_not_called()

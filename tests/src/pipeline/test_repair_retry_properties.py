@@ -35,8 +35,13 @@ with patch.dict(
         RepairRetryLoop,
         RepairExhaustedError,
         _COMPACT_SCHEMA_FORMAT,
+        token_budget,
     )
     from pipeline.validator import ValidationError
+    # NOTE: token_budget must be imported here, inside this same
+    # patch.dict(sys.modules, ...) block -- see the identical note in
+    # test_repair_retry.py for why a later top-level import would silently
+    # produce a second, distinct module (and distinct exception classes).
 
 
 # ---------------------------------------------------------------------------
@@ -447,3 +452,147 @@ def test_property_10_repair_after_multiple_failures_yields_valid_only(indices, n
     result_str = json.dumps(result)
     for attempt in range(num_failures):
         assert f"attempt_{attempt}" not in result_str
+
+
+# ---------------------------------------------------------------------------
+# Property 14: Repair prompt is smaller than original chunk prompt
+#
+# Feature: token-efficient-extraction, Property 14: For any chunk validation
+# failure, the constructed Repair_Prompt's estimated token count (chars/4)
+# SHALL be strictly less than the original chunk prompt's estimated token
+# count.
+# Validates: Requirements 6.2
+# ---------------------------------------------------------------------------
+
+
+# Evidence package text. `min_size=0` deliberately includes the
+# degenerate/near-empty evidence case (e.g. build_paper_evidence_package()'s
+# `{"paper_id":"","evidence":[]}` fallback for a failed/empty evidence
+# bundle, src/pipeline/evidence_index.py -- build_paper_evidence_package),
+# not just large realistic evidence packages: a prior version of this
+# strategy used `min_size=200`, which happened to stay just above the
+# region where the FIXED repair-prompt template overhead (error message +
+# "REQUIRED FORMAT" + _COMPACT_SCHEMA_FORMAT) alone could meet or exceed a
+# small original_prompt_chars, masking a real bug (see
+# test_property_14_repair_prompt_smaller_than_original_tiny_evidence below
+# for the concrete reproduction that first caught it).
+_evidence_paragraph_st = st.text(
+    alphabet=st.characters(whitelist_categories=("L", "N", "Zs")),
+    min_size=0,
+    max_size=2000,
+)
+
+_raw_response_st = st.one_of(
+    st.none(),
+    st.text(min_size=0, max_size=5000),
+)
+
+
+@given(
+    evidence_text=_evidence_paragraph_st,
+    indices=_field_indices_st,
+    raw_response=_raw_response_st,
+    violation=st.sampled_from(["parse", "missing_key", "invalid_confidence", "wrong_indices"]),
+)
+@settings(max_examples=100)
+def test_property_14_repair_prompt_smaller_than_original(
+    evidence_text, indices, raw_response, violation,
+):
+    """For any chunk validation failure, the repair prompt's estimated token
+    count SHALL be strictly less than the original chunk prompt's.
+
+    The "original chunk prompt" is modeled as system prompt + evidence text
+    + field definitions JSON -- the same three sections a real extract_chunk
+    dispatch sends (see pdf_processor._check_and_mitigate_budget), which is
+    always at least as large as what pdf_processor actually dispatches.
+
+    **Validates: Requirements 6.2**
+    """
+    loop = RepairRetryLoop(max_repair_attempts=2)
+
+    fields = [{"field_index": i, "field_name": f"Field {i}", "definition": "x" * 50} for i in indices]
+    original_prompt_text = (
+        RepairRetryLoop._get_system_prompt_text()
+        + evidence_text
+        + json.dumps(fields)
+    )
+    original_tokens = token_budget.estimate_tokens(original_prompt_text)
+
+    if violation == "parse":
+        error = json.JSONDecodeError("Expecting value", "doc", 0)
+    elif violation == "missing_key":
+        error = ValidationError("Item 0 is missing keys: {'c'}")
+    elif violation == "invalid_confidence":
+        error = ValidationError(
+            "Item 0 has invalid confidence value 'bad'. Allowed: ['h', 'l', 'm', 'nr']"
+        )
+    else:  # wrong_indices
+        error = ValidationError(
+            f"Field index mismatch.\n"
+            f"  Expected: {sorted(indices)}\n"
+            f"  Got:      {sorted(i + 1000 for i in indices)}"
+        )
+
+    repair_prompt = loop._build_repair_prompt(
+        error, indices, raw_response=raw_response,
+        original_prompt_chars=len(original_prompt_text),
+    )
+    repair_tokens = token_budget.estimate_tokens(repair_prompt)
+
+    assert repair_tokens < original_tokens, (
+        f"repair_tokens={repair_tokens} not strictly less than "
+        f"original_tokens={original_tokens} (violation={violation}, "
+        f"raw_response_len={len(raw_response) if raw_response else 0})"
+    )
+
+
+def test_property_14_repair_prompt_smaller_than_original_tiny_evidence():
+    """Example-based regression test locking down the reviewer's exact
+    reproduction of the task 8.2 review rejection: a realistic 297-char
+    system prompt (agents.openai.prompts.get_system_prompt(), unmocked),
+    a tiny (20-char) evidence "source" -- matching
+    build_paper_evidence_package()'s degenerate empty-evidence fallback
+    (`{"paper_id":"","evidence":[]}`, src/pipeline/evidence_index.py) --
+    one tiny field definition, and a LARGE (3000-char) malformed raw
+    response.
+
+    Before the fix: original_prompt_chars=375 (93 tokens) but the
+    constructed repair prompt came out to 411 chars (102 tokens) --
+    LARGER, not smaller, violating Req 6.2 / Property 14. Root cause: the
+    fixed repair-prompt template overhead (error message + "REQUIRED
+    FORMAT" + the verbose _COMPACT_SCHEMA_FORMAT block) is itself ~350+
+    chars, independent of the raw-response fragment size, so bounding only
+    the fragment (the pre-fix approach) could not help once the original
+    prompt was this small.
+
+    **Validates: Requirements 6.2**
+    """
+    loop = RepairRetryLoop(max_repair_attempts=2)
+
+    system_text = RepairRetryLoop._get_system_prompt_text()
+    assert len(system_text) < 400  # sanity-check this is the small real prompt
+
+    source = "x" * 20  # mirrors build_paper_evidence_package()'s degenerate case
+    fields = [{"field_index": 1, "field_name": "F", "definition": "d"}]
+    field_definitions_text = json.dumps(sorted(fields, key=lambda f: f.get("field_index", 0)))
+    original_prompt_text = system_text + source + field_definitions_text
+    original_prompt_chars = len(original_prompt_text)
+    original_tokens = token_budget.estimate_tokens(original_prompt_text)
+
+    error = ValidationError("Item 0 is missing keys: {'c'}")
+    raw_response = "y" * 3000
+
+    repair_prompt = loop._build_repair_prompt(
+        error, [1], raw_response=raw_response,
+        original_prompt_chars=original_prompt_chars,
+    )
+    repair_tokens = token_budget.estimate_tokens(repair_prompt)
+
+    assert repair_tokens < original_tokens, (
+        f"repair_tokens={repair_tokens} not strictly less than "
+        f"original_tokens={original_tokens} (original_prompt_chars="
+        f"{original_prompt_chars}, repair_prompt_chars={len(repair_prompt)})"
+    )
+    # The essential validation-error information must still be present even
+    # in the shrunk/terse repair prompt.
+    assert "missing keys" in repair_prompt
