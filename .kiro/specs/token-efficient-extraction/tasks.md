@@ -50,7 +50,7 @@ This plan implements a token-efficiency layer for the EviTrace extraction pipeli
     - Output must be order-independent (same result regardless of chunk_results permutation)
     - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7, 4.3_
 
-  - [ ]* 2.2 Write property tests for deterministic merge in `tests/src/pipeline/test_deterministic_merge_properties.py`
+  - [x]* 2.2 Write property tests for deterministic merge in `tests/src/pipeline/test_deterministic_merge_properties.py`
     - **Property 8: Deterministic merge is order-independent (confluence)**
     - **Property 9: Non-conflicting fields merge without LLM**
     - **Property 10: Evidence_ID deduplication produces sorted unique union**
