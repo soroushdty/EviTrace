@@ -95,7 +95,7 @@ This plan implements a token-efficiency layer for the EviTrace extraction pipeli
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 5. Implement token report module
-  - [ ] 5.1 Create `src/pipeline/token_report.py` with TokenReport dataclass and report generation
+  - [x] 5.1 Create `src/pipeline/token_report.py` with TokenReport dataclass and report generation
     - Define `TokenReport` dataclass with all fields: totals, rates, per_stage, top_5_expensive, telemetry_records, delta, status
     - Implement `generate_token_report(collector: TelemetryCollector, output_dir: Path) -> TokenReport`
     - Compute overall_cache_rate = total_cached / total_input (handle zero division)
