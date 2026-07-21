@@ -136,7 +136,7 @@ This plan implements a token-efficiency layer for the EviTrace extraction pipeli
     - Ensure `build_paper_evidence_package()` respects `max_evidence_items_per_chunk` and `max_evidence_chars_per_chunk` limits
     - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5_
 
-  - [ ]* 6.3 Write property tests for prompt stability in `tests/src/agents/openai/test_prompts_stability_properties.py`
+  - [x]* 6.3 Write property tests for prompt stability in `tests/src/agents/openai/test_prompts_stability_properties.py`
     - **Property 3: Stable prefix byte-identity across chunk calls**
     - **Property 4: Evidence serialization sort stability**
     - **Property 5: Field definitions ordered by field_index**
