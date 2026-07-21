@@ -129,7 +129,7 @@ This plan implements a token-efficiency layer for the EviTrace extraction pipeli
     - Implement `compute_stable_prefix(system_prompt: str, evidence_package: str, rules: str) -> str` helper for fingerprinting
     - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.6, 2.7_
 
-  - [ ] 6.2 Update `src/pipeline/evidence_index.py` for deterministic Evidence_IDs and stable serialization
+  - [x] 6.2 Update `src/pipeline/evidence_index.py` for deterministic Evidence_IDs and stable serialization
     - Assign Evidence_IDs using positional scheme: S000001, T000001, F000001 (type prefix + zero-padded 6-digit counter)
     - Serialize evidence items sorted by Evidence_ID in ascending lexicographic order
     - Implement cache reuse: check `{paper_id}_{pdf_hash}.evidence.json` existence and PDF hash match before re-parsing
@@ -216,6 +216,7 @@ This plan implements a token-efficiency layer for the EviTrace extraction pipeli
 ## Implementation Notes
 
 - `tests/src/pipeline/test_manifest_resume_properties.py::test_property_16_is_output_valid_rejects_corrupt_files`, `test_property_16_corrupt_output_treated_as_absent`, and `test_property_16_identity_check_resets_corrupt_entries` fail on a clean checkout unrelated to this feature (confirmed at commit e261fad, before any token-efficient-extraction test files existed; the 3rd surfaced during task 3.1, same root cause, independently confirmed pre-existing by isolating token_budget.py out of the tree and re-running). Hypothesis's local `.hypothesis/` example cache found a minimal falsifying case (`pdf_name='0'`, `corrupt_content='0'`) showing `_is_output_valid()` treats the bare JSON literal `"0"` as valid rather than corrupt, which cascades into the identity-check test too. Pre-existing bug in manifest-resume logic, out of scope for this spec — disregard at "Checkpoint - Ensure all tests pass" gates (tasks 4, 7, 9, 11) unless a new full-suite run introduces additional failures beyond these three.
+- Task 6.2 confirmed `evidence_index.py` already satisfied Req 3.1/3.2/3.3/3.5 (Evidence_ID scheme, sort order, selection limits, cache reuse) before this spec touched it -- no production code changed, only test coverage added. Flagged but not acted on: the evidence cache key (`{paper_id}_{pdf_sha256}_{extraction_map_hash}`) has no explicit schema/format version component -- a future change to the cached JSON's shape would not auto-invalidate old on-disk caches. Not a risk today since the ID scheme/format wasn't changed by this spec.
 - Task 2.1's `deterministic_merge()`: the "all agree after normalization" case emits the **normalized** value as canonical `v`, not a raw pre-normalization string tied to chunk position. Requirement 5.1's literal text ("value from the lowest-indexed chunk") is superseded here by the stronger, unconditional order-independence requirement (5.7 / Property 8) — a positional raw-string tie-break cannot be order-independent when two chunks agree post-normalization but differ in raw whitespace. Same code path also normalizes single-provider fields (Req 5.5). Downstream tasks (8.2 integration) should expect `merged_fields` values to always be whitespace-normalized, never raw chunk output verbatim.
 
 ## Task Dependency Graph
