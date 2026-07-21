@@ -5,6 +5,18 @@ and should never be deleted. Add a brief entry whenever a spec is implemented,
 steering docs change, README files change, or any other significant code change
 occurs.
 
+## [2026-07] — Add Kiro agentic-SDLC skills; fix stale `specs/` paths
+
+Committed the `.claude/skills/kiro-*` spec-driven-development skills and
+`.kiro/settings/templates/` scaffolding, and updated `CLAUDE.md` to point at the
+new `.kiro/` layout.
+
+- Added `.claude/skills/kiro-*/` (discovery, spec-init/requirements/design/tasks,
+  batch/quick, impl, review, debug, validate-*, steering, verify-completion).
+- Added `.kiro/settings/templates/` (specs, steering, steering-custom).
+- `CLAUDE.md`: repointed six stale `specs/steering/*` and `specs/feature|archive/`
+  references to `.kiro/steering/*` and `.kiro/specs/*`.
+
 ## [2026-07] — Lift steering to `.kiro/steering/`
 
 Moved `.kiro/specs/steering/` up to `.kiro/steering/` to match the stock Kiro

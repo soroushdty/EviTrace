@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 EviTrace ingests biomedical/scientific PDFs and produces structured, auditable per-paper JSON via a pipeline of independent, swappable stages: multi-backend PDF text extraction → four-stage QC/adjudication → W3C JSON-LD annotation → chunked LLM extraction (OpenAI Responses API) against a user-defined field map. Each stage (extractor, QC, LLM agent) is usable standalone.
 
-Source lives under `src/` (a `src/`-layout package); `configs/`, `specs/`, and `tests/` live at the repo root alongside it.
+Source lives under `src/` (a `src/`-layout package); `configs/` and `tests/` live at the repo root alongside it, and Kiro specs/steering live under `.kiro/`.
 
 ## Commands
 
@@ -83,7 +83,7 @@ main.py  (CLI entry — asyncio.run)
 
 ### Config
 
-Single source of truth: `configs/config.yaml` (note: `configs/`, not `config/`). Loaded via `src/utils/config_utils.py`'s `load_openai_config()` / `load_qc_config()` / `load_local_config()`. Override rule: **env > yaml > default** — all `openai.*` keys can be overridden via env vars (`OPENAI_API_KEY`, `OPENAI_CHUNK_MODEL`, `OPENAI_SYNTHESIS_MODEL`, `OPENAI_NUM_CHUNKS`, etc.). Full key reference: `specs/steering/config.md`.
+Single source of truth: `configs/config.yaml` (note: `configs/`, not `config/`). Loaded via `src/utils/config_utils.py`'s `load_openai_config()` / `load_qc_config()` / `load_local_config()`. Override rule: **env > yaml > default** — all `openai.*` keys can be overridden via env vars (`OPENAI_API_KEY`, `OPENAI_CHUNK_MODEL`, `OPENAI_SYNTHESIS_MODEL`, `OPENAI_NUM_CHUNKS`, etc.). Full key reference: `.kiro/steering/config.md`.
 
 `configs/extraction_map.json` defines the 62 canonical extraction fields (13 domain groups); `configs/agent_schema.json` holds the LLM system prompt/policies; `configs/structure_schema.json` is the JSON Schema (Draft 7) for pipeline dataclasses.
 
@@ -94,10 +94,73 @@ Single source of truth: `configs/config.yaml` (note: `configs/`, not `config/`).
 - Naming: `test_<module-or-feature>_<aspect>.py`.
 - Slow tests: `pytestmark = pytest.mark.slow` at module level (deselected by default).
 - Never call real GROBID, OpenAI, or PaddleOCR in unit tests — mock heavy deps (`faiss`, `torch`, `sentence-transformers`, `paddleocr`) via `patch.dict(sys.modules, {...})`.
-- Full conventions, mocking patterns, and QCBundle test-construction examples: `specs/steering/testing.md`.
+- Full conventions, mocking patterns, and QCBundle test-construction examples: `.kiro/steering/testing.md`.
 
 ### Steering docs and specs
 
-`specs/steering/` (`product.md`, `config.md`, `testing.md`, `changelog-rules.md`) are Kiro spec-workflow steering docs (`inclusion: always`) kept in sync with the code — more current and more detailed than this file for deep dives; consult them before non-trivial changes. `specs/feature/` and `specs/archive/` hold point-in-time feature specs and completed-migration records — treat those as historical, not necessarily current.
+`.kiro/steering/` (`product.md`, `config.md`, `testing.md`, `changelog-rules.md`) are Kiro spec-workflow steering docs (`inclusion: always`) kept in sync with the code — more current and more detailed than this file for deep dives; consult them before non-trivial changes. `.kiro/specs/feature/` and `.kiro/specs/archive/` hold point-in-time feature specs and completed-migration records — treat those as historical, not necessarily current.
 
-`CHANGELOG.md` at the repo root is permanent — never delete or truncate it. Follow `specs/steering/changelog-rules.md` for when/how to add an entry.
+`CHANGELOG.md` at the repo root is permanent — never delete or truncate it. Follow `.kiro/steering/changelog-rules.md` for when/how to add an entry.
+
+
+# Agentic SDLC and Spec-Driven Development
+
+Kiro-style Spec-Driven Development on an agentic SDLC
+
+## Project Context
+
+### Paths
+- Steering: `.kiro/steering/`
+- Specs: `.kiro/specs/`
+
+### Steering vs Specification
+
+**Steering** (`.kiro/steering/`) - Guide AI with project-wide rules and context
+**Specs** (`.kiro/specs/`) - Formalize development process for individual features
+
+### Active Specifications
+- Check `.kiro/specs/` for active specifications
+- Use `/kiro-spec-status [feature-name]` to check progress
+
+## Development Guidelines
+- Think in English, generate responses in English. All Markdown content written to project files (e.g., requirements.md, design.md, tasks.md, research.md, validation reports) MUST be written in the target language configured for this specification (see spec.json.language).
+
+## Minimal Workflow
+- Phase 0 (optional): `/kiro-steering`, `/kiro-steering-custom`
+- Discovery: `/kiro-discovery "idea"` — determines action path, writes brief.md + roadmap.md for multi-spec projects
+- Phase 1 (Specification):
+  - Single spec: `/kiro-spec-quick {feature} [--auto]` or step by step:
+    - `/kiro-spec-init "description"`
+    - `/kiro-spec-requirements {feature}`
+    - `/kiro-validate-gap {feature}` (optional: for existing codebase)
+    - `/kiro-spec-design {feature} [-y]`
+    - `/kiro-validate-design {feature}` (optional: design review)
+    - `/kiro-spec-tasks {feature} [-y]`
+  - Multi-spec: `/kiro-spec-batch` — creates all specs from roadmap.md in parallel by dependency wave
+- Phase 2 (Implementation): `/kiro-impl {feature} [tasks]`
+  - Without task numbers: autonomous mode (subagent per task + independent review + final validation)
+  - With task numbers: manual mode (selected tasks in main context, still reviewer-gated before completion)
+  - `/kiro-validate-impl {feature}` (standalone re-validation)
+- Progress check: `/kiro-spec-status {feature}` (use anytime)
+
+## Skills Structure
+Skills are located in `.claude/skills/kiro-*/SKILL.md`
+- Each skill is a directory with a `SKILL.md` file
+- Skills run inline with access to conversation context
+- Skills may delegate parallel research to subagents for efficiency
+- Additional files (templates, examples) can be added to skill directories
+- `kiro-review` — task-local adversarial review protocol used by reviewer subagents
+- `kiro-debug` — root-cause-first debug protocol used by debugger subagents
+- `kiro-verify-completion` — fresh-evidence gate before success or completion claims
+- **If there is even a 1% chance a skill applies to the current task, invoke it.** Do not skip skills because the task seems simple.
+
+## Development Rules
+- 3-phase approval workflow: Requirements → Design → Tasks → Implementation
+- Human review required each phase; use `-y` only for intentional fast-track
+- Keep steering current and verify alignment with `/kiro-spec-status`
+- Follow the user's instructions precisely, and within that scope act autonomously: gather the necessary context and complete the requested work end-to-end in this run, asking questions only when essential information is missing or the instructions are critically ambiguous.
+
+## Steering Configuration
+- Load entire `.kiro/steering/` as project memory
+- Default files: `product.md`, `tech.md`, `structure.md`
+- Custom files are supported (managed via `/kiro-steering-custom`)
