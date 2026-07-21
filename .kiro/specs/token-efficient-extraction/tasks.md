@@ -66,7 +66,7 @@ This plan implements a token-efficiency layer for the EviTrace extraction pipeli
     - Test max 5 candidates per conflicting field (Req 4.7)
     - _Requirements: 4.1, 4.3, 4.5, 4.6, 4.7, 5.2_
 
-- [ ] 3. Implement token budget module
+- [x] 3. Implement token budget module
   - [x] 3.1 Create `src/pipeline/token_budget.py` with estimation, budget checking, and mitigation
     - Implement `estimate_tokens(text: str) -> int` — `len(text) // 4`
     - Define `BudgetCheckResult` dataclass with within_budget, estimated_tokens, budget_limit, stage, top_sections
@@ -84,7 +84,7 @@ This plan implements a token-efficiency layer for the EviTrace extraction pipeli
     - **Property 22: Budget mitigation ordering**
     - **Validates: Requirements 7.1, 9.4, 7.2**
 
-  - [ ]* 3.3 Write unit tests for token budget in `tests/src/pipeline/test_token_budget.py`
+  - [x]* 3.3 Write unit tests for token budget in `tests/src/pipeline/test_token_budget.py`
     - Test default budget values loaded correctly (Req 7.5)
     - Test invalid config fallback with warning (Req 7.6)
     - Test synthesis conflict-only fallback when over budget (Req 7.3)

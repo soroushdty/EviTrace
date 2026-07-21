@@ -1,19 +1,41 @@
 """
 tests/src/pipeline/test_token_budget.py
 -----------------------------------------
-Unit tests for ``pipeline.token_budget`` (task 3.1): token estimation,
-budget checking, graduated mitigation (prune -> split-signal -> reject),
-and config-driven budget loading with fallback to documented defaults.
+Unit tests for ``pipeline.token_budget`` (tasks 3.1 and 3.3): token
+estimation, budget checking, graduated mitigation (prune -> split-signal
+-> reject), and config-driven budget loading with fallback to documented
+defaults.
 
-Dedicated property-based suites (Properties 15, 21, 22) are added in a
-later task (3.2/3.3); this file covers the acceptance-criteria-level
-behavior for Requirement 7 -- specifically 7.1, 7.2, 7.4, 7.5, and 7.6.
+Dedicated property-based suites (Properties 15, 21, 22) live in
+``test_token_budget_properties.py`` (task 3.2). This file covers the
+acceptance-criteria-level behavior for Requirement 7 -- specifically 7.1,
+7.2, 7.4, 7.5, and 7.6.
+
+Task 3.3 additions beyond task 3.1's original coverage:
+  * ``test_apply_mitigation_top_sections_caps_at_three_of_four_named_sections``
+    -- deepens Req 7.4 coverage by exercising the top-3 cap with all four
+    named sections (system, evidence, field_definitions, prior_context)
+    present at once, proving a real contender (the smallest, "evidence")
+    is excluded rather than trivially satisfying "<=3" with only 3 keys.
+  * ``test_load_budgets_invalid_value_itself_captured_in_warning_args`` --
+    deepens Req 7.6 coverage by asserting the invalid config value itself
+    (not just the stage name) is captured in the logged warning's format
+    args, matching Req 7.6's "log a warning indicating the Stage name AND
+    the invalid value that was replaced".
 
 Requirement 7.3 (synthesis conflict-only fallback) has no coverage in
 this file: as documented in ``token_budget.py``'s own module docstring
 ("Scope note"), that behavior requires structured, field-aware context
-this module never receives, and is deferred to the task 8.2 integration
-in ``pdf_processor.py``, where it will be tested.
+(``MergeResult.conflicts`` from ``deterministic_merge.py``) this module
+never receives -- confirmed by re-reading ``token_budget.py`` in full for
+task 3.3, and by the absence of any ``token_budget`` reference in
+``pdf_processor.py`` (not yet integrated as of task 3.3). There is no
+partial precondition at this module's boundary to test either: unlike
+task 2.3's deterministic_merge.py precedent (which already implements a
+concrete "more than five candidates" rule this module could lock down),
+token_budget.py contains zero conflict/synthesis-aware logic to
+characterize. This is deferred, unchanged, to the task 8.2 integration in
+``pdf_processor.py``, where it will be tested.
 """
 from __future__ import annotations
 
@@ -192,6 +214,33 @@ def test_apply_mitigation_raises_when_pruning_insufficient():
     assert err.top_sections == sorted(err.top_sections, key=lambda t: t[1], reverse=True)
 
 
+def test_apply_mitigation_top_sections_caps_at_three_of_four_named_sections():
+    # Req 7.4 names four possible prompt sections (system prompt, evidence
+    # package, field definitions, prior context). The existing rejection
+    # tests above only ever populate <=3 keys, so "top three" is trivially
+    # satisfied without exercising the cap. Here all four named sections
+    # are present with distinct sizes and the smallest ("evidence", which
+    # pruning empties out entirely since the other three sections dominate
+    # the budget regardless of evidence size) must be excluded from the
+    # reported top_sections -- proving the ranking-and-cap logic actually
+    # drops a real contender rather than just slicing a list of <=3 items.
+    parts = {
+        "prior_context": "P" * 4000,  # 1000 tokens -- largest
+        "system": "S" * 400,  # 100 tokens
+        "field_definitions": "F" * 200,  # 50 tokens
+        "evidence": "E" * 40,  # 10 tokens -- smallest, must be excluded
+    }
+    with pytest.raises(TokenBudgetExceededError) as excinfo:
+        apply_mitigation(parts, "synthesis", budget=5, config={})
+
+    err = excinfo.value
+    assert len(err.top_sections) == 3
+    names = [name for name, _ in err.top_sections]
+    assert "evidence" not in names
+    assert names == ["prior_context", "system", "field_definitions"]
+    assert err.top_sections == sorted(err.top_sections, key=lambda t: t[1], reverse=True)
+
+
 def test_apply_mitigation_logs_warning_on_rejection(caplog):
     # No "evidence" key -- pruning is a no-op -- so the estimate carried into
     # the rejection WARNING is deterministic: len("S" * 4000) // 4 == 1000.
@@ -287,6 +336,26 @@ def test_load_budgets_invalid_value_falls_back_to_default_and_warns(bad_value, c
     assert budgets["synthesis"] == DEFAULT_BUDGETS["synthesis"]
     warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
     assert any("synthesis" in w.message for w in warnings)
+
+
+def test_load_budgets_invalid_value_itself_captured_in_warning_args(caplog):
+    # Req 7.6 requires the WARNING to indicate both the Stage name AND "the
+    # invalid value that was replaced" -- the existing parametrized test
+    # above only checks that the stage name appears in the rendered
+    # message. Assert against the LogRecord's actual format args (as done
+    # for the Req 7.4 rejection-warning test), so a future edit that drops
+    # the invalid value from the log call is caught even if the message
+    # text still happens to mention the stage.
+    config = {"token_budgets": {"synthesis": "not-a-number"}}
+    with caplog.at_level(logging.WARNING, logger=_LOGGER_NAME):
+        load_budgets(config)
+    warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    synth_warning = next(r for r in warnings if r.args and r.args[0] == "synthesis")
+
+    assert synth_warning.args[0] == "synthesis"
+    assert synth_warning.args[1] == "not-a-number"
+    assert synth_warning.args[2] == DEFAULT_BUDGETS["synthesis"]
+    assert "not-a-number" in synth_warning.message
 
 
 def test_load_budgets_missing_stage_key_falls_back_and_warns(caplog):
