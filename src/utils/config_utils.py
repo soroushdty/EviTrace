@@ -235,7 +235,15 @@ _LOCAL_ALLOWED_TOP_LEVEL_KEYS: frozenset[str] = frozenset(
 # All legitimate top-level keys across any supported config layout.
 # Used to detect typos; anything outside this set raises ValueError.
 _ALL_KNOWN_TOP_LEVEL_KEYS: frozenset[str] = _LOCAL_ALLOWED_TOP_LEVEL_KEYS | frozenset(
-    {"openai", "extraction", "concurrency", "retry", "quality_control", "local", "text_processor", "ocr_dpi"}
+    {
+        "openai", "extraction", "concurrency", "retry", "quality_control", "local", "text_processor", "ocr_dpi",
+        # Token budget enforcement (Req 7.5) and cache diagnostics (Req 8.6) --
+        # see the "Token budget enforcement" / "Cache diagnostics" sections in
+        # configs/config.yaml. token_budgets is surfaced by load_openai_config()
+        # below; cache_diagnostics.threshold currently has no reader wired in
+        # (see src/agents/openai/telemetry.py's check_cache_diagnostics()).
+        "token_budgets", "cache_diagnostics",
+    }
 )
 
 
@@ -295,7 +303,9 @@ def load_openai_config(config_path: str | None = None) -> dict:
                        prompt_cache_key_prefix, prompt_cache_retention, enable_cache_prewarm,
                        cache_warmup_max_tokens, prewarm_synthesis_if_model_diff,
                        num_chunks, chunk_max_tokens, domain_to_chunk,
-                       pdf_concurrency, global_api_limit, max_retries, retry_base_delay.
+                       pdf_concurrency, global_api_limit, max_retries, retry_base_delay,
+                       token_budgets (raw `token_budgets` config section, validated
+                       downstream by pipeline.token_budget.load_budgets()).
     """
     cfg_yaml = _load_config_yaml(config_path)
     openai_cfg = cfg_yaml.get("openai", {})
@@ -304,6 +314,13 @@ def load_openai_config(config_path: str | None = None) -> dict:
     concurrency_cfg = cfg_yaml.get("concurrency", {})
     retry_cfg = cfg_yaml.get("retry", {})
     grobid_integration_cfg = cfg_yaml.get("quality_control", {}).get("grobid_integration", {})
+    # Raw token_budgets mapping (Req 7.5). Passed through unvalidated: the
+    # sole source of truth for default values and per-stage validation
+    # (missing/non-int/zero/negative -> documented default + warning, Req
+    # 7.6) is pipeline.token_budget.load_budgets(), which pdf_processor.py
+    # already calls as load_budgets(openai_config) -- so this dict is what
+    # that call actually sees.
+    token_budgets_cfg = cfg_yaml.get("token_budgets", {}) or {}
     main_output_dir = resolve_main_output_dir({"main_output_dir": local_cfg.get("main_output_dir", cfg_yaml.get("main_output_dir", "outputs"))})
     run_output_dir = (main_output_dir / RUN_FOLDER_NAME).resolve()
     evidence_cache_dir = _resolve_run_scoped_path(
@@ -381,6 +398,7 @@ def load_openai_config(config_path: str | None = None) -> dict:
         "max_evidence_chars_per_chunk": int(extraction_cfg.get("max_evidence_chars_per_chunk", 30000)),
         "evidence_cache_dir": evidence_cache_dir,
         "grobid_failure_behavior": grobid_integration_cfg.get("failure_behavior", "manifest_fail"),
+        "token_budgets": token_budgets_cfg,
     }
 
 

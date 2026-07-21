@@ -68,6 +68,24 @@ retry:
   # artifacts. Respected by all model-response log statements.
   max_log_response_chars: 500
 
+# Token budget enforcement (Requirement 7). Estimated (chars/4 heuristic)
+# input tokens permitted per prompt at a given pipeline stage before
+# src/pipeline/token_budget.py applies graduated mitigation (evidence
+# pruning -> request-splitting signal -> rejection). Missing, non-integer,
+# zero, or negative entries fall back to these documented defaults with a
+# logged warning (Req 7.5, 7.6) -- see DEFAULT_BUDGETS in token_budget.py.
+token_budgets:
+  extraction_chunk: 100000
+  validation_repair: 20000
+  synthesis: 120000
+  cache_warmup: 10000
+
+# Cache diagnostics (Requirement 8.3, 8.6). Percentage threshold: once a
+# stage has completed at least 3 requests within a run, a cache diagnostics
+# warning fires if the observed cache rate falls below this value.
+cache_diagnostics:
+  threshold: 50 # percentage; warn if stage cache rate falls below this
+
 # Paths
 pdfs_path: "input"
 main_output_dir: "outputs"

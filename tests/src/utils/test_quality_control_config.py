@@ -23,10 +23,12 @@ from hypothesis import given, settings, HealthCheck
 from hypothesis import strategies as st
 
 from utils.config_utils import (
+    _ALL_KNOWN_TOP_LEVEL_KEYS,
     _QC_DEFAULTS,
     _deep_merge,
     get_qc_config,
     load_local_config,
+    load_openai_config,
     load_qc_config,
 )
 
@@ -817,3 +819,140 @@ class TestTextProcessorEmptyConfig:
             tp = ScispaCySentenceSegment(config={})
         result = tp.tokenize_sentences("Hello World")
         assert isinstance(result, list)
+
+
+# ---------------------------------------------------------------------------
+# Task 8.4: token_budgets / cache_diagnostics top-level config keys
+# ---------------------------------------------------------------------------
+
+class TestTokenBudgetsAndCacheDiagnosticsConfig:
+    """**Validates: Requirements 7.5, 8.6**
+
+    `token_budgets` and `cache_diagnostics` are new top-level config.yaml
+    sections (design.md "Config Additions"). They must be registered in
+    `_ALL_KNOWN_TOP_LEVEL_KEYS` so `load_local_config` does not reject them
+    as unknown keys (mirroring the existing
+    `test_unknown_top_level_key_still_raises` pattern), and
+    `load_openai_config` must surface the raw `token_budgets` mapping so
+    that `pipeline.token_budget.load_budgets(openai_config)` -- already
+    wired into `pdf_processor.py` by task 8.2 -- actually observes
+    user-configured overrides instead of silently always falling back to
+    documented defaults.
+    """
+
+    # --- registration ---
+
+    def test_token_budgets_registered_as_known_top_level_key(self):
+        assert "token_budgets" in _ALL_KNOWN_TOP_LEVEL_KEYS
+
+    def test_cache_diagnostics_registered_as_known_top_level_key(self):
+        assert "cache_diagnostics" in _ALL_KNOWN_TOP_LEVEL_KEYS
+
+    # --- load_local_config must not raise on the new keys ---
+
+    def test_token_budgets_key_does_not_raise(self, tmp_path):
+        cfg_file = _write_config(tmp_path, {
+            "pdfs_path": "data/pdfs",
+            "token_budgets": {
+                "extraction_chunk": 100000,
+                "validation_repair": 20000,
+                "synthesis": 120000,
+                "cache_warmup": 10000,
+            },
+        })
+        cfg = load_local_config(cfg_file)
+        assert cfg is not None
+
+    def test_cache_diagnostics_key_does_not_raise(self, tmp_path):
+        cfg_file = _write_config(tmp_path, {
+            "pdfs_path": "data/pdfs",
+            "cache_diagnostics": {"threshold": 50},
+        })
+        cfg = load_local_config(cfg_file)
+        assert cfg is not None
+
+    def test_both_new_keys_together_do_not_raise(self, tmp_path):
+        cfg_file = _write_config(tmp_path, {
+            "pdfs_path": "data/pdfs",
+            "token_budgets": {"extraction_chunk": 100000},
+            "cache_diagnostics": {"threshold": 50},
+        })
+        cfg = load_local_config(cfg_file)
+        assert cfg is not None
+
+    def test_unknown_top_level_key_still_raises_alongside_new_keys(self, tmp_path):
+        """Registering the new keys must not accidentally widen the unknown-key check."""
+        cfg_file = _write_config(tmp_path, {
+            "pdfs_path": "data/pdfs",
+            "token_budgets": {"extraction_chunk": 100000},
+            "totally_unknown_key": True,
+        })
+        with pytest.raises(ValueError, match="Unknown config keys"):
+            load_local_config(cfg_file)
+
+    # --- load_openai_config surfaces token_budgets for load_budgets() ---
+
+    def test_load_openai_config_surfaces_token_budgets_section(self, tmp_path):
+        cfg_file = _write_config(tmp_path, {
+            "pdfs_path": "data/pdfs",
+            "token_budgets": {
+                "extraction_chunk": 55000,
+                "validation_repair": 15000,
+                "synthesis": 90000,
+                "cache_warmup": 8000,
+            },
+        })
+        cfg = load_openai_config(str(cfg_file))
+        assert cfg["token_budgets"] == {
+            "extraction_chunk": 55000,
+            "validation_repair": 15000,
+            "synthesis": 90000,
+            "cache_warmup": 8000,
+        }
+
+    def test_load_openai_config_token_budgets_defaults_to_empty_dict_when_absent(self, tmp_path):
+        cfg_file = _write_config(tmp_path, {"pdfs_path": "data/pdfs"})
+        cfg = load_openai_config(str(cfg_file))
+        assert cfg["token_budgets"] == {}
+
+    def test_load_budgets_reads_actual_yaml_overrides_via_load_openai_config(self, tmp_path):
+        """End-to-end: a real config.yaml file's `token_budgets` overrides
+        must actually reach `pipeline.token_budget.load_budgets()` through
+        the exact dict `pdf_processor.py` passes it (the dict returned by
+        `load_openai_config()`), not just fall back to documented defaults
+        regardless of what is configured on disk."""
+        from pipeline.token_budget import load_budgets
+
+        cfg_file = _write_config(tmp_path, {
+            "pdfs_path": "data/pdfs",
+            "token_budgets": {"extraction_chunk": 42000},
+        })
+        openai_cfg = load_openai_config(str(cfg_file))
+        budgets = load_budgets(openai_cfg)
+        assert budgets["extraction_chunk"] == 42000
+        # Unspecified stages still fall back to documented defaults (Req 7.6).
+        assert budgets["validation_repair"] == 20000
+        assert budgets["synthesis"] == 120000
+        assert budgets["cache_warmup"] == 10000
+
+    # --- repo config.yaml itself must match design.md exactly ---
+
+    def test_repo_config_yaml_token_budgets_match_design_defaults(self):
+        """`configs/config.yaml` values must exactly match design.md's
+        'Config Additions' section (100000/20000/120000/10000)."""
+        cfg = load_openai_config()
+        assert cfg["token_budgets"] == {
+            "extraction_chunk": 100000,
+            "validation_repair": 20000,
+            "synthesis": 120000,
+            "cache_warmup": 10000,
+        }
+
+    def test_repo_config_yaml_cache_diagnostics_threshold_is_50(self):
+        import yaml as _yaml
+        from pathlib import Path as _Path
+
+        repo_config_path = _Path(__file__).resolve().parents[3] / "configs" / "config.yaml"
+        with open(repo_config_path, encoding="utf-8") as f:
+            raw = _yaml.safe_load(f)
+        assert raw["cache_diagnostics"]["threshold"] == 50

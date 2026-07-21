@@ -156,7 +156,7 @@ This plan implements a token-efficiency layer for the EviTrace extraction pipeli
 - [x] 7. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 8. Integrate telemetry and budget into API client and pipeline
+- [x] 8. Integrate telemetry and budget into API client and pipeline
   - [x] 8.1 Update `src/agents/openai/api_client.py` to emit TelemetryRecords after each API call
     - After each OpenAI API response, create a TelemetryRecord with usage data, stage label, and prompt fingerprint
     - Pass stage label and field range metadata from caller context
@@ -180,7 +180,7 @@ This plan implements a token-efficiency layer for the EviTrace extraction pipeli
     - Make per-request TelemetryRecords available in audit package (Req 1.7)
     - _Requirements: 1.7, 10.1_
 
-  - [ ] 8.4 Update `configs/config.yaml` with token_budgets and cache_diagnostics sections
+  - [x] 8.4 Update `configs/config.yaml` with token_budgets and cache_diagnostics sections
     - Add `token_budgets` key with defaults: extraction_chunk=100000, validation_repair=20000, synthesis=120000, cache_warmup=10000
     - Add `cache_diagnostics.threshold: 50` key
     - Register new top-level keys in `_ALL_KNOWN_TOP_LEVEL_KEYS` in `src/utils/config_utils.py` if needed
@@ -221,6 +221,8 @@ This plan implements a token-efficiency layer for the EviTrace extraction pipeli
 - Task 2.1's `deterministic_merge()`: the "all agree after normalization" case emits the **normalized** value as canonical `v`, not a raw pre-normalization string tied to chunk position. Requirement 5.1's literal text ("value from the lowest-indexed chunk") is superseded here by the stronger, unconditional order-independence requirement (5.7 / Property 8) — a positional raw-string tie-break cannot be order-independent when two chunks agree post-normalization but differ in raw whitespace. Same code path also normalizes single-provider fields (Req 5.5). Downstream tasks (8.2 integration) should expect `merged_fields` values to always be whitespace-normalized, never raw chunk output verbatim.
 
 - Task 8.2 discovered this codebase's `_get_domain_to_chunk` assigns each field to exactly one chunk, so `deterministic_merge()`'s `conflicts` list is structurally always empty for extraction-chunk fields today -- a literal "skip synthesis when no conflicts" would silently break the synthesis chunk's own exclusive-field computation (domain 13, reviewer assessment). Resolved via `effective_synthesis_fields = synthesis_chunk's own fields ∪ conflicting fields`, skipping synthesis only when this union is empty. Also: `process_pdf` now calls `deterministic_merge()` unconditionally, which normalizes (collapses) non-canonical whitespace in persisted `extracted_value` strings -- an intentional, tested behavior change (consistent with `deterministic_merge.py`'s already-approved order-independence design from task 2.1), not a silent regression; pinned by `test_process_pdf_normalizes_whitespace_via_deterministic_merge`. Req 4.4's "exclude all non-conflicting fields from synthesis prompt" is partially deviated from: non-conflicting fields are included as value-only summaries (no evidence/location) because the synthesis chunk's domain-13 task genuinely needs to know what other fields concluded -- flagged for spec-owner awareness, not resolved via a requirements.md update within this run.
+
+- **Follow-up gap, no task currently owns this**: `cache_diagnostics.threshold` (added to config.yaml in task 8.4) is never actually read at runtime -- `orchestrator.py` (task 8.3) calls `collector.check_cache_diagnostics()` with zero arguments, so it always uses `TelemetryCollector`'s Python-level default (50.0), which happens to match the YAML default by coincidence. A user editing `cache_diagnostics.threshold` in their config would see zero effect. Req 8.6's validation behavior (missing/non-numeric/out-of-[0,100] -> default + warning) has no implementing code anywhere. Wiring this requires touching `orchestrator.py`, out of task 8.4's boundary, and no task in this spec's decomposition assigns it. Recommend a follow-up task before/alongside `/kiro-validate-impl`.
 
 ## Task Dependency Graph
 
