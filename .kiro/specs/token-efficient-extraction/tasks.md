@@ -186,7 +186,7 @@ This plan implements a token-efficiency layer for the EviTrace extraction pipeli
     - Register new top-level keys in `_ALL_KNOWN_TOP_LEVEL_KEYS` in `src/utils/config_utils.py` if needed
     - _Requirements: 7.5, 8.6_
 
-- [ ] 9. Checkpoint - Ensure all tests pass
+- [x] 9. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 10. Implement token-efficiency regression tests
