@@ -120,7 +120,7 @@ This plan implements a token-efficiency layer for the EviTrace extraction pipeli
     - Test delta comparison with prior report (Req 10.5)
     - _Requirements: 10.1, 10.4, 10.5, 10.6_
 
-- [ ] 6. Modify prompt construction for stable prefix and evidence ordering
+- [x] 6. Modify prompt construction for stable prefix and evidence ordering
   - [x] 6.1 Update `src/agents/openai/prompts.py` for system prompt caching and stable serialization
     - Cache `get_system_prompt()` result as module-level singleton (same object reference on every call)
     - Ensure evidence items in `source_package` are serialized sorted by Evidence_ID ascending
@@ -146,7 +146,7 @@ This plan implements a token-efficiency layer for the EviTrace extraction pipeli
     - **Property 14: Repair prompt is smaller than original**
     - **Validates: Requirements 2.1, 2.2, 2.3, 2.6, 3.1, 3.2, 3.3, 4.2, 6.2**
 
-  - [ ]* 6.4 Write unit tests for evidence index stability in `tests/src/pipeline/test_evidence_index_stability.py`
+  - [x]* 6.4 Write unit tests for evidence index stability in `tests/src/pipeline/test_evidence_index_stability.py`
     - Test cache reuse with matching PDF hash (Req 3.5)
     - Test Evidence_ID in loc field output (Req 3.4)
     - Test runtime metadata excluded from prefix (Req 2.4)
