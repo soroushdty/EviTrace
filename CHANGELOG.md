@@ -5,6 +5,23 @@ and should never be deleted. Add a brief entry whenever a spec is implemented,
 steering docs change, README files change, or any other significant code change
 occurs.
 
+## [2026-07] — Lift steering to `.kiro/steering/`
+
+Moved `.kiro/specs/steering/` up to `.kiro/steering/` to match the stock Kiro
+layout (steering is project-wide, not a spec). Git renames; history preserved.
+No code/config referenced the path.
+
+## [2026-07] — Standardize specs under `.kiro/specs/`
+
+Moved the entire top-level `specs/` tree to `.kiro/specs/` to standardize on the
+Kiro convention (all moves are git renames; history preserved). No code, config,
+or docs referenced the old `specs/` paths, so nothing else changed.
+
+- `specs/steering/`, `specs/feature/`, `specs/archive/`, `specs/src-layout-migration/`,
+  `specs/token-efficient-extraction/`, and `specs/risk-mediation.md` → `.kiro/specs/`.
+- Added `.kiro/specs/xtrace-toolkit/` (Phase-1 spec: requirements, design, tech,
+  research, spec.json) for the evidence-traceability toolkit.
+
 ## [2026-07] — Make PyMuPDF an optional (AGPL) dependency
 
 PyMuPDF (`fitz`) is AGPL-licensed. To keep the default install on

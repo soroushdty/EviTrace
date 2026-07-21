@@ -1,0 +1,22 @@
+{
+  "feature_name": "xtrace-toolkit",
+  "created_at": "2026-07-21T04:02:34Z",
+  "updated_at": "2026-07-21T04:02:34Z",
+  "language": "en",
+  "phase": "design-generated",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": false
+    },
+    "design": {
+      "generated": true,
+      "approved": false
+    },
+    "tasks": {
+      "generated": false,
+      "approved": false
+    }
+  },
+  "ready_for_implementation": false
+}
