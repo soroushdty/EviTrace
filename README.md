@@ -1,23 +1,11 @@
 # EviTrace
 
-> Automated, evidence-grounded attribute extraction from scientific PDFs.
+> Automated, evidence-grounded knowledge extraction from scientific papers.
 
-EviTrace ingests biomedical papers as PDFs and produces a structured,
-auditable per-paper JSON containing the extracted answers for a user-defined
-extraction map.
-
-The pipeline combines:
-
-1. A multi-backend **PDF text extractor** (GROBID, pdfplumber, PyMuPDF, PaddleOCR)
-   with per-page scan detection and complementary, non-competing backend routing.
-2. A **quality-control / adjudication** stage that compares extractor
-   branches through a four-stage pipeline (rater → IAA → adjudicator → reconciler)
-   and produces a single reconciled `UnifiedRecord`.
-3. A **W3C JSON-LD annotation layer** projected from the `UnifiedRecord` by
-   `artifact_generation/w3c_annotation.py`.
-4. A **chunked LLM extraction agent** (OpenAI Responses API) with prompt-cache
-   prewarm, section-aware evidence indexing, and strict JSON-Schema structured outputs.
-5. A **synthesis chunk** that consumes prior extracted fields as read-only context.
+EviTrace is a research tool for performing structured reviews of scientific
+literature, with a focus on biomedical papers. The pipeline is general enough
+to be used for the structured extraction of data with any user-defined set of
+domains and fields.
 
 ---
 
@@ -41,10 +29,20 @@ The pipeline combines:
 
 ## General Information
 
-EviTrace is a research tool for performing structured reviews of scientific
-literature, with a focus on biomedical papers. The pipeline is general enough
-to be used for the structured extraction of data with any user-defined set of
-domains and fields.
+EviTrace ingests biomedical papers as PDFs and produces a structured,
+auditable per-paper JSON containing the extracted answers for a user-defined
+extraction map. The pipeline combines:
+
+1. A multi-backend **PDF text extractor** (GROBID, pdfplumber, PyMuPDF, PaddleOCR)
+   with per-page scan detection and complementary, non-competing backend routing.
+2. A **quality-control / adjudication** stage that compares extractor
+   branches through a four-stage pipeline (rater → IAA → adjudicator → reconciler)
+   and produces a single reconciled `UnifiedRecord`.
+3. A **W3C JSON-LD annotation layer** projected from the `UnifiedRecord` by
+   `artifact_generation/w3c_annotation.py`.
+4. A **chunked LLM extraction agent** (OpenAI Responses API) with prompt-cache
+   prewarm, section-aware evidence indexing, and strict JSON-Schema structured outputs.
+5. A **synthesis chunk** that consumes prior extracted fields as read-only context.
 
 The repository is organised as a pipeline of **independent, swappable
 modules** so that the PDF extractor, the Quality Control layer, and the LLM
