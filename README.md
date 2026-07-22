@@ -3,7 +3,7 @@
 > Automated, evidence-grounded knowledge extraction from scientific papers.
 
 EviTrace is a research tool for performing structured reviews of scientific
-literature, with a focus on biomedical papers. The pipeline is general enough
+literature, with a focus on biomedical sciences. The pipeline is general enough
 to be used for the structured extraction of data with any user-defined set of
 domains and fields.
 
