@@ -304,6 +304,8 @@ def load_openai_config(config_path: str | None = None) -> dict:
                        cache_warmup_max_tokens, prewarm_synthesis_if_model_diff,
                        num_chunks, chunk_max_tokens, domain_to_chunk,
                        pdf_concurrency, global_api_limit, max_retries, retry_base_delay,
+                       max_repair_attempts, max_evidence_items_per_chunk,
+                       max_evidence_chars_per_chunk, min_evidence_coverage_ratio,
                        token_budgets (raw `token_budgets` config section, validated
                        downstream by pipeline.token_budget.load_budgets()).
     """
@@ -361,6 +363,15 @@ def load_openai_config(config_path: str | None = None) -> dict:
 
     # Extraction config
     num_chunks = int(os.environ.get("OPENAI_NUM_CHUNKS", None) or extraction_cfg.get("num_chunks", 3))
+    # Evidence-coverage threshold (risk-remediation Req 10.3): the share of
+    # a paper's substantive TEI text that a chunk's evidence package is
+    # expected to cover before the shortfall is recorded. env > yaml > 0.6.
+    # `.strip()` + truthiness check (not bare `or`) so "0" is a real value.
+    coverage_raw = os.environ.get("OPENAI_MIN_EVIDENCE_COVERAGE_RATIO", "").strip()
+    min_evidence_coverage_ratio = (
+        float(coverage_raw) if coverage_raw
+        else float(extraction_cfg.get("min_evidence_coverage_ratio", 0.6))
+    )
 
     # Concurrency config
     pdf_concurrency = int(concurrency_cfg.get("pdf_processing", 3))
@@ -370,6 +381,13 @@ def load_openai_config(config_path: str | None = None) -> dict:
     max_retries = int(retry_cfg.get("max_retries", 3))
     retry_base_delay = int(retry_cfg.get("base_delay_seconds", 5))
     max_log_response_chars = int(retry_cfg.get("max_log_response_chars", 500))
+    # Repair-attempt limit for malformed model responses (risk-remediation
+    # Req 5.4): shared by extraction chunks and synthesis. env > yaml > 2.
+    repair_raw = os.environ.get("OPENAI_MAX_REPAIR_ATTEMPTS", "").strip()
+    max_repair_attempts = (
+        int(repair_raw) if repair_raw
+        else int(retry_cfg.get("max_repair_attempts", 2))
+    )
 
     # Calculate derived values
     chunk_max_tokens = _get_chunk_max_tokens(num_chunks)
@@ -394,8 +412,10 @@ def load_openai_config(config_path: str | None = None) -> dict:
         "max_retries": max_retries,
         "retry_base_delay": retry_base_delay,
         "max_log_response_chars": max_log_response_chars,
+        "max_repair_attempts": max_repair_attempts,
         "max_evidence_items_per_chunk": int(extraction_cfg.get("max_evidence_items_per_chunk", 150)),
         "max_evidence_chars_per_chunk": int(extraction_cfg.get("max_evidence_chars_per_chunk", 30000)),
+        "min_evidence_coverage_ratio": min_evidence_coverage_ratio,
         "evidence_cache_dir": evidence_cache_dir,
         "grobid_failure_behavior": grobid_integration_cfg.get("failure_behavior", "manifest_fail"),
         "token_budgets": token_budgets_cfg,

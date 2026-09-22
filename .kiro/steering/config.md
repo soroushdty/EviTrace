@@ -29,6 +29,8 @@ All `openai.*` keys can be overridden via environment variables:
 | `OPENAI_CACHE_WARMUP_MAX_TOKENS` | `openai.prompt_cache.warmup_max_tokens` |
 | `OPENAI_PREWARM_SYNTHESIS_IF_MODEL_DIFF` | `openai.prompt_cache.prewarm_synthesis_if_model_diff` |
 | `OPENAI_NUM_CHUNKS` | `extraction.num_chunks` |
+| `OPENAI_MIN_EVIDENCE_COVERAGE_RATIO` | `extraction.min_evidence_coverage_ratio` |
+| `OPENAI_MAX_REPAIR_ATTEMPTS` | `retry.max_repair_attempts` |
 
 ---
 
@@ -79,10 +81,23 @@ openai:
 ```yaml
 extraction:
   num_chunks: 3                  # 3 or 5 supported natively
-  max_evidence_items_per_chunk: 250
-  max_evidence_chars_per_chunk: 60000
+  max_evidence_items_per_chunk: 150
+  max_evidence_chars_per_chunk: 30000
+  min_evidence_coverage_ratio: 0.6   # env: OPENAI_MIN_EVIDENCE_COVERAGE_RATIO
   evidence_cache_dir: "outputs/evidence_cache"
 ```
+
+Canonical evidence budgets are 150 items / 30000 chars per chunk. The
+value in `configs/config.yaml`, the loader default in
+`load_openai_config()`, and `configs/README.md` must agree;
+`tests/src/utils/test_openai_config_keys.py` enforces it. Rationale:
+each chunk's package should cover at least `min_evidence_coverage_ratio`
+(60%) of the paper's substantive TEI text (sentences + captions +
+tables, excluding metadata) while the ranker still prunes. At typical
+scientific-sentence lengths the 150-item cap binds first (mean evidence
+item 172-194 chars on the real TEI fixtures, so 150 items is about
+26-29k chars). `min_evidence_coverage_ratio` is the coverage share
+below which a chunk's package is recorded as under-covered.
 
 ### `concurrency`
 
@@ -98,7 +113,14 @@ concurrency:
 retry:
   max_retries: 3
   base_delay_seconds: 5          # actual delay = base * 2^(attempt-1)
+  max_log_response_chars: 500    # truncation for model-response log previews
+  max_repair_attempts: 2         # env: OPENAI_MAX_REPAIR_ATTEMPTS
 ```
+
+`max_retries` / `base_delay_seconds` are transport-level retries.
+`max_repair_attempts` is the separate limit on repair round-trips when a
+model response fails JSON parsing or schema validation, shared by
+extraction chunks and the synthesis stage; `0` disables repair.
 
 ### Paths and Logging
 

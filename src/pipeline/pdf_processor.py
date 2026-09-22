@@ -1178,8 +1178,8 @@ async def process_pdf(
     num_chunks             = openai_config["num_chunks"]
     synthesis_model        = openai_config["synthesis_model"]
     prewarm_synthesis_diff = openai_config.get("prewarm_synthesis_if_model_diff", True)
-    max_evidence_items = int(openai_config.get("max_evidence_items_per_chunk", 250))
-    max_evidence_chars = int(openai_config.get("max_evidence_chars_per_chunk", 60000))
+    max_evidence_items = int(openai_config.get("max_evidence_items_per_chunk", 150))
+    max_evidence_chars = int(openai_config.get("max_evidence_chars_per_chunk", 30000))
     logger.debug(
         "%s config: chunk_model=%s, synthesis_model=%s, num_chunks=%d, "
         "enable_prewarm=%s, prewarm_synthesis_diff=%s, "

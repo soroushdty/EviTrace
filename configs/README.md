@@ -81,8 +81,9 @@ want to send a value.
 ```yaml
 extraction:
   num_chunks: 3                  # total chunks; the last one is synthesis
-  max_evidence_items_per_chunk: 250
-  max_evidence_chars_per_chunk: 60000
+  max_evidence_items_per_chunk: 150
+  max_evidence_chars_per_chunk: 30000
+  min_evidence_coverage_ratio: 0.6   # env: OPENAI_MIN_EVIDENCE_COVERAGE_RATIO
   evidence_cache_dir: "evidence_cache"
 ```
 
@@ -91,6 +92,24 @@ is hard-coded in
 [`utils/config_utils._get_domain_to_chunk`](../utils/README.md);
 other values fall back to an even split with the last chunk reserved
 for synthesis.
+
+**Evidence budgets.** The canonical defaults are 150 items / 30000
+chars per chunk. They are chosen so each chunk's evidence package
+covers at least `min_evidence_coverage_ratio` (60%) of a paper's
+substantive TEI text (sentences, captions and tables, excluding
+metadata) while the ranker still prunes. At typical scientific-sentence
+lengths the 150-item cap is the binding constraint: on the real GROBID
+TEI fixtures under `tests/fixtures/grobid_tei/` the mean evidence item
+is 172-194 chars, so 150 items is roughly 26-29k chars, just under the
+char cap. The value in `config.yaml`, the loader default in
+`utils/config_utils.load_openai_config`, and this README must agree;
+`tests/src/utils/test_openai_config_keys.py` enforces that.
+
+`min_evidence_coverage_ratio` is the share (0.0-1.0) of substantive
+text a chunk's package is expected to cover at the defaults above;
+packages that fall below it are recorded so under-covered papers can
+be identified. Per-stage `token_budgets` (below) still apply on top
+of these caps.
 
 ### `concurrency`
 
@@ -106,7 +125,34 @@ concurrency:
 retry:
   max_retries: 3
   base_delay_seconds: 5          # actual delay = base * 2^(attempt - 1)
+  max_log_response_chars: 500    # truncation length for model-response log previews
+  max_repair_attempts: 2         # env: OPENAI_MAX_REPAIR_ATTEMPTS
 ```
+
+`max_retries` / `base_delay_seconds` govern transport-level retries
+(429 / 5xx). `max_repair_attempts` is the separate limit on repair
+round-trips when a model response fails JSON parsing or schema
+validation; it applies identically to extraction chunks and the
+synthesis stage, and `0` disables repair (the first malformed response
+fails the stage).
+
+### `token_budgets`
+
+```yaml
+token_budgets:
+  extraction_chunk: 100000
+  validation_repair: 20000
+  synthesis: 120000
+  cache_warmup: 10000
+```
+
+Estimated input tokens (chars / 4 heuristic) permitted per prompt at
+each pipeline stage before `pipeline/token_budget.py` applies graduated
+mitigation (evidence pruning, then a request-splitting signal, then
+rejection). Missing, non-integer, zero or negative entries fall back to
+these documented defaults with a logged warning. `load_openai_config()`
+passes the raw section through; `pipeline.token_budget.load_budgets()`
+is the sole validator.
 
 ### Paths
 

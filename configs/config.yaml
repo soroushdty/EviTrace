@@ -34,15 +34,31 @@ extraction:
   # Number of extraction chunks
   # Chunk 1-N: extraction, Chunk N+1: synthesis/review
   num_chunks: 5
-  # Evidence budgets per chunk. Defaults tuned so the ranker actually prunes
-  # (old defaults of 250/60000 were larger than every real paper's evidence
-  # set, so nothing was filtered and we were paying to tokenize the full
-  # corpus three times). 150 items / 30000 chars covers ~99% of scientific
-  # papers in the reference corpus without dropping high-signal sentences.
-  # Raise these if your downstream QC reports missing evidence; lower them
-  # to save more input tokens.
+  # Evidence budgets per chunk (canonical: 150 items / 30000 chars; the
+  # loader default, configs/README.md and .kiro/steering/config.md must
+  # agree -- enforced by tests/src/utils/test_openai_config_keys.py).
+  #
+  # Coverage rationale: each chunk's package should cover at least
+  # min_evidence_coverage_ratio (60%) of the paper's substantive TEI text
+  # (sentences + captions + tables, excluding metadata) so fields are not
+  # missed because relevant sentences were pruned. The ranker still prunes;
+  # these caps are the ceiling it prunes down to.
+  #
+  # Which cap binds: at typical scientific-sentence lengths the 150-item cap
+  # is the binding constraint, not the 30000-char cap. Measured 2026-09-21
+  # on the three real GROBID TEI fixtures in tests/fixtures/grobid_tei/:
+  # mean non-metadata evidence item = 172-194 chars, so 150 items ~= 26-29k
+  # chars, just under the char cap. (The previous 10000-char value made the
+  # char cap bind at ~52-58 items, undercutting the item budget.) Raise both if
+  # your downstream QC reports missing evidence; lower them to save input
+  # tokens. The per-stage token_budgets below still apply on top.
   max_evidence_items_per_chunk: 150
-  max_evidence_chars_per_chunk: 10000
+  max_evidence_chars_per_chunk: 30000
+  # Minimum share (0.0-1.0) of the paper's substantive TEI text that a
+  # chunk's evidence package is expected to cover at the defaults above.
+  # Packages below this ratio are recorded so under-covered papers can be
+  # identified. Env override: OPENAI_MIN_EVIDENCE_COVERAGE_RATIO.
+  min_evidence_coverage_ratio: 0.6
   evidence_cache_dir: "evidence_cache"
 
 # Concurrency settings
@@ -67,6 +83,11 @@ retry:
   # the full SHA-256 hash is always included for correlation with debug
   # artifacts. Respected by all model-response log statements.
   max_log_response_chars: 500
+  # Maximum repair attempts when a model response fails JSON parsing or
+  # schema validation. Applies identically to extraction chunks and the
+  # synthesis stage. 0 disables repair (first malformed response fails
+  # the stage). Env override: OPENAI_MAX_REPAIR_ATTEMPTS.
+  max_repair_attempts: 2
 
 # Token budget enforcement (Requirement 7). Estimated (chars/4 heuristic)
 # input tokens permitted per prompt at a given pipeline stage before

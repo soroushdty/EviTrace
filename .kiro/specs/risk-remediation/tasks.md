@@ -3,7 +3,7 @@
 Binding order from design.md "Implementation sequencing": extractor identity → branch roles → OCR provenance chain; coordinates → figure attribution → evidence coverage; synthesis repair and page-classification cache are independent. Requirement 8 is already implemented (see task 12.2).
 
 - [ ] 1. Foundation: configuration keys, canonical defaults, and shared test fixtures
-- [ ] 1.1 Add the repair-attempt limit and evidence-coverage threshold to configuration and reconcile the evidence-budget defaults
+- [x] 1.1 Add the repair-attempt limit and evidence-coverage threshold to configuration and reconcile the evidence-budget defaults
   - Add `retry.max_repair_attempts` (default 2) and `extraction.min_evidence_coverage_ratio` (default 0.6) to the config file, loader defaults, and env-override table (`OPENAI_MAX_REPAIR_ATTEMPTS`, `OPENAI_MIN_EVIDENCE_COVERAGE_RATIO`), following the existing env > yaml > default rule
   - Set `extraction.max_evidence_chars_per_chunk` to 30000 in the config file so it matches its own comment and the loader default; align the fallback pair in the PDF processor to 150 / 30000
   - Rewrite the evidence-budget comment to state the coverage rationale and that the 150-item cap is the binding constraint at typical sentence lengths; add a `token_budgets` subsection and the new `retry` key to the config README; update the steering config reference's `extraction` block
@@ -243,3 +243,6 @@ Binding order from design.md "Implementation sequencing": extractor identity →
   - Add the changelog entry per the changelog rules covering: behaviour changes (annotation ids, OCR sentences, branch selection, synthesis repair, coverage record, sidecar file, coordinates), config default change, and new keys
   - Done when every test passes and the changelog entry exists
   - _Requirements: 10.3_
+
+## Implementation Notes
+- 1.1: `tests/src/pipeline/test_token_efficiency_regression.py:150-153` and `test_orchestrator_concurrency.py:31-32` hard-code evidence budgets as literals (they never read config.yaml), so the 30000 change does not break them — task 9.3 must still update them. Root `README.md:327-339` env-override table lacks the two new env vars (outside 1.1 boundary) — route to final validation / 12.4.
