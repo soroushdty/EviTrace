@@ -114,7 +114,7 @@ Binding order from design.md "Implementation sequencing": extractor identity →
   - _Requirements: 11.1, 11.2, 11.5_
   - _Boundary: GrobidRequest, CoordsParser_
 
-- [ ] 7.2 Use the canonical parser in the evidence index and inherit sentence pages from paragraphs
+- [x] 7.2 Use the canonical parser in the evidence index and inherit sentence pages from paragraphs
   - Route the evidence index's coordinate parsing through the canonical parser, keeping evidence-item pages 1-based as today; when a sentence has no coordinates, take the page from its enclosing paragraph
   - Done when parsing a real fixture yields a non-`None` page for coordinate-bearing figures and for sentences inside coordinate-bearing paragraphs
   - _Requirements: 11.2, 11.3, 11.5_
@@ -260,3 +260,4 @@ Binding order from design.md "Implementation sequencing": extractor identity →
 - 6.2: annotation ids are now uuid5 — every existing `outputs/*.json` annotation id changes on re-run (intended; CHANGELOG at 12.4). Pre-existing: `pdf_name` is the file stem via the orchestrator but `.name` via the standalone extractor, so `base_uri`/ids differ across entry points for the same paper — note for 12.4.
 - 6.3: delivered by 6.1 (region fixtures converted to alignment entries; `StructuralLayer()` only ever empty) and 6.2 (uuid shape tests → version-5 regex + `TestAnnotationIdentity`). Controller verified: 0 `blocks=[` fixtures, 0 uuid4 regexes, 38 tests pass.
 - 7.1: `parse_grobid_tei`/`_parse_tei_to_blocks` are never called by the production pipeline (`extract_with_grobid(parse_blocks=False)`), so real pages/bboxes there are dormant; QC's own TEI parser (7.3) is what production sees. Legacy `page;x0,y0,x1,y1` strings remain in `tests/src/pipeline/test_evidence_cache.py`, `test_pipeline_evidence_index.py`, `test_evidence_index_stability.py` — 7.2/7.4 must convert them (11.6). Whitespace-bearing coords cases live in `test_grobid_coords.py`, not `COORD_CASES` (helper regex is strict). `tei_coordinates` docstring lists seven element types vs five requested (pre-existing).
+- 7.2: on real fixtures ~64/62/47 body sentences remain page-None because their `<p>` sits inside a `<figure>` and only the figure carries coords — outside 11.3's wording; 8.1 may inherit from the enclosing figure. Pre-existing: nested `<div>`s double-enumerate sentences (`.//div` + `.//s`). Legacy `page;x0,y0,x1,y1` strings converted in three pipeline test files.

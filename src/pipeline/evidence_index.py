@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, TypedDict
 import xml.etree.ElementTree as ET
 
+from pdf_extractor.extraction.GROBID import parse_tei_coords
 from utils.logging_utils import get_logger
 from utils.path_utils import EXTRACTION_MAP, OUTPUT_DIR
 
@@ -183,21 +184,45 @@ def _cache_dir(config: dict) -> Path:
     return path
 
 
-def _parse_coords(coords: str) -> dict[str, Any]:
-    if not coords:
+def _parse_coords(coords: str | None) -> dict[str, Any]:
+    """Parse a GROBID TEI ``coords`` attribute into ``{"page", "coords"}``.
+
+    Delegates to the canonical :func:`parse_tei_coords`. ``page`` is the first
+    box's page, kept **1-based** as GROBID emits it (the evidence index has
+    always reported 1-based pages); ``coords`` is the ``[x0, y0, x1, y1]``
+    union of every box on that page (``x1 = x + w``, ``y1 = y + h``), the same
+    rule as ``GROBID._parse_coords``. Absent or malformed input yields
+    ``{"page": None, "coords": None}`` (Requirement 11.5); never raises.
+    """
+    boxes = parse_tei_coords(coords)
+    if not boxes:
         return {"page": None, "coords": None}
-    first = coords.strip().split()[0]
-    parts = first.split(";")
-    if len(parts) != 2:
-        return {"page": None, "coords": None}
-    page_raw, bbox_raw = parts
-    try:
-        nums = [float(x) for x in bbox_raw.split(",")]
-        if len(nums) != 4:
-            return {"page": None, "coords": None}
-        return {"page": int(page_raw), "coords": nums}
-    except ValueError:
-        return {"page": None, "coords": None}
+    first_page = boxes[0].page
+    same_page = [b for b in boxes if b.page == first_page]
+    bbox = [
+        min(b.x for b in same_page),
+        min(b.y for b in same_page),
+        max(b.x + b.w for b in same_page),
+        max(b.y + b.h for b in same_page),
+    ]
+    return {"page": first_page, "coords": bbox}
+
+
+def _sentence_coords(
+    sent: ET.Element, parent_map: dict[ET.Element, ET.Element]
+) -> str | None:
+    """Coordinates for a ``<s>``: its own ``coords`` if present, else those of
+    the nearest enclosing ``<p>`` (Requirement 11.3). ``None`` when neither
+    carries any."""
+    own = sent.attrib.get("coords")
+    if own:
+        return own
+    node = parent_map.get(sent)
+    while node is not None:
+        if node.tag == f"{_NS}p":
+            return node.attrib.get("coords") or None
+        node = parent_map.get(node)
+    return None
 
 
 def _tei_xpath(elem: ET.Element) -> str:
@@ -442,6 +467,10 @@ def _build_items_from_tei(tei_xml: str, paper_id: str, source_pdf: str) -> tuple
 
     section_path = "body"
     body = root.find(f".//{_NS}body")
+    # child -> parent, so a <s> can inherit its enclosing <p>'s coords (11.3).
+    parent_map: dict[ET.Element, ET.Element] = {
+        child: parent for parent in root.iter() for child in parent
+    }
     if body is not None:
         for div in body.findall(f".//{_NS}div"):
             head = div.find(f"./{_NS}head")
@@ -453,7 +482,7 @@ def _build_items_from_tei(tei_xml: str, paper_id: str, source_pdf: str) -> tuple
                     continue
                 sid = f"S{sentence_counter:06d}"
                 sentence_counter += 1
-                loc = _parse_coords(sent.attrib.get("coords", ""))
+                loc = _parse_coords(_sentence_coords(sent, parent_map))
                 items.append(
                     {
                         "id": sid,

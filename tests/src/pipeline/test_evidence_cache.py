@@ -38,7 +38,7 @@ def _qc_context_with_tei(tmp_path: Path, pdf_bytes: bytes = b"%PDF-1.4 fake") ->
     <body>
       <div>
         <head>Introduction</head>
-        <p><s coords="1;10,20,30,40">We used MIMIC-III data.</s></p>
+        <p><s coords="1,10,20,20,20">We used MIMIC-III data.</s></p>
       </div>
     </body>
   </text>

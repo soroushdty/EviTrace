@@ -40,11 +40,11 @@ def _qc_context_with_tei(tmp_path: Path) -> QCBundle:
     </fileDesc>
   </teiHeader>
   <text>
-    <front><abstract><p coords="1;10,10,20,20">Abstract sentence.</p></abstract></front>
+    <front><abstract><p coords="1,10,10,10,10">Abstract sentence.</p></abstract></front>
     <body>
       <div>
         <head>Introduction</head>
-        <p><s coords="1;10,20,30,40">We used MIMIC-III data.</s></p>
+        <p><s coords="1,10,20,20,20">We used MIMIC-III data.</s></p>
       </div>
     </body>
   </text>
@@ -82,7 +82,7 @@ def _qc_context_with_tei_year_fallback(tmp_path: Path) -> QCBundle:
   <text>
     <body>
       <div>
-        <p><s coords="1;10,20,30,40">We used MIMIC-III data.</s></p>
+        <p><s coords="1,10,20,20,20">We used MIMIC-III data.</s></p>
       </div>
     </body>
   </text>
@@ -133,15 +133,15 @@ def test_chunk_package_uses_stable_ids(tmp_path: Path):
 def _make_tei(n_sentences: int, n_tables: int, n_figures: int) -> str:
     """Build a synthetic TEI document with the requested item counts."""
     sentences = "".join(
-        f'<s coords="1;10,{20 + i},30,40">Sentence number {i}.</s>'
+        f'<s coords="1,10,{20 + i},20,20">Sentence number {i}.</s>'
         for i in range(n_sentences)
     )
     tables = "".join(
-        f'<table coords="1;10,{20 + i},30,40"><row><cell>Table {i} cell</cell></row></table>'
+        f'<table coords="1,10,{20 + i},20,20"><row><cell>Table {i} cell</cell></row></table>'
         for i in range(n_tables)
     )
     figures = "".join(
-        f'<figure coords="1;10,{20 + i},30,40"><figDesc>Figure {i} caption.</figDesc></figure>'
+        f'<figure coords="1,10,{20 + i},20,20"><figDesc>Figure {i} caption.</figDesc></figure>'
         for i in range(n_figures)
     )
     return f"""<?xml version="1.0" encoding="UTF-8"?>
