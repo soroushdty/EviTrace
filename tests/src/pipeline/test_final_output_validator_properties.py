@@ -73,6 +73,7 @@ def _invalid_field_st():
 
     Produces fields with one of several known violations:
     - field_index < 1
+    - domain_group < 1 (the integer form the extraction map produces, out of range)
     - missing required key
     - invalid confidence value
     - field_name empty string
@@ -93,6 +94,22 @@ def _invalid_field_st():
             },
             fi=st.integers(min_value=-100, max_value=0),
             dg=st.integers(min_value=1, max_value=13),
+            fn=st.text(min_size=1, max_size=30),
+        ),
+        # domain_group below minimum (0 or negative) -- risk-remediation 1.1/1.3
+        st.builds(
+            lambda fi, dg, fn: {
+                "field_index": fi,
+                "domain_group": dg,
+                "field_name": fn,
+                "extracted_value": "test",
+                "evidence": "",
+                "location": [],
+                "location_metadata": [],
+                "confidence": "h",
+            },
+            fi=st.integers(min_value=1, max_value=62),
+            dg=st.integers(min_value=-100, max_value=0),
             fn=st.text(min_size=1, max_size=30),
         ),
         # invalid confidence value
@@ -240,6 +257,52 @@ def test_property_1_output_file_written_iff_valid(fields):
         assert out_file.exists()
         written_data = json.loads(out_file.read_text(encoding="utf-8"))
         assert len(written_data) == len(fields)
+
+
+@given(
+    valid_fields=st.lists(_valid_field_st(), min_size=0, max_size=4),
+    invalid_field=_invalid_field_st(),
+)
+@settings(max_examples=100)
+def test_property_1_no_output_file_when_invalid(valid_fields, invalid_field):
+    """Invalid branch of Property 1 (risk-remediation task 10.4): for any
+    field list containing at least one invalid record, ``_save_pdf_output``
+    SHALL write nothing to the output directory and SHALL return
+    ``(False, record)`` where ``record`` is the ``schema_validation`` failure
+    record the caller persists as ``failed_schema_validation`` -- with the
+    offending field's ``field_index`` in ``last_error`` whenever the record
+    carries one.
+
+    **Validates: Requirements 1.3, 1.4**
+    """
+    from pipeline.pdf_processor import _save_pdf_output
+
+    fields = valid_fields + [invalid_field]
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        output_dir = Path(tmp_dir) / "outputs"
+        output_dir.mkdir()
+        pdf_name = "test_paper"
+        out_file = output_dir / f"{pdf_name}.extracted.json"
+
+        with patch("pipeline.pdf_processor.OUTPUT_DIR", output_dir):
+            ok, failure = _save_pdf_output(pdf_name, fields)
+
+        # No output file, and nothing else left behind in the directory.
+        assert ok is False
+        assert not out_file.exists()
+        assert list(output_dir.iterdir()) == []
+
+    assert isinstance(failure, dict)
+    assert set(failure) == {"stage", "chunk", "error_type", "last_error", "attempts"}
+    assert failure["stage"] == "schema_validation"
+    assert failure["chunk"] is None
+    assert failure["attempts"] == 1
+    assert failure["last_error"]
+    bad_index = invalid_field.get("field_index")
+    if isinstance(bad_index, int) and bad_index >= 1:
+        # A record with a usable field_index is named in the joined errors.
+        assert f"field_index={bad_index}" in failure["last_error"]
 
 
 # ---------------------------------------------------------------------------

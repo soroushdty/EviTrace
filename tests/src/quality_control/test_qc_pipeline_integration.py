@@ -175,14 +175,28 @@ def test_manifest_status_values_unchanged():
     """The pipeline manifest status values must remain unchanged after migration.
 
     Valid manifest statuses: 'complete', 'failed_qc_pipeline', 'failed_chunks',
-    'failed_chunk_<n>'. This test verifies the orchestrator still uses these
-    status strings and that the QC migration has not altered them.
+    'failed_chunk_<n>', 'failed_schema_validation', and -- since the
+    risk-remediation "FailureRecorder" design -- 'failed_output_write'.
+    This test verifies the orchestrator / pdf_processor still use these
+    status strings and that neither the QC migration nor the failure-record
+    work has altered or dropped them.
 
-    Requirements: 9.18
+    'failed_chunk_<n>' is templated (``f"failed_chunk_{synthesis_chunk}"``),
+    so it is checked by its literal prefix 'failed_chunk_' -- which the plural
+    'failed_chunks' does not contain, so the two entries stay independent.
+
+    Requirements: 9.18 (qc migration); 1.3, 1.4, 5.3, 5.4 (risk-remediation)
     """
     import inspect
 
-    EXPECTED_STATUSES = {"complete", "failed_qc_pipeline", "failed_chunks"}
+    EXPECTED_STATUSES = {
+        "complete",
+        "failed_qc_pipeline",
+        "failed_chunks",
+        "failed_chunk_",  # prefix of the templated 'failed_chunk_<n>'
+        "failed_schema_validation",
+        "failed_output_write",
+    }
 
     # The status strings are written by the orchestrator / pdf_processor, not
     # by pipeline/manifest.py (which is a thin I/O wrapper).  Search the

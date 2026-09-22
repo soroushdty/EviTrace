@@ -1126,7 +1126,7 @@ def _synth_api(synthesis_responses):
 
 
 def _run_synth_case(tmp_path, mock_api, *, max_repair_attempts=None,
-                    save_manifest=None, extra_patches=()):
+                    save_manifest=None, extra_patches=(), field_lookup=None):
     """Run process_pdf with a real manifest dict; save_manifest is stubbed so
     the repo's manifest file is never touched.
 
@@ -1134,8 +1134,12 @@ def _run_synth_case(tmp_path, mock_api, *, max_repair_attempts=None,
     receives the manifest dict); ``extra_patches`` are entered after the
     standard ones. The lock handed to process_pdf is created inside the
     event loop and exposed on ``_run_synth_case.last_lock`` so a
-    ``save_manifest`` side effect can assert it is held.
+    ``save_manifest`` side effect can assert it is held. ``field_lookup``
+    defaults to ``_SYNTH_FIELD_LOOKUP``; task 10.4 passes a lookup carrying
+    an invalid ``domain_group`` to drive the real validator's negative path.
     """
+    if field_lookup is None:
+        field_lookup = _SYNTH_FIELD_LOOKUP
     openai_config = _base_openai_config(num_chunks=3)
     if max_repair_attempts is not None:
         openai_config["max_repair_attempts"] = max_repair_attempts
@@ -1160,7 +1164,7 @@ def _run_synth_case(tmp_path, mock_api, *, max_repair_attempts=None,
             return await _pdf_processor.process_pdf(
                 qc_context=qc_context,
                 chunk_fields=_SYNTH_CHUNK_FIELDS,
-                field_lookup=_SYNTH_FIELD_LOOKUP,
+                field_lookup=field_lookup,
                 api_semaphore=asyncio.Semaphore(5),
                 manifest=manifest,
                 manifest_lock=_run_synth_case.last_lock,
@@ -1601,3 +1605,122 @@ def test_load_completed_result_ignores_failure_record_entries(tmp_path):
 
     with patch.object(_pdf_processor, "OUTPUT_DIR", tmp_path):
         assert _load_completed_result(pdf_name, manifest) is None
+
+
+# ---------------------------------------------------------------------------
+# Final-output negative path end to end through process_pdf, real validator
+# (feature: risk-remediation, task 10.4; design.md "FailureRecorder",
+# "Testing Strategy")
+# Requirements: 1.1, 1.2, 1.3, 1.4
+# ---------------------------------------------------------------------------
+
+
+def test_process_pdf_valid_fields_write_output_file_and_mark_complete(tmp_path):
+    """Requirements 1.1, 1.2: with every merged field valid -- ``domain_group``
+    in the integer form ``_build_field_lookup`` produces -- ``process_pdf``
+    writes ``outputs/<paper>.extracted.json`` through the real
+    ``FinalOutputValidator`` and marks the paper ``complete``. The file's
+    content is the returned field list, so the on-disk record is usable."""
+    mock_api = _synth_api([_VALID_SYNTH])
+    out_file = tmp_path / "paper_synth_repair.extracted.json"
+
+    result, manifest = _run_synth_case(tmp_path, mock_api)
+
+    assert result is not None
+    assert out_file.exists(), "valid fields must produce the output file"
+    written = json.loads(out_file.read_text(encoding="utf-8"))
+    assert written == result
+    assert {f["field_index"] for f in written} == {3, 4, 5}
+    assert all(isinstance(f["domain_group"], int) and f["domain_group"] >= 1 for f in written)
+    assert manifest["paper_synth_repair"]["status"] == "complete"
+    assert "failures" not in manifest["paper_synth_repair"]
+
+
+@pytest.mark.parametrize(
+    "bad_domain_group, expected_fragment",
+    [
+        (0, "minimum"),                       # integer below the schema minimum of 1
+        ("13. Reviewer assessment", "type"),  # raw map string, never the emitted form
+    ],
+    ids=["below_minimum", "wrong_type"],
+)
+def test_process_pdf_invalid_field_no_output_and_failure_record_names_field(
+    tmp_path, caplog, bad_domain_group, expected_fragment,
+):
+    """Requirements 1.3, 1.4 (end to end, real validator): one merged field
+    whose ``domain_group`` violates ``final_output_schema.json`` means
+
+    * no output file exists at ``outputs/<paper>.extracted.json`` (1.4);
+    * the manifest entry is ``failed_schema_validation`` with a single
+      ``schema_validation`` record whose ``last_error`` carries the offending
+      field's identity as ``FinalOutputValidator.format_error`` renders it
+      (``field_index=`` and ``field_name=``) (1.3);
+    * a WARNING and an ERROR log line name the paper, and the WARNING carries
+      the same field identity, so the skipped write is attributable from the
+      logs alone (1.4).
+
+    The other two fields are valid, so the rejection is pinned to field 5.
+    """
+    mock_api = _synth_api([_VALID_SYNTH])
+    field_lookup = {
+        3: {"domain_group": 2, "field_name": "Study design"},
+        4: {"domain_group": 2, "field_name": "Sample size"},
+        5: {"domain_group": bad_domain_group, "field_name": "Synthesis notes"},
+    }
+    out_file = tmp_path / "paper_synth_repair.extracted.json"
+
+    with caplog.at_level(logging.WARNING, logger=_pdf_processor.logger.name):
+        result, manifest = _run_synth_case(tmp_path, mock_api, field_lookup=field_lookup)
+
+    # (a) nothing written -- not even a partial or temp file for this paper
+    assert result is None
+    assert not out_file.exists()
+    assert list(tmp_path.glob("paper_synth_repair*")) == []
+
+    # (b) manifest carries the failure record naming the field
+    entry = manifest["paper_synth_repair"]
+    assert set(entry) == {"status", "error", "failures"}
+    assert entry["status"] == "failed_schema_validation"
+    assert len(entry["failures"]) == 1
+    record = entry["failures"][0]
+    assert set(record) == _FAILURE_RECORD_KEYS
+    assert record["stage"] == "schema_validation"
+    assert record["chunk"] is None
+    assert record["attempts"] == 1
+    assert record["last_error"] == entry["error"]
+    assert "field_index=5" in record["last_error"]
+    assert "field_name='Synthesis notes'" in record["last_error"]
+    assert "domain_group" in record["last_error"]
+    assert expected_fragment in record["last_error"]
+    # Only field 5 is rejected; the valid fields must not appear as errors.
+    assert "field_index=3" not in record["last_error"]
+    assert "field_index=4" not in record["last_error"]
+
+    # (c) the rejection is logged with the field identity
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+    assert any("paper_synth_repair" in m and "field_index=5" in m
+               and "field_name='Synthesis notes'" in m for m in warnings), warnings
+    assert any("paper_synth_repair" in m and "output not written" in m for m in errors), errors
+
+
+def test_process_pdf_invalid_field_leaves_no_stale_output_from_an_earlier_run(tmp_path):
+    """Requirement 1.4 corollary: a stale output file from a previous run is
+    not what makes a paper look complete -- after a schema rejection the
+    manifest says ``failed_schema_validation`` and ``_load_completed_result``
+    refuses to serve the stale file."""
+    mock_api = _synth_api([_VALID_SYNTH])
+    field_lookup = dict(_SYNTH_FIELD_LOOKUP)
+    field_lookup[5] = {"domain_group": -1, "field_name": "Synthesis notes"}
+    out_file = tmp_path / "paper_synth_repair.extracted.json"
+    out_file.write_text(json.dumps([{"stale": True}]), encoding="utf-8")
+
+    result, manifest = _run_synth_case(tmp_path, mock_api, field_lookup=field_lookup)
+
+    assert result is None
+    assert manifest["paper_synth_repair"]["status"] == "failed_schema_validation"
+    # The gate never overwrote the stale file with a rejected payload ...
+    assert json.loads(out_file.read_text(encoding="utf-8")) == [{"stale": True}]
+    # ... and the stale file cannot be read back as a completed result.
+    with patch.object(_pdf_processor, "OUTPUT_DIR", tmp_path):
+        assert _load_completed_result("paper_synth_repair", manifest) is None

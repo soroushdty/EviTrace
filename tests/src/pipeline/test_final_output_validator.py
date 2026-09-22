@@ -371,3 +371,57 @@ class TestRepresentativeDocumentValidation:
         final_fields = reconstruct_fields(compact_chunk, field_lookup, evidence_map={})
         result = validator.validate(final_fields)
         assert result.is_valid, f"Empty-loc reconstruction failed: {result.errors}"
+
+
+# ---------------------------------------------------------------------------
+# Extraction-map boundary (risk-remediation Requirement 1.1)
+# ---------------------------------------------------------------------------
+
+
+class TestExtractionMapDomainGroupBoundary:
+    """Requirement 1.1 (risk-remediation): the ``domain_group`` value in the
+    form the configured extraction map produces -- the integer prefix parsed
+    by ``extraction_map._build_field_lookup`` from the descriptive string in
+    ``configs/extraction_map.json`` -- is accepted by the final-output
+    validator. The raw descriptive string is deliberately *not* the emitted
+    form and is rejected, pinning the type boundary documented in the spec.
+    """
+
+    @staticmethod
+    def _real_field_lookup() -> dict:
+        em_path = _PROJECT_ROOT / "src" / "pipeline" / "extraction_map.py"
+        spec = importlib.util.spec_from_file_location("pipeline_extraction_map_for_validator", em_path)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module._build_field_lookup()
+
+    def test_every_map_produced_domain_group_is_accepted(self, validator):
+        field_lookup = self._real_field_lookup()
+        assert len(field_lookup) == 62
+        compact = [{"i": idx, "v": "value", "loc": [], "c": "nr"} for idx in sorted(field_lookup)]
+
+        final_fields = reconstruct_fields(compact, field_lookup, evidence_map={})
+
+        assert {f["domain_group"] for f in final_fields} == set(range(1, 14))
+        assert all(isinstance(f["domain_group"], int) for f in final_fields)
+        result = validator.validate(final_fields)
+        assert result.is_valid, result.errors
+
+    def test_raw_map_string_form_is_rejected_with_field_identity(self, validator):
+        raw = json.loads((_PROJECT_ROOT / "configs" / "extraction_map.json").read_text(encoding="utf-8"))
+        first = raw[0]
+        assert isinstance(first["domain_group"], str)  # e.g. "1. Study identification"
+        field = _make_valid_field(
+            field_index=first["field_index"],
+            domain_group=first["domain_group"],
+            field_name=first["field_name"],
+        )
+
+        result = validator.validate([field])
+
+        assert not result.is_valid
+        assert any(
+            f"field_index={first['field_index']}" in err and "domain_group" in err
+            for err in result.errors
+        ), result.errors
