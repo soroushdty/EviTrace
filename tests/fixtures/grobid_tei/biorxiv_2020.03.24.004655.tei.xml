@@ -1,0 +1,599 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">SARS-CoV-2 launches a unique transcriptional signature from in vitro, ex vivo, and in vivo systems</title>
+				<funder>
+					<orgName type="full">Defense Advanced Research Projects Agency</orgName>
+					<orgName type="abbreviated">DARPA</orgName>
+				</funder>
+				<funder>
+					<orgName type="full">Life Sciences Research Foundation</orgName>
+				</funder>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Daniel</forename><surname>Blanco-Melo</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department" key="dep1">Department of Microbiology</orgName>
+								<orgName type="department" key="dep2">Icahn School of Medicine at Mount</orgName>
+								<address>
+									<settlement>Sinai</settlement>
+									<region>New York</region>
+									<country key="US">USA</country>
+								</address>
+							</affiliation>
+							<affiliation key="aff1">
+								<orgName type="department" key="dep1">Virus Engineering Center for Therapeutics and Research (VECToR)</orgName>
+								<orgName type="department" key="dep2">Icahn School of Medicine at Mount</orgName>
+								<address>
+									<settlement>Sinai</settlement>
+									<region>New York</region>
+									<country key="US">USA</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Benjamin</forename><forename type="middle">E</forename><surname>Nilsson-Payant</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department" key="dep1">Department of Microbiology</orgName>
+								<orgName type="department" key="dep2">Icahn School of Medicine at Mount</orgName>
+								<address>
+									<settlement>Sinai</settlement>
+									<region>New York</region>
+									<country key="US">USA</country>
+								</address>
+							</affiliation>
+							<affiliation key="aff1">
+								<orgName type="department" key="dep1">Virus Engineering Center for Therapeutics and Research (VECToR)</orgName>
+								<orgName type="department" key="dep2">Icahn School of Medicine at Mount</orgName>
+								<address>
+									<settlement>Sinai</settlement>
+									<region>New York</region>
+									<country key="US">USA</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Wen-Chun</forename><surname>Liu</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department" key="dep1">Department of Microbiology</orgName>
+								<orgName type="department" key="dep2">Icahn School of Medicine at Mount</orgName>
+								<address>
+									<settlement>Sinai</settlement>
+									<region>New York</region>
+									<country key="US">USA</country>
+								</address>
+							</affiliation>
+							<affiliation key="aff2">
+								<orgName type="department" key="dep1">Global Health and Emerging Pathogens Institute</orgName>
+								<orgName type="department" key="dep2">Icahn School of Medicine at Mount</orgName>
+								<address>
+									<settlement>Sinai</settlement>
+									<region>New York</region>
+									<country key="US">USA</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Rasmus</forename><surname>Møller</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department" key="dep1">Department of Microbiology</orgName>
+								<orgName type="department" key="dep2">Icahn School of Medicine at Mount</orgName>
+								<address>
+									<settlement>Sinai</settlement>
+									<region>New York</region>
+									<country key="US">USA</country>
+								</address>
+							</affiliation>
+							<affiliation key="aff1">
+								<orgName type="department" key="dep1">Virus Engineering Center for Therapeutics and Research (VECToR)</orgName>
+								<orgName type="department" key="dep2">Icahn School of Medicine at Mount</orgName>
+								<address>
+									<settlement>Sinai</settlement>
+									<region>New York</region>
+									<country key="US">USA</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Maryline</forename><surname>Panis</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department" key="dep1">Department of Microbiology</orgName>
+								<orgName type="department" key="dep2">Icahn School of Medicine at Mount</orgName>
+								<address>
+									<settlement>Sinai</settlement>
+									<region>New York</region>
+									<country key="US">USA</country>
+								</address>
+							</affiliation>
+							<affiliation key="aff1">
+								<orgName type="department" key="dep1">Virus Engineering Center for Therapeutics and Research (VECToR)</orgName>
+								<orgName type="department" key="dep2">Icahn School of Medicine at Mount</orgName>
+								<address>
+									<settlement>Sinai</settlement>
+									<region>New York</region>
+									<country key="US">USA</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">David</forename><surname>Sachs</surname></persName>
+							<affiliation key="aff3">
+								<orgName type="department" key="dep1">Department of Genetics and Genomic Sciences</orgName>
+								<orgName type="department" key="dep2">Icahn School of Medicine at Mount</orgName>
+								<address>
+									<settlement>Sinai</settlement>
+									<region>New York</region>
+									<country key="US">USA</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Randy</forename><forename type="middle">A</forename><surname>Albrecht</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department" key="dep1">Department of Microbiology</orgName>
+								<orgName type="department" key="dep2">Icahn School of Medicine at Mount</orgName>
+								<address>
+									<settlement>Sinai</settlement>
+									<region>New York</region>
+									<country key="US">USA</country>
+								</address>
+							</affiliation>
+							<affiliation key="aff2">
+								<orgName type="department" key="dep1">Global Health and Emerging Pathogens Institute</orgName>
+								<orgName type="department" key="dep2">Icahn School of Medicine at Mount</orgName>
+								<address>
+									<settlement>Sinai</settlement>
+									<region>New York</region>
+									<country key="US">USA</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Benjamin</forename><forename type="middle">R</forename><surname>Tenoever</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department" key="dep1">Department of Microbiology</orgName>
+								<orgName type="department" key="dep2">Icahn School of Medicine at Mount</orgName>
+								<address>
+									<settlement>Sinai</settlement>
+									<region>New York</region>
+									<country key="US">USA</country>
+								</address>
+							</affiliation>
+							<affiliation key="aff1">
+								<orgName type="department" key="dep1">Virus Engineering Center for Therapeutics and Research (VECToR)</orgName>
+								<orgName type="department" key="dep2">Icahn School of Medicine at Mount</orgName>
+								<address>
+									<settlement>Sinai</settlement>
+									<region>New York</region>
+									<country key="US">USA</country>
+								</address>
+							</affiliation>
+							<affiliation key="aff2">
+								<orgName type="department" key="dep1">Global Health and Emerging Pathogens Institute</orgName>
+								<orgName type="department" key="dep2">Icahn School of Medicine at Mount</orgName>
+								<address>
+									<settlement>Sinai</settlement>
+									<region>New York</region>
+									<country key="US">USA</country>
+								</address>
+							</affiliation>
+						</author>
+						<title level="a" type="main">SARS-CoV-2 launches a unique transcriptional signature from in vitro, ex vivo, and in vivo systems</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">3F765CD41D96D29221DDAD3A0296E522</idno>
+					<idno type="DOI">10.1101/2020.03.24.004655</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.2" ident="GROBID" when="2026-09-22T01:04+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<label type="revision">a91ee48</label>
+					<label type="parameters">startPage=-1, endPage=-1, consolidateCitations=0, consolidateHeader=0, consolidateFunders=0, includeRawAffiliations=false, includeRawCitations=false, includeRawCopyrights=false, generateTeiIds=false, generateTeiCoordinates=[p, figure, head, biblStruct], sentenceSegmentation=true, flavor=null</label>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p coords="1,71.88,323.37,467.81,10.01;1,71.88,343.05,468.01,10.01;1,71.88,362.73,467.80,10.01;1,71.88,382.41,468.04,10.01;1,71.88,401.45,468.00,11.14;1,71.88,422.09,467.98,11.14;1,71.88,442.73,467.78,11.14;1,71.88,463.61,468.02,11.14;1,71.88,484.25,468.19,11.14;1,71.88,504.89,468.02,11.14;1,71.88,525.53,467.95,11.14;1,71.88,546.41,467.95,11.14;1,71.88,567.05,467.98,11.14;1,71.88,587.69,468.22,11.14;1,71.88,608.33,467.98,11.14;1,71.88,629.21,72.22,11.14"><s>One of the greatest threats to humanity is the emergence of a pandemic virus.</s><s>Among those with the greatest potential for such an event include influenza viruses and coronaviruses.</s><s>In the last century alone, we have observed four major influenza A virus pandemics as well as the emergence of three highly pathogenic coronaviruses including SARS-CoV-2, the causative agent of the ongoing COVID-19 pandemic.</s><s>As no effective antiviral treatments or vaccines are presently available against SARS-CoV-2, it is important to understand the host response to this virus as this may guide the efforts in development towards novel therapeutics.</s><s>Here, we offer the first in-depth characterization of the host transcriptional response to SARS-CoV-2 and other respiratory infections through in vitro, ex vivo, and in vivo model systems.</s><s>Our data demonstrate the each virus elicits both core antiviral components as well as unique transcriptional footprints.</s><s>Compared to the response to influenza A virus and respiratory syncytial virus, SARS-CoV-2 elicits a muted response that lacks robust induction of a subset of cytokines including the Type I and Type III interferons as well as a numerous chemokines.</s><s>Taken together, these data suggest that the unique transcriptional signature of this virus may be responsible for the development of COVID-19.</s></p><p coords="1,397.37,22.26,2.22,7.40"><s>.</s></p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<facsimile>
+		<surface n="1" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+		<surface n="2" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+		<surface n="3" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+		<surface n="4" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+		<surface n="5" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+		<surface n="6" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+		<surface n="7" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+		<surface n="8" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+		<surface n="9" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+		<surface n="10" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+		<surface n="11" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+		<surface n="12" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+		<surface n="13" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+		<surface n="14" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+		<surface n="15" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+		<surface n="16" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+		<surface n="17" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+		<surface n="18" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+		<surface n="19" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+		<surface n="20" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+		<surface n="21" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+	</facsimile>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head coords="1,71.88,668.95,84.09,10.02">INTRODUCTION</head><p coords="1,71.88,687.77,468.00,11.14;1,71.88,708.41,236.12,11.14;1,312.44,708.41,227.44,11.14;2,71.88,74.33,460.22,11.14;2,536.55,74.33,3.34,11.14;2,71.88,94.97,468.01,11.14;2,71.88,115.61,468.00,11.14;2,71.88,136.49,468.00,11.14;2,71.88,157.13,468.00,11.14;2,71.88,177.77,468.00,11.14;2,71.88,198.41,468.00,11.14;2,71.88,219.29,448.81,11.14;2,536.55,219.29,3.34,11.14"><s>Coronaviruses are a diverse group of single-stranded positive-sense RNA viruses infecting a wide range of vertebrate hosts <ref type="bibr" target="#b0">1</ref> .</s><s>These viruses are thought to generally cause mild upper respiratory tract illnesses in humans such as the common cold <ref type="bibr" target="#b1">2</ref> .</s><s>However, in the past two decades, three highly pathogenic human coronaviruses have emerged from zoonotic viruses: severe acute respiratory syndrome-related coronavirus (SARS-CoV-1) infecting ~8,000 people worldwide with a case-fatality rate of ~10% in 2002-2003, Middle East respiratory syndrome-related coronavirus (MERS-CoV) infecting ~2,500 people with a case-fatality rate of ~36%, and now severe acute respiratory syndrome-related coronavirus 2 (SARS-CoV-2) which causes Coronavirus Disease-2019 (COVID-19) whose global mortality rate remains to be determined <ref type="bibr" target="#b2">3,</ref><ref type="bibr" target="#b3">4</ref> .</s></p><p coords="2,71.88,239.93,468.00,11.14;2,71.88,260.57,468.00,11.14;2,71.88,281.21,128.11,11.14;2,204.44,281.21,3.34,11.14"><s>Infection with these highly pathogenic coronaviruses can result in acute respiratory distress syndrome (ARDS) and acute lung injury (ALI), often leading to reduction of lung function and even death <ref type="bibr" target="#b2">3</ref> .</s></p><p coords="2,71.88,322.73,468.02,11.14;2,71.88,343.37,468.00,11.14;2,71.88,364.01,468.00,11.14;2,71.88,384.89,468.01,11.14;2,71.88,405.53,468.00,11.14;2,71.88,426.17,103.60,11.14;2,192.14,426.17,347.75,11.14;2,71.88,446.81,468.00,11.14;2,71.88,467.69,468.00,11.14;2,71.88,488.33,468.00,11.14;2,71.88,508.97,468.00,11.14;2,71.88,529.61,468.01,11.14;2,71.88,550.49,468.01,11.14;2,71.88,571.13,468.00,11.14;2,71.88,591.77,468.00,11.14;2,71.88,612.41,468.00,11.14;2,71.88,633.29,468.01,11.14;2,71.88,653.93,468.00,11.14;2,71.88,674.57,210.79,11.14"><s>The current pandemic of COVID-19 represents an acute and rapidly developing global health crisis.</s><s>In an effort to better understand the molecular basis of the disease and identify putative markers for COVID-19, we compared the transcriptional response of SARS-CoV-2 to that of seasonal influenza A virus (IAV) and human orthopneumovirus (commonly known as human respiratory syncytial virus (RSV)), two common recurring respiratory viruses.</s><s>Comparing the transcriptional response in both primary human lung epithelium and transformed lung alveolar cells revealed that SARS-CoV-2 elicits a unique transcriptional response as compared to IAV and RSV.</s><s>In a homogenous cell population, the transcriptional response to SARS-CoV-2 infection shows a significant lack of Type I and III interferon (IFN-I and IFN-III) expression as compared to IAV and RSV.</s><s>Moreover, while a core number of cytokines that comprise the antiviral host defense are shared amongst all three viruses, an equal number are notably absent in response to SARS-CoV-2.</s><s>Lastly, the only genes that appear to be unique to SARS-CoV-2 infection are secreted peptides implicated in diseases of the airways.</s><s>This unique response to SARS-CoV-2 could also be recapitulated in vivo comparing influenza infection to COVID-19 in ferrets.</s><s>Taken together, these data reveal that the interaction between virus and host as it relates to SARS-CoV-2 may be responsible for its unusual high morbidity and mortality.</s></p><p coords="2,397.37,22.26,2.22,7.40;2,271.55,22.26,125.82,7.40;2,208.41,22.26,60.92,7.40;2,53.67,14.26,500.66,7.40;2,418.30,6.26,128.50,7.40;2,289.34,6.26,126.73,7.40;2,284.90,6.26,2.22,7.40;2,134.12,6.26,150.78,7.40;2,119.00,6.26,12.90,7.40;2,61.21,6.26,55.57,7.40"><s>. CC-BY-ND 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity.</s><s>It is made The copyright holder for this preprint this version posted March 24, 2020.</s><s>; <ref type="url" target="https://doi.org/10.1101/2020.03.24.004655">https://doi.org/10.1101/2020.03.24.004655</ref> doi: bioRxiv preprint</s></p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head coords="3,71.88,74.47,51.13,10.02">RESULTS</head><p coords="3,71.88,93.29,468.00,11.14;3,71.88,113.93,468.02,11.14;3,71.88,134.81,468.00,11.14;3,71.88,155.45,468.00,11.14;3,71.88,176.09,176.97,11.14;3,262.96,176.09,9.35,11.14"><s>In order to identify similarities and differences between the host response to SARS-CoV-2 and seasonal respiratory infections, we sought to elucidate the transcriptome of lung epithelial cells during viral infection.</s><s>To achieve this, we infected human alveolar adenocarcinoma cells with SARS-CoV-2, RSV and IAV and performed mRNA-seq analysis (Supplementary Table <ref type="table">1</ref>).</s></p><p coords="3,291.19,176.09,248.69,11.14;3,71.88,196.73,369.93,11.14;3,441.82,194.13,4.40,7.35;3,446.27,196.73,93.61,11.14;3,71.88,217.61,468.03,11.14;3,71.88,238.25,256.55,11.14;3,355.56,238.25,137.09,11.14;3,502.82,238.25,37.06,11.14;3,71.88,258.89,468.00,11.14;3,71.88,279.53,226.56,11.14;3,319.97,279.53,138.93,11.14;3,467.66,279.53,72.22,11.14;3,71.88,300.17,331.12,11.14;3,418.54,300.17,121.34,11.14;3,71.88,321.05,468.02,11.14;3,71.88,341.69,468.00,11.14;3,71.88,362.33,468.02,11.14;3,71.88,382.97,468.00,11.14;3,71.88,403.85,468.01,11.14;3,71.88,424.49,334.56,11.14;3,432.47,424.49,107.42,11.14;3,71.88,445.13,30.00,11.14;3,110.15,445.13,429.73,11.14;3,71.88,465.77,468.02,11.14;3,71.88,486.65,468.01,11.14;3,71.88,507.29,352.69,11.14;3,439.23,507.29,100.65,11.14;3,71.88,527.93,468.02,11.14;3,71.88,548.57,95.64,11.14;3,171.97,548.57,367.92,11.14;3,71.88,569.45,468.01,11.14;3,71.88,590.09,153.34,11.14;3,239.54,590.09,300.35,11.14;3,71.88,610.73,369.51,11.14"><s>Despite undetectable levels of ACE2 and TMPRSS2, the putative receptor and protease for SARS-CoV-2 entry 5 , these cells were able to support viral replication, evidenced by full genome coverage in total RNA samples extracted from infected cells (Figure <ref type="figure" target="#fig_3">1a</ref> and Extended Data Fig. <ref type="figure" target="#fig_3">1a</ref>).</s><s>Our analysis identified 120 differentially expressed genes (DEGs, qval &lt; 0.05) of which more than 80% were up-regulated (Figure <ref type="figure" target="#fig_3">1b</ref> and Supplementary Table <ref type="table">2</ref>).</s><s>Analysis of DEGs revealed two main clusters of induced genes (Figure <ref type="figure" target="#fig_3">1c</ref>).</s><s>A highly interacting cluster enriched in genes involved in the cellular response to virus infection (GO:0009615, FDR &lt;&lt; 0.0001), mainly composed of type-I ISGs (GO:0034340, FDR &lt;&lt; 0.0001), and a second cluster enriched in genes involved in the humoral immune response (GO:0006959, FDR &lt;&lt; 0.0001), which further subdivided into two smaller clusters enriched in chemokines and cytokines (GO:0005125, FDR &lt; 0.001), and complement proteins (GO:0006956, FDR &lt; 0.0005) (Figure <ref type="figure" target="#fig_3">1c</ref> and Supplementary Table <ref type="table">3</ref>).</s><s>It is noteworthy to highlight that, despite a lack of IFN-I and IFN-III expression, we observe the induction of well-characterized direct effectors of the innate immune response including: MX1, IFITM3, SAMHD1 and TRIM25, as well as the induction of viral RNA sensors such as RIG-I and the OAS1-3 genes (Figure <ref type="figure" target="#fig_3">1c</ref>).</s><s>This response however is lacking the robust induction of antiviral genes commonly observed following IFN-I/-III signaling <ref type="bibr" target="#b5">6</ref> .</s><s>This muted response however does show a positive correlation in the host antiviral response overall as determined by gene set enrichment analysis (GSEA) (Extended Data Fig. <ref type="figure" target="#fig_3">1b</ref>).</s><s>Taken together our analyses indicate that replication of SARS-CoV-2 in alveolar cells results in a limited antiviral response.</s></p><p coords="3,71.88,652.25,468.00,11.14;3,71.88,672.89,468.01,11.14;3,71.88,693.53,468.01,11.14;4,71.88,74.33,96.96,11.14;4,182.99,74.33,356.98,11.14;4,71.88,94.97,468.00,11.14;4,71.88,115.61,467.95,11.14;4,71.88,136.49,468.05,11.14;4,71.88,157.13,69.34,11.14;4,156.35,157.13,383.48,11.14;4,71.88,177.77,393.58,11.14"><s>In an effort to determine if the apparent modest response to SARS-CoV-2 infection was the result of low receptor expression, a low multiplicity of infection (MOI), or due to the immortalized nature of the cell line, we next infected primary human bronchial epithelial (NHBE) cells (Fig. <ref type="figure" target="#fig_4">2a</ref>).</s><s>However, despite a ten fold increase in MOI, infection of NHBE cells showed a similar transcriptional response to that of the immortalized alveolar cells (ρ≈0.22,</s><s>p-value &lt;&lt; 0.0001).</s><s>This correlation extended to both the type-I IFN response (GO:0060337, FDR &lt;&lt; 0.0001) as well as the humoral immunity (GO:0006959, FDR &lt;&lt; 0.0001) (Fig. <ref type="figure" target="#fig_4">2b</ref>).</s><s>Taken together, these results suggest that the cellular response to SARS-CoV-2 is relatively uniform and void of IFN-I and IFN-III expression.</s></p><p coords="4,71.88,219.29,468.00,11.14;4,71.88,239.93,468.00,11.14"><s>In an effort to compare the response to SARS-CoV-2 with other respiratory viruses, we next infected the lung alveolar carcinoma cell line with either RSV or seasonal IAV.</s></p><p coords="4,71.88,260.57,468.01,11.14;4,71.88,281.21,468.00,11.14;4,71.88,302.09,468.01,11.14;4,71.88,322.73,318.65,11.14;4,433.06,322.73,106.81,11.14;4,71.88,343.37,468.01,11.14;4,71.88,364.01,157.48,11.14;4,238.25,364.01,301.64,11.14;4,71.88,384.89,188.97,11.14;4,275.63,384.89,264.26,11.14;4,71.88,405.53,468.00,11.14;4,71.88,426.17,78.59,11.14;4,164.69,426.17,375.19,11.14;4,71.88,446.81,468.02,11.14;4,71.88,467.69,468.02,11.14;4,71.88,488.33,467.98,11.14;4,71.88,508.97,468.00,11.14;4,71.88,529.61,90.53,11.14;4,176.24,529.61,363.65,11.14;4,71.88,550.49,468.02,11.14;4,71.88,571.13,80.92,11.14;4,170.70,571.13,369.19,11.14;4,71.88,591.77,468.00,11.14;4,71.88,612.41,63.76,11.14;4,153.04,612.41,386.85,11.14;4,71.88,633.29,468.01,11.14;4,71.88,653.93,354.66,11.14;4,430.99,653.93,108.89,11.14;4,71.88,674.57,468.00,11.14;4,71.88,695.21,468.00,11.14;5,71.88,74.33,95.21,11.14;5,185.24,74.33,10.34,11.14;5,211.21,74.33,328.67,11.14;5,71.88,94.97,467.99,11.14;5,71.88,115.61,68.04,11.14;5,144.37,115.61,3.34,11.14"><s>Bulk RNA sequencing of independent biological replicates revealed that the transcriptional response to SARS-CoV-2 infection is similar in magnitude to that of IAV (82 DEGs, qval &lt; 0.05), with both viruses showing a moderate response compared to that of RSV (910 DEGs, qval &lt; 0.05) (Supplementary Table <ref type="table">4</ref> and <ref type="table">5</ref>).</s><s>Nevertheless, the response to SARS-CoV-2 showed a strong correlation (p-value &lt; 0.001) to that of RSV infection (Extended Data Fig. <ref type="figure" target="#fig_4">2</ref>), resulting in the large overlap of DEGs between these two viruses, compared to IAV (Fig. <ref type="figure" target="#fig_5">3a</ref>).</s><s>These responses do not reflect the replication dynamics of these viruses, illustrated by the amount of viral reads recovered from these infections (Fig. <ref type="figure" target="#fig_5">3b</ref>).</s><s>In an effort to better illustrate the unique responses to SARS-CoV-2, IAV, and RSV, we next performed a principle component analysis (PCA) to enable unbiased grouping of each sample based in DEGs.</s><s>These efforts not only highlighted the unique transcriptional signatures induced by the three respiratory infections, they also corroborated that the response in different cell systems with SARS-CoV-2 were comparable (Fig. <ref type="figure" target="#fig_5">3c</ref>).</s><s>To further delineate the unique antiviral signatures of each virus, we next examined the expression levels of specific genes implicated in the host antiviral response (Fig. <ref type="figure" target="#fig_5">3d</ref>).</s><s>These analyses again showed that despite sharing a similar transcriptional footprint to RSV, SARS-CoV-2 lacks the induction of IFN-I and IFN-III genes (Fig. <ref type="figure" target="#fig_5">3d</ref>).</s><s>However, this same analyses shows a common subset of well established interferon stimulated genes (ISGs) shared with RSV that are lacking in IAV, presumably due to the expression of the antiviral antagonist NS1 <ref type="bibr" target="#b6">7</ref> .</s><s>While most of the transcriptional response to SARS-CoV-2 was either shared or lacking in comparison to the response to IAV and RSV, two cytokines (EDN1 and TNFSF15) were uniquely upregulated (Fig. <ref type="figure" target="#fig_5">3e</ref>).</s><s>The unique induction of these two secreted factors was particularly noteworthy as they have been implicated as mediators of respiratory inflammation <ref type="bibr" target="#b5">6</ref> .</s></p><p coords="5,71.88,157.13,468.00,11.14;5,71.88,177.77,468.00,11.14;5,76.55,198.41,463.34,11.14;5,71.88,219.29,468.00,11.14;5,71.88,239.93,346.06,11.14;5,437.27,239.93,10.43,11.14;5,474.36,239.93,65.71,11.14;5,71.88,260.57,468.19,11.14;5,71.88,281.21,467.95,11.14;5,71.88,302.09,467.95,11.14;5,71.88,322.73,467.95,11.14;5,71.88,343.37,467.95,11.14;5,71.88,364.01,468.22,11.14;5,71.88,384.89,172.06,11.14;5,269.22,384.89,270.61,11.14;5,71.88,405.53,468.19,11.14;5,71.88,426.17,468.00,11.14;5,71.88,446.81,467.98,11.14"><s>Lastly, to ascertain whether the mutated antiviral response to SARS-CoV-2 could be observed in vivo, we infected ferrets with either influenza A virus or SARS-CoV-2 (Fig. <ref type="figure">4</ref>).</s><s>At five days post infection, nasal washes were performed and the heterogeneous cells obtained from this procedure were again subjected to bulk RNA sequencing and aligned to either SARS-CoV-2 or A/California/04/2009 (Fig. <ref type="figure">4a</ref>).</s><s>These data demonstrate complete coverage of the challenge virus suggesting that in both examples, the ferrets were shedding replication competent virus.</s><s>Next, these same upper respiratory cell populations were compared to mock treated ferrets to ascertain the transcriptional response in vivo for comparison purposes.</s><s>In agreement with our in vitro data, differential expression analyses of these respiratory infections demonstrated that the transcriptional footprint of IAV was significantly greater in magnitude that that observed for SARS-CoV-2 (Fig. <ref type="figure">4b-c</ref>).</s><s>While the ferret genome annotation limits the direct comparisons between some orthologues, we do observe a diminished cytokine response when comparing SARS-CoV-2 to IAV.</s><s>These data include a subset of genes involved in the recruitment and activation of the adaptive immune response including:</s></p><p coords="5,71.88,467.69,286.06,11.14;5,383.38,467.69,156.69,11.14;5,71.88,488.33,467.95,11.14;5,71.88,508.97,468.00,11.14;5,71.88,529.61,288.22,11.14"><s>IL6, CXCL11, IFNG, IL7, CXCL9, and CXCL10 (Fig. <ref type="figure">4b-c</ref>).</s><s>Taken together with both our in vitro and ex vivo data, which also implicated a diminished cytokine response to infection, these results suggest that the overall response to SARS-CoV-2 is relatively moderate when compared to other respiratory viruses.</s></p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head coords="5,71.88,571.27,68.28,10.02">DISCUSSION</head><p coords="5,71.88,590.09,467.98,11.14;5,71.88,610.73,467.95,11.14;5,71.88,631.37,467.84,11.14;5,71.88,652.25,468.16,11.14;5,71.88,672.89,468.22,11.14"><s>In the present study we focus on defining the transcriptional response to SARS-CoV-2, influenza A virus, and respiratory syncytial virus.</s><s>In general, these data find that the overall transcriptional footprint to infection is greatest for RSV and the lowest for IAV with SARS-CoV-2 representing an intermediate response.</s><s>A probable explanation for the lack of a response to IAV in general is the potent antagonistic activity of the virus.</s></p><p coords="5,71.88,693.53,467.95,11.14"><s>However, it is noteworthy that in vivo, the response to IAV exceeds that of SARS-CoV-2</s></p><p coords="6,71.88,74.33,467.98,11.14;6,71.88,94.97,196.78,11.14"><s>where the activity of NS1 is unable to inhibit some of the pattern recognition receptors at play during a physiological response.</s></p><p coords="6,71.88,136.49,467.98,11.14;6,71.88,157.13,467.98,11.14;6,71.88,177.77,467.95,11.14;6,71.88,198.41,467.95,11.14;6,71.88,219.29,467.95,11.14;6,71.88,239.93,467.95,11.14;6,71.88,260.57,468.00,11.14;6,71.88,281.21,467.95,11.14;6,71.88,302.09,349.66,11.14"><s>Despite the apparent muted induction of antiviral genes in response to SARS-CoV-2, we do observe a significant up regulation of well-characterized ISGs including: IFIT1-3, ISG15, DDX58, and others.</s><s>Amongst the genes that are uniquely present when comparing SARS-CoV-2 to other respiratory viruses are EDN1 and TNFSF15 -two putative biomarkers that may contribute to COVID-19 pathology.</s><s>However, it should be noted that we did not observe these genes in ferrets despite the fact that they could be detected in both cell culture models.</s><s>Regardless of whether these two unique genes may serve as biomarkers, the overall signature of SARS-CoV-2, RSV, and IAV can serve as a broader map to developing novel diagnostic strategies.</s></p><p coords="6,71.88,343.37,468.00,11.14;6,71.88,364.01,468.00,11.14;6,71.88,384.89,467.95,11.14;6,71.88,405.53,467.95,11.14;6,71.88,426.17,467.95,11.14;6,71.88,446.81,467.98,11.14;6,71.88,467.69,467.95,11.14;6,71.88,488.33,468.02,11.14;6,71.88,508.97,468.00,11.14;6,71.88,529.61,468.19,11.14;6,71.88,550.49,104.62,11.14;6,191.15,550.49,348.73,11.14;6,71.88,571.13,467.95,11.14;6,71.88,591.77,182.14,11.14"><s>The general induction of ISGs in response to SARS-CoV-2, albeit modest, is particularly interesting as we were not able to detect any reads mapping to IFN-I of IFN-III members in contrast to what is observed for RSV or IAV.</s><s>These data likely indicate that induction of IFN-I and IFN-III is very low but sufficient to induce at least a subset of ISGs in response to SARS-CoV-2.</s><s>It is also noteworthy that we observe comparable replication between primary human bronchial epithelium and a transformed cell line despite the fact that we are unable to detect both the putative receptor (ACE2) or the required protease (TMPRSS2) in the latter cell line.</s><s>While further work remains to ascertain how viral entry is mediated in this model system, we did note high expression of BSG which has also been suggested to compensate for ACE2 (Wang et al, BioRxv unpublished and Extended Data Fig. <ref type="figure" target="#fig_3">1a</ref>).</s><s>Moreover, it should be noted that the viral replication profiles as deduced by both total RNA and polyA RNA sequencing were comparable between in vitro, ex vivo, and in vivo samples.</s></p><p coords="6,71.88,633.29,468.00,11.14;6,71.88,653.93,432.48,11.14;6,508.68,653.93,31.15,11.14;6,71.88,674.57,467.98,11.14;6,71.88,695.21,461.52,11.14;7,80.76,74.33,459.04,11.14;7,71.88,94.97,468.00,11.14;7,71.88,115.61,467.98,11.14;7,71.88,136.49,91.20,11.14;7,171.96,136.49,367.87,11.14;7,71.88,157.13,468.02,11.14;7,71.88,177.77,467.95,11.14;7,71.88,198.41,467.98,11.14;7,71.88,219.29,467.95,11.14;7,71.88,239.93,467.98,11.14;7,71.88,260.57,468.22,11.14;7,71.88,281.21,468.00,11.14;7,71.88,302.09,467.95,11.14;7,71.88,322.73,340.78,11.14"><s>What makes the SARS-CoV-2 distinct from the RSV and IAV strains used in this study is the propensity to selectively induce morbidity and mortality in older populations <ref type="bibr" target="#b7">8</ref> .</s><s>The physiological basis for this morbidity is believed to be the selective death of Type II pneumocytes that results in both loss of air exchange and fluid leakage into the lungs <ref type="bibr">9,</ref> .</s><s>While it remains to be determined whether this moderate cell response to SARS-CoV-2 is responsible for the abnormally high lethality in the older populations, it does explain why the virus is generally asymptomatic in young people with healthy and robust immune systems <ref type="bibr" target="#b10">11</ref> .</s><s>Given the results here, it is tempting to speculate that perhaps in the aging population, the immune response itself is muted and thus prevents successful inhibition of viral spread.</s><s>Perhaps the slow amplification of the virus is then the underlying cause for the lung damage and an explanation for why the course of infection is so prolonged.</s><s>In this regard, it is also of interest to point out that while replication is apparent in 6 month old ferrets (comparable in age to human teenagers), they do not show overt signs of disease and clear infection after approximately eight days.</s><s>Taken together, the data presented here suggests that perhaps artificial means of boosting the antiviral response may be an effective option at treating COVID-19 so long as it does not further aggravate any pre-existing conditions.</s></p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head coords="7,71.88,364.01,162.80,11.14">MATERIALS AND METHODS</head></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head coords="7,71.88,384.89,22.06,11.14">Cell</head><p coords="7,99.00,384.89,440.86,11.14;7,71.88,405.53,467.95,11.14;7,71.88,426.17,468.00,11.14;7,71.88,446.81,463.42,11.14;7,535.32,451.17,4.40,7.35;7,71.88,467.69,468.02,11.14;7,71.88,489.04,468.22,11.36;7,71.88,510.64,467.95,11.36;7,71.88,532.24,467.95,11.36;7,71.88,553.84,468.26,11.36;7,71.88,575.44,61.90,11.36;7,133.80,579.80,4.40,7.50;7,138.36,575.44,3.34,11.36;7,71.88,616.97,467.95,11.14;7,71.88,637.85,467.95,11.14;7,71.88,658.49,467.95,11.14;7,71.88,679.13,468.00,11.14;7,71.88,699.77,408.22,11.14;8,71.88,94.97,467.92,11.14"><s>Culture Human adenocarcinomic alveolar basal epithelial (A549) cells (ATCC, CCL-185), Madin-Darby Canine Kidney (MDCK) cells (ATCC, CCL-34), African green monkey kidney epithelical Vero E6 cells (ATCC, CRL-1586) and African green monkey kidney epithelical BS-C-1 cells (ATCC, CCL-26) were maintained at 37°C and 5% CO 2 in Dulbecco's Modified Eagle Medium (DMEM, Gibco) supplemented with 10% Fetal Bovine Serum (FBS, Corning).</s><s>Normal human bronchial epithelial (NHBE) cells (Lonza, CC-2540 Lot# 580580) were isolated from a 79-year-old Caucasian female and were maintained in bronchial epithelial growth media (Lonza, CC-3171) supplemented with BEGM SingleQuots as per the manufacturer's instructions (Lonza, CC-4175) at 37°C and 5% CO 2 .</s><s>Viruses Influenza A/Puerto Rico/8/1934 (H1N1) virus (NCBI:txid183764) and influenza A/California/04/2009 (pH1N1) virus was grown in MDCK cells at an MOI of 0.001 in DMEM supplemented with 0.3% bovine serum albumin (BSA, MP Biomedicals), 4.5 g/L D-glucose, 4 mM L-glutamine and 1 µg/ml TPCK-trypsin (Sigma-Aldrich).</s><s>Infectious titers of influenza A viruses were determined by plaque assay in MDCK cells.</s><s>Recombinant GFP-expressing human respiratory syncytial virus, strain A2 (rgRSV[224])</s></p><p coords="8,71.88,115.61,455.76,11.14;8,536.52,115.61,3.34,11.14"><s>was generously provided by Dr. M. Peeples (OSU) and was described previously <ref type="bibr" target="#b11">12</ref> .</s></p><p coords="8,71.88,136.49,31.07,11.14;8,137.64,136.49,376.21,11.14;9,71.88,74.33,467.98,11.14;9,71.88,94.97,467.95,11.14;9,71.88,115.61,282.22,11.14"><s>rgRSV [224] was grown in BSC-1 cells in in DMEM supplemented with 2% FBS, 4. Total RNA from infected and mock infected cells was extracted using TRIzol Reagent (Invitrogen) and Direct-zol RNA Miniprep kit (Zymo Research) according to the manufacturer's instructions and treated with DNase I.</s></p><p coords="9,71.88,157.13,468.00,11.14"><s>RNA-seq libraries of polyadenylated RNA were prepared using the TruSeq RNA Library</s></p><p coords="9,71.88,177.77,468.16,11.14;9,71.88,198.41,468.02,11.14;9,71.88,219.29,467.84,11.14;9,71.88,239.93,349.66,11.14"><s>Prep Kit v2 (Illumina) according to the manufacturer's instructions.</s><s>RNA-seq libraries for total ribosomal RNA-depleted RNA were prepared using the TruSeq Stranded Total RNA Library Prep Gold (Illumina) according to the manufacturer's instructions.</s><s>cDNA libraries were sequenced using an Illumina NextSeq 500 platform.</s></p><p coords="9,71.88,281.21,457.59,11.14;9,71.88,302.09,412.88,11.14;9,71.88,322.73,184.79,11.14;9,265.56,322.73,240.11,11.14;9,71.88,343.37,441.94,11.14;9,71.88,364.01,451.61,11.14;9,71.88,384.89,182.09,11.14;9,262.86,384.89,229.47,11.14;9,71.88,405.53,314.87,11.14;9,71.88,426.17,436.26,11.14;9,71.88,446.81,161.41,11.14;9,233.29,451.17,4.40,7.35;9,237.74,446.81,300.16,11.14;9,71.88,467.69,21.34,11.14;9,102.12,467.69,428.22,11.14;9,71.88,488.33,443.55,11.14;9,71.88,508.97,430.22,11.14;9,71.88,529.61,453.65,11.14;9,71.88,550.49,272.75,11.14;9,353.53,550.49,164.08,11.14;9,71.88,571.13,467.58,11.14;9,71.88,591.77,78.05,11.14;9,71.88,612.41,423.55,11.14;9,71.88,633.29,462.25,11.14;9,71.88,653.93,104.44,11.14"><s>Bioinformatic analyses: Raw reads were aligned to the human genome (hg19) using the RNA-Seq Aligment App on Basespace (Illumina, CA), following differential expression analysis using DESeq2 <ref type="bibr" target="#b12">13</ref> .</s><s>Differentially expressed genes (DEGs) were characterized for each sample (p adjusted-value &lt; 0.05) and were used as query to search for enriched biological processes (Gene ontology BP) and network analysis of protein interactions using STRING <ref type="bibr" target="#b13">14</ref> .</s><s>Heatmaps of gene expression levels were constructing using heatmap.2</s><s>from the gplot package in R (<ref type="url" target="https://cran.r-">https://cran.r-</ref>project.org/web/packages/gplots/index.html).</s><s>Sparse principal component analysis (sPCA) was performed on Log 2 (Fold Change) values using SPC from the PMA package in R <ref type="bibr" target="#b14">15</ref> .</s><s>Volcano plots were constructed using custom scripts in R. Gene set enrichment analysis (GSEA) was performed on gene expression profiles from mock and SARS-CoV-2 treated cells comparing to a composite list of genes involved in Type-I IFN response (GO:0035457, GO:0035458, GO:0035455, GO:0035456, GO:0034340, and HALLMARK_INTERFERON_ALPHA_RESPONSE) <ref type="bibr" target="#b15">16</ref> .</s><s>Correlation analysis on DEGs between samples was performed using chart.Correlation from the PerformanceAnalytics package in R (<ref type="url" target="https://cran.r-">https://cran.r-</ref>project.org/web/packages/PerformanceAnalytics/index.html).</s><s>Alignments to viral genomes was performed using bowtie2.</s><s>The genomes used for this study were: SARS-CoV-2 (NC_045512.</s></p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head coords="10,71.88,136.50,192.68,11.12">Ferret immunization and infection</head><p coords="10,71.88,157.13,291.13,11.14;10,371.90,157.13,168.00,11.14;10,71.88,177.77,468.01,11.14;13,71.88,260.57,446.96,11.14;13,71.88,281.21,438.24,11.14;13,71.88,302.09,409.26,11.14;13,71.88,322.73,453.28,11.14;13,71.88,343.37,393.20,11.14;15,71.88,239.93,429.59,11.14;15,71.88,260.57,416.26,11.14;15,71.88,281.21,396.53,11.14;20,71.88,418.97,460.74,11.14;20,71.88,439.61,462.17,11.14;20,71.88,460.49,422.90,11.14;20,71.88,481.13,463.59,11.14;20,71.88,501.77,458.90,11.14;20,71.88,522.41,442.93,11.14;20,71.88,543.29,434.94,11.14;20,71.88,563.93,446.28,11.14;20,71.88,584.57,453.59,11.14;20,71.88,605.21,458.59,11.14"><s>All procedures are described in our previous study <ref type="bibr" target="#b16">17</ref> .</s><s>Briefly, outbred 4-month old castrated male Fitch ferrets were confirmed to be seronegative for circulating H1N1,  processes and molecular functions are indicated in color.</s><s>Red: genes involved in the response to virus (GO:009615, FDR&lt;&lt;0.0001).</s><s>Green: genes with cytokine activity (GO:0005125, FDR&lt;0.001).</s><s>Yellow: genes involved in complement activation (GO:0006956, FDR&lt;0.0005).</s><s>Blue: genes with RNA binding capability (GO: 0003723, FDR&lt;0.0005).</s><s>Gene enrichment analyses were performed using STRING.</s><s>(GO:0060337, FDR&lt;&lt;0.0001).</s><s>Green: genes with cytokine activity (GO:0005125, FDR&lt;&lt;0.001).</s><s>Yellow: genes involved in complement activation (GO:0006956, FDR&lt;0.0005).</s><s>Gene enrichment analyses were performed using STRING .</s><s>Extended Data Figure 1: Host Transcriptional response to SARS-CoV-2 infection (Related to figure 1).</s><s>(A) Expression levels of distinct genes in mock treated or SARS-CoV-2 infected A549 cells.</s><s>TPM: transcript per million.</s><s>Data from 3 independent biological replicates.</s><s>(B) Gene set enrichment analysis (GSEA) of genes involved in the type-I IFN response.</s><s>Gene Set was constructed of a composite of type-I IFN gene sets (see methods).</s><s>Ranked genes based of the gene expression levels of SARS-CoV-2 infected A549s compared to Mock treated cells are depicted in the horizontal axis.</s><s>Green line depicts the running enrichment score along the ranked genes.</s><s>Black dots represent the location (and metric score) of type-I IFN related genes along the ranked genes.</s><s>A doted red line represents the transition between SARS-CoV-2 (&gt;0) and mock</s></p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0" coords="8,513.85,136.49,25.98,11.14;8,71.88,157.13,180.22,11.14;8,71.88,198.41,468.00,11.14;8,71.88,219.29,467.98,11.14;8,71.88,239.93,467.92,11.14;8,71.88,260.57,467.92,11.14;8,71.88,281.21,467.98,11.14;8,71.88,302.09,468.02,11.14;8,71.88,322.73,467.87,11.14;8,71.88,343.37,41.98,11.14;8,113.88,347.73,4.40,7.35;8,121.56,343.37,81.58,11.14;8,71.88,384.89,467.95,11.14;8,71.88,405.53,467.98,11.14;8,71.88,426.17,422.38,11.14;8,71.88,462.41,291.31,11.14;8,363.00,459.81,4.40,7.35;8,373.80,462.41,166.03,11.14;8,71.88,483.05,468.00,11.14;8,71.88,503.93,467.95,11.14;8,71.88,524.57,467.92,11.14;8,71.88,545.21,467.98,11.14;8,71.88,565.85,467.92,11.14;8,71.88,586.73,467.95,11.14;8,71.88,607.37,467.92,11.14;8,71.88,628.01,468.05,11.14;8,71.88,649.37,13.39,11.14;8,85.32,646.77,4.40,7.35;8,94.44,649.36,445.46,11.36;8,71.88,670.96,336.22,11.36"><figDesc><div><p><s>5 g/L D-glucose and 4 mM L-glutamine.</s><s>SARS-related coronavirus 2 (SARS-CoV-2), Isolate USA-WA1/2020 (NR-52281) was deposited by the Center for Disease Control and Prevention and obtained through BEI Resources, NIAID, NIH.</s><s>SARS-CoV-2 was propagated in Vero E6 cells in DMEM supplemented with 2% FBS, 4.5 g/L D-glucose, 4 mM L-glutamine, 10 mM Non-Essential Amino Acids, 1 mM Sodium Pyruvate and 10 mM HEPES.</s><s>Infectious titers of SARS-CoV-2 were determined by plaque assay in Vero E6 cells in Minimum Essential Media supplemented with 4 mM L-glutamine, 0.2% BSA, 10 mM HEPES and 0.12% NaHCO 3 and 0.7% agar.</s><s>All work involving live SARS-CoV-2 was performed in the CDC/USDA-approved BSL-3 facility of the Global Health and Emerging Pathogens Institute at the Icahn School of Medicine at Mount Sinai in accordance with institutional biosafety requirements.</s><s>RNA-Seq of viral infections Approximately 1 × 10 6 A549 cells were infected with influenza A/Puerto Rico/8/1934 (H1N1) virus (IAV), human respiratory syncytial virus (RSV) or SARS-CoV-2.</s><s>Infections with IAV were performed at a multiplicity of infection of 5 for 9 h in DMEM supplemented with 0.3% BSA, 4.5 g/L D-glucose, 4 mM Lglutamine and 1 µg/ml TPCK-trypsin.</s><s>Infections with RSV were performed at an MOI of 15 for 24 h in DMEM supplemented with 0.3% BSA, 4.5 g/L D-glucose and 4 mM Lglutamine.</s><s>Infections with SARS-CoV-2 were performed at an MOI of 0.2 for 24 h in DMEM supplemented with 2% FBS, 4.5 g/L D-glucose, 4 mM L-glutamine, 10 mM Non-Essential Amino Acids, 1 mM Sodium Pyruvate and 10 mM HEPES.</s><s>Approximately 1 × 10 5 NHBE cells were infected with SARS-CoV-2 at an MOI of 2 for 24 h in bronchial epithelial growth media supplemented with BEGM SingleQuots.</s></p></div></figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1" coords="9,176.32,653.93,332.48,11.14;9,71.88,674.57,453.00,11.14;10,71.88,74.33,452.96,11.14;10,71.88,94.97,254.19,11.14"><figDesc><div><p><s>2), RSV (NC_001803.1),</s><s>IAV PR8 (AF389115.1,</s><s>AF389116.1,</s><s>AF389117.1,</s><s>AF389118.1,</s><s>AF389119.1,</s><s>AF389120.1,</s><s>AF389121.1,</s><s>AF389122.1)</s><s>and IAV A/California/VRDL6/2010(H1N1) (CY064994, CY064993, CY064992, CY064987, CY064990, CY064989, CY064988, CY064991).</s></p></div></figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2" coords="10,71.88,198.41,468.02,11.14;10,71.88,219.29,468.01,11.14;10,71.88,239.93,468.01,11.14;10,71.88,260.57,468.02,11.14;10,71.88,281.21,468.02,11.14;10,71.88,302.09,468.02,11.14;10,71.88,322.73,87.68,11.14;10,159.56,320.13,4.40,7.35;10,170.56,322.73,369.32,11.14;10,71.88,343.37,468.00,11.14;10,71.88,364.01,30.97,11.14;10,102.85,361.41,4.40,7.35;10,107.30,364.01,432.60,11.14;10,71.88,384.89,468.02,11.14;10,71.88,405.53,26.02,11.14;10,97.91,402.93,4.40,7.35;10,108.76,405.53,431.12,11.14;10,71.88,426.17,432.78,11.14;10,508.71,423.57,4.40,7.35;10,513.16,426.17,26.72,11.14;10,71.88,446.81,468.00,11.14;10,71.88,467.69,468.02,11.14;10,71.88,488.33,468.02,11.14;10,71.88,508.97,468.01,11.14;10,71.88,529.61,200.12,11.14"><figDesc><div><p><s>H3N2, and B influenza viruses prior to purchase from Triple F. Farm (North Rose, NY).</s><s>All animal experiments were performed according to protocols approved by the Institutional Animal Care and Use Committee (IACUC) and Institutional Biosafety Committee of the ISMMS.</s><s>Ferrets were randomly assigned to the different treatment groups.</s><s>For each experiment, the experimental group size is indicated in the figure legends.</s><s>For pH1N1 virus infection, all naive ferrets were intranasally challenge infected with 1mL of 10 5 PFU of pH1N1 (A/California/04/2009) influenza virus.</s><s>Nasal wash samples were collected from anesthetized ferrets on day 7 post infection and preserved at -80 o C for viral titration.</s><s>Cell lysates were treated with Trizol for bulk RNA sequencing.For the SARS-CoV-2 virus infection study, all naïve ferrets were infected with 1mL of 5x10<ref type="bibr" target="#b3">4</ref> PFU of the SARS-CoV-2 isolate USA-WA1/2020.</s><s>Nasal wash samples were collected from anesthetized ferrets on day 5 post-infection, and preserved at -80 o C for viral titration.</s><s>Cell lysates were treated with Trizol for bulk RNA sequencing.</s><s>On day 5 post-challenge infection, anesthetized ferrets were euthanized by exsanguination followed by intracardiac injection of euthanasia solution (Sodium Pentobarbital).Trachea samples were collected from each ferret (n=3) to quantify viral titers by plaque assays and for bulk RNA sequencing.</s></p></div></figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3" coords="13,71.88,74.33,467.44,11.14;13,71.88,94.97,466.28,11.14;13,71.88,115.61,430.93,11.14;13,71.88,136.49,462.92,11.14;13,71.88,157.13,459.56,11.14;13,71.88,177.77,453.59,11.14;13,71.88,198.41,278.63,11.14;13,350.50,202.77,4.40,7.35;13,354.95,198.41,182.23,11.14;13,71.88,219.29,452.28,11.14;13,71.88,239.93,438.27,11.14"><head>Figure 1 .</head><label>1</label><figDesc><div><p><s>Figure 1.</s><s>Host Transcriptional response to SARS-CoV-2 infection in A549 cells.</s><s>(a) read coverage along the SARS-CoV-2 genome.</s><s>Number of viral reads per each position of the virus genome.</s><s>Blue graph indicate read coverage when NGS libraries were prepared using Ilumina's TruSeq Stranded Total RNA Gold kit.</s><s>Red graph indicate read coverage when NGS libraries were prepared using Ilumina's TruSeq RNA Library Prep Kit v2.</s><s>(b) Volcano plot depicting differentially expressed genes in response to SARS-CoV-2 infection.</s><s>Red dots indicate genes with a |Log 2 (Fold Change)| &gt; 2. The identity of top induced genes is indicated.</s><s>(c) Protein interaction network of significantly induced genes in response to SARS-CoV-2 infection.</s><s>Genes involved in enriched biological</s></p></div></figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_4" coords="15,71.88,94.97,455.41,11.14;15,71.88,115.61,464.90,11.14;15,71.88,136.49,464.93,11.14;15,71.88,157.13,443.55,11.14;15,71.88,177.77,466.23,11.14;15,71.88,198.41,458.29,11.14;15,71.88,219.29,392.91,11.14"><head>Figure 2 :</head><label>2</label><figDesc><div><p><s>Figure 2: Host Transcriptional response to SARS-CoV-2 infection in NHBE cells.</s><s>(a) Expression levels of DEGs in response to SARS-CoV-2 infection in A549 and NHBE cells.</s><s>Heatmap depicting the expression of DEGs in both cell types.</s><s>Pink bar indicates a cluster of similarly induced genes upon SARS-CoV-2 infection in both cell types.</s><s>(b) Protein interaction network of genes indicated in pink in (C) in response to SARS-CoV-2 infection.</s><s>Genes involved in enriched biological processes and molecular functions are indicated in color.</s><s>Red: genes involved in the type-I IFN signaling pathway</s></p></div></figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_5" coords="17,71.88,74.33,461.40,11.14;17,71.88,94.97,461.58,11.14;17,71.88,115.61,466.32,11.14;17,71.88,136.49,440.88,11.14;17,71.88,157.13,438.96,11.14;17,71.88,177.77,393.54,11.14;17,71.88,198.41,401.56,11.14;17,71.88,219.29,452.92,11.14;17,71.88,239.93,436.19,11.14;17,71.88,260.57,448.25,11.14;17,71.88,281.21,58.02,11.14"><head>Figure 3 :</head><label>3</label><figDesc><div><p><s>Figure 3: Unique host transcriptional profiles elicited differentially in response to diverse respiratory viruses.</s><s>(a) Shared DEGs in SARS-CoV-2, RSV and IAV infected A549 cells.</s><s>Venn diagram of DEGs in each sample, genes shared/unique between each sample are indicated.</s><s>(b) Virus replication levels in A549 cells.</s><s>Percentage of virusaligned reads (over total reads) for each infected sample.</s><s>Data from 3 independent biological replicates.</s><s>(c) Principal component analysis (PCA) for the global transcriptional response to respiratory viruses.</s><s>Sparse PCA depicting global transcriptome profiles between samples.</s><s>All data from infections in A549 cells, except for (*) that was performed in NHBE cells.</s><s>(d-e) Heatmaps depicting the expression levels of genes involved in the type-I IFN response (d) or with cytokine or chemokine activity (e).</s></p></div></figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_6" coords="19,71.88,93.43,467.77,10.02;19,71.88,112.39,468.00,10.02;19,71.88,131.35,467.76,10.02;19,71.88,150.31,468.00,10.02;19,71.88,169.27,21.13,10.02;19,93.00,173.46,3.87,6.46;19,97.08,169.27,320.76,10.02"><head>Figure 4 :Extended Data Figure 1 :Extended Data Figure 2 :</head><label>412</label><figDesc><div><p><s>Figure 4: Host Transcriptional response to SARS-CoV-2 infection in vivo.</s><s>(a) read coverage along the SARS-CoV-2 and IAV (A/California/04) genomes.</s><s>Number of viral reads per each position of the virus genome.</s><s>(b) Volcano plot depicting differentially expressed genes in response to SARS-CoV-2 or IAV (A/California/04) infection.</s><s>Red dots indicate genes with a |Log 2 (Fold Change)| &gt; 2. The identity of top induced genes is indicated.</s></p></div></figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" coords="12,71.88,92.58,468.00,579.95"><graphic coords="12,71.88,92.58,468.00,579.95" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" coords="14,71.88,113.28,468.00,584.30"><graphic coords="14,71.88,113.28,468.00,584.30" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" coords="18,71.88,71.88,468.00,499.20"><graphic coords="18,71.88,71.88,468.00,499.20" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" coords="20,71.88,71.88,348.00,324.00"><graphic coords="20,71.88,71.88,348.00,324.00" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" coords="21,71.88,71.88,320.00,320.00"><graphic coords="21,71.88,71.88,320.00,320.00" type="bitmap" /></figure>
+		</body>
+		<back>
+
+			<div type="acknowledgement">
+<div><head coords="10,71.88,571.13,106.03,11.14">Acknowledgments</head><p coords="10,71.88,591.77,448.24,11.14;10,71.88,612.41,433.59,11.14;10,71.88,633.29,439.04,11.14"><s>DBM is an <rs type="person">Open Philanthropy Fellow</rs> for the <rs type="funder">Life Sciences Research Foundation</rs>.</s><s>BT and this work are supported by the <rs type="funder">Defense Advanced Research Projects Agency (DARPA)</rs>.</s><s>For raw RNA seq.</s><s>data, please contact Benjamin.tenOever@mssm.edu</s></p></div>
+			</div>
+			<listOrg type="funding">
+			</listOrg>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct coords="11,76.38,95.62,4.50,10.54;11,107.88,95.62,432.00,10.54;11,107.88,109.54,146.98,10.54" xml:id="b0">
+	<analytic>
+		<title level="a" type="main">Origin and evolution of pathogenic coronaviruses</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Cui</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Z</forename><forename type="middle">L</forename><surname>Shi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Nat Rev Microbiol</title>
+		<imprint>
+			<biblScope unit="volume">17</biblScope>
+			<biblScope unit="page" from="181" to="192" />
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct coords="11,76.38,123.22,4.50,10.54;11,107.88,123.22,431.99,10.54;11,107.88,137.14,432.00,10.54;11,107.88,150.82,34.99,10.54" xml:id="b1">
+	<analytic>
+		<title level="a" type="main">Coronavirus pathogenesis and the emerging pathogen severe acute respiratory syndrome coronavirus</title>
+		<author>
+			<persName><forename type="first">S</forename><forename type="middle">R</forename><surname>Weiss</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Navas-Martin</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Microbiol Mol Biol Rev</title>
+		<imprint>
+			<biblScope unit="volume">69</biblScope>
+			<biblScope unit="page" from="635" to="664" />
+			<date type="published" when="2005">2005</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct coords="11,76.38,164.74,4.50,10.54;11,107.88,164.74,432.00,10.54;11,107.88,178.42,371.27,10.54" xml:id="b2">
+	<analytic>
+		<title level="a" type="main">SARS and MERS: recent insights into emerging coronaviruses</title>
+		<author>
+			<persName><forename type="first">E</forename><surname>De Wit</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Van Doremalen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Falzarano</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">V</forename><forename type="middle">J</forename><surname>Munster</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Nat Rev Microbiol</title>
+		<imprint>
+			<biblScope unit="volume">14</biblScope>
+			<biblScope unit="page" from="523" to="534" />
+			<date type="published" when="2016">2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct coords="11,76.38,192.34,4.50,10.54;11,107.88,192.34,431.99,10.54;11,107.88,206.02,138.32,10.54" xml:id="b3">
+	<analytic>
+		<title level="a" type="main">A new coronavirus associated with human respiratory disease in China</title>
+		<author>
+			<persName><forename type="first">F</forename><surname>Wu</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Nature</title>
+		<imprint>
+			<biblScope unit="volume">579</biblScope>
+			<biblScope unit="page" from="265" to="269" />
+			<date type="published" when="2020">2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct coords="11,76.38,219.94,4.50,10.54;11,107.88,219.94,432.00,10.54;11,107.88,233.62,303.28,10.54" xml:id="b4">
+	<analytic>
+		<title level="a" type="main">SARS-CoV-2 Cell Entry Depends on ACE2 and TMPRSS2 and Is Blocked by a Clinically Proven Protease Inhibitor</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Hoffmann</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Cell</title>
+		<imprint>
+			<date type="published" when="2020">2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct coords="11,76.38,247.54,4.50,10.54;11,107.88,247.54,431.99,10.54;11,107.88,261.22,279.61,10.54" xml:id="b5">
+	<analytic>
+		<title level="a" type="main">A diverse range of gene products are effectors of the type I interferon antiviral response</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">W</forename><surname>Schoggins</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Nature</title>
+		<imprint>
+			<biblScope unit="volume">472</biblScope>
+			<biblScope unit="page" from="481" to="485" />
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct coords="11,76.38,275.14,4.50,10.54;11,107.88,275.14,432.00,10.54;11,107.88,288.82,235.97,10.54" xml:id="b6">
+	<analytic>
+		<title level="a" type="main">Influenza A virus lacking the NS1 gene replicates in interferondeficient systems</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Garcia-Sastre</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Virology</title>
+		<imprint>
+			<biblScope unit="volume">252</biblScope>
+			<biblScope unit="page" from="324" to="330" />
+			<date type="published" when="1998">1998</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct coords="11,76.38,302.74,4.50,10.54;11,107.88,302.74,432.00,10.54;11,107.88,316.42,431.98,10.54;11,107.88,330.34,390.32,10.54" xml:id="b7">
+	<analytic>
+		<title level="a" type="main">The epidemiological characteristics of an outbreak of 2019 novel coronavirus diseases (COVID-19) in China]</title>
+	</analytic>
+	<monogr>
+		<title level="j">Zhonghua Liu Xing Bing Xue Za Zhi</title>
+		<imprint>
+			<biblScope unit="volume">41</biblScope>
+			<biblScope unit="page" from="145" to="151" />
+			<date type="published" when="2020">2020</date>
+			<publisher>Novel Coronavirus Pneumonia Emergency Response Epidemiology</publisher>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct coords="11,76.38,344.02,4.50,10.54;11,107.88,344.02,431.99,10.54;11,107.88,357.94,182.63,10.54" xml:id="b8">
+	<analytic>
+		<title level="a" type="main">Pathological findings of COVID-19 associated with acute respiratory distress syndrome</title>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Xu</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Lancet Respir Med</title>
+		<imprint>
+			<date type="published" when="2020">2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct coords="11,81.88,371.62,5.00,10.54;11,107.88,371.62,431.98,10.54;11,107.88,385.54,432.00,10.54;11,107.88,399.22,34.99,10.54" xml:id="b9">
+	<analytic>
+		<title level="a" type="main">Innate immune response of human alveolar type II cells infected with severe acute respiratory syndrome-coronavirus</title>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Qian</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Am J Respir Cell Mol Biol</title>
+		<imprint>
+			<biblScope unit="volume">48</biblScope>
+			<biblScope unit="page" from="742" to="748" />
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct coords="11,81.88,413.14,5.00,10.54;11,107.88,413.14,340.95,10.54" xml:id="b10">
+	<analytic>
+		<title level="a" type="main">SARS-CoV-2 Infection in Children</title>
+		<author>
+			<persName><forename type="first">X</forename><surname>Lu</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">N Engl J Med</title>
+		<imprint>
+			<date type="published" when="2020">2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct coords="11,81.88,426.82,5.00,10.54;11,107.88,426.82,431.99,10.54;11,107.88,440.74,415.58,10.54" xml:id="b11">
+	<analytic>
+		<title level="a" type="main">Glycosaminoglycan sulfation requirements for respiratory syncytial virus infection</title>
+		<author>
+			<persName><forename type="first">L</forename><forename type="middle">K</forename><surname>Hallak</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Spillmann</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><forename type="middle">L</forename><surname>Collins</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">E</forename><surname>Peeples</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">J Virol</title>
+		<imprint>
+			<biblScope unit="volume">74</biblScope>
+			<biblScope unit="page" from="10508" to="10513" />
+			<date type="published" when="2000">2000</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct coords="11,81.88,454.42,5.00,10.54;11,107.88,454.42,431.99,10.54;11,107.88,468.34,298.62,10.54" xml:id="b12">
+	<analytic>
+		<title level="a" type="main">Moderated estimation of fold change and dispersion for RNA-seq data with DESeq2</title>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">I</forename><surname>Love</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Huber</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Anders</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Genome Biol</title>
+		<imprint>
+			<biblScope unit="volume">15</biblScope>
+			<biblScope unit="page">550</biblScope>
+			<date type="published" when="2014">2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct coords="11,81.88,482.02,5.00,10.54;11,107.88,482.02,431.99,10.54;11,107.88,495.94,432.00,10.54;11,107.88,509.62,163.31,10.54" xml:id="b13">
+	<analytic>
+		<title level="a" type="main">STRING v11: protein-protein association networks with increased coverage, supporting functional discovery in genome-wide experimental datasets</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Szklarczyk</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Nucleic Acids Res</title>
+		<imprint>
+			<biblScope unit="volume">47</biblScope>
+			<biblScope unit="page">613</biblScope>
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct coords="11,81.88,523.54,5.00,10.54;11,107.88,523.54,431.99,10.54;11,107.88,537.22,431.98,10.54;11,107.88,551.14,157.66,10.54" xml:id="b14">
+	<analytic>
+		<title level="a" type="main">A penalized matrix decomposition, with applications to sparse principal components and canonical correlation analysis</title>
+		<author>
+			<persName><forename type="first">D</forename><forename type="middle">M</forename><surname>Witten</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Tibshirani</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Hastie</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Biostatistics</title>
+		<imprint>
+			<biblScope unit="volume">10</biblScope>
+			<biblScope unit="page" from="515" to="534" />
+			<date type="published" when="2009">2009</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct coords="11,81.88,564.82,5.00,10.54;11,107.88,564.82,432.00,10.54;11,107.88,578.74,432.00,10.54;11,107.88,592.42,67.99,10.54" xml:id="b15">
+	<analytic>
+		<title level="a" type="main">Gene set enrichment analysis: a knowledge-based approach for interpreting genome-wide expression profiles</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Subramanian</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Proc Natl Acad Sci U S A</title>
+		<imprint>
+			<biblScope unit="volume">102</biblScope>
+			<biblScope unit="page" from="15545" to="15550" />
+			<date type="published" when="2005">2005</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct coords="11,81.88,606.34,5.00,10.54;11,107.88,606.34,432.00,10.54;11,107.88,620.02,431.99,10.54;11,107.88,633.94,333.60,10.54" xml:id="b16">
+	<analytic>
+		<title level="a" type="main">Sequential Immunization With Live-Attenuated Chimeric Hemagglutinin-Based Vaccines Confers Heterosubtypic Immunity Against Influenza A Viruses in a</title>
+		<author>
+			<persName><forename type="first">W</forename><forename type="middle">C</forename><surname>Liu</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Preclinical Ferret Model. Front Immunol</title>
+		<imprint>
+			<biblScope unit="volume">10</biblScope>
+			<biblScope unit="page">756</biblScope>
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

@@ -1,0 +1,688 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">Data-based analysis, modelling and forecasting of the COVID-19 outbreak</title>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability  status="unknown">
+					<licence/>
+				</availability>
+				<date type="published" when="2020-03-31">March 31, 2020</date>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Cleo</forename><surname>Anastassopoulou</surname></persName>
+							<email>cleoa@med.uoa.gr</email>
+							<affiliation key="aff0">
+								<orgName type="department" key="dep1">Department of Microbiology</orgName>
+								<orgName type="department" key="dep2">Medical School</orgName>
+								<orgName type="institution">University of Athens</orgName>
+								<address>
+									<settlement>Athens</settlement>
+									<country key="GR">Greece</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Lucia</forename><surname>Russo</surname></persName>
+							<affiliation key="aff1">
+								<orgName type="department">Science and Technology for Energy and Sustainable Mobility</orgName>
+								<orgName type="institution">Consiglio Nazionale delle Ricerche</orgName>
+								<address>
+									<settlement>Napoli</settlement>
+									<country key="IT">Italy</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Athanasios</forename><surname>Tsakris</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department" key="dep1">Department of Microbiology</orgName>
+								<orgName type="department" key="dep2">Medical School</orgName>
+								<orgName type="institution">University of Athens</orgName>
+								<address>
+									<settlement>Athens</settlement>
+									<country key="GR">Greece</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Constantinos</forename><surname>Siettos</surname></persName>
+							<email>constantinos.siettos@unina.it</email>
+							<idno type="ORCID">0000-0002-9568-3355</idno>
+							<affiliation key="aff2">
+								<orgName type="department">Dipartimento di Matematica e Applicazioni &quot;Renato Caccioppoli&quot;</orgName>
+								<orgName type="institution">Università degli Studi di Napoli Federico II</orgName>
+								<address>
+									<settlement>Napoli</settlement>
+									<country key="IT">Italy</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<affiliation key="aff3">
+								<orgName type="department">Center for Disease control and Prevention</orgName>
+								<address>
+									<country key="US">UNITED STATES</country>
+								</address>
+							</affiliation>
+						</author>
+						<title level="a" type="main">Data-based analysis, modelling and forecasting of the COVID-19 outbreak</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date type="published" when="2020-03-31">March 31, 2020</date>
+						</imprint>
+					</monogr>
+					<idno type="MD5">CE1FD87BBBD06476BF6D2D23FF4D861F</idno>
+					<idno type="DOI">10.1371/journal.pone.0230405</idno>
+					<note type="submission">Received: February 11, 2020 Accepted: March 1, 2020</note>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.2" ident="GROBID" when="2026-09-22T01:04+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<label type="revision">a91ee48</label>
+					<label type="parameters">startPage=-1, endPage=-1, consolidateCitations=0, consolidateHeader=0, consolidateFunders=0, includeRawAffiliations=false, includeRawCitations=false, includeRawCopyrights=false, generateTeiIds=false, generateTeiCoordinates=[p, figure, head, biblStruct], sentenceSegmentation=true, flavor=null</label>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p coords="1,200.01,284.75,368.86,8.79;1,200.01,298.75,368.07,8.79;1,200.01,312.76,366.58,8.79;1,200.01,326.76,371.69,8.79;1,200.01,340.76,371.65,8.79;1,200.01,354.77,362.19,8.79;1,200.01,368.71,369.52,8.79;1,200.01,382.72,375.35,8.79;1,200.01,396.72,348.47,9.72;1,200.01,410.72,375.92,8.79;1,200.01,424.73,371.33,8.79;1,200.01,438.73,369.57,8.79;1,200.01,452.73,366.39,8.79;1,200.01,466.73,364.76,8.79;1,200.01,480.74,360.76,8.79;1,200.01,494.74,375.95,8.79;1,200.01,508.74,373.46,9.72;1,200.01,522.75,374.31,8.79;1,200.01,536.75,374.41,8.79;1,200.01,550.75,369.60,9.72;1,200.01,564.76,375.52,8.79;1,200.01,578.76,374.70,8.79;1,200.01,592.76,370.25,8.79;1,200.01,606.77,366.80,8.79;1,200.01,620.71,375.89,8.79;1,200.01,634.72,358.68,8.79;1,200.01,648.72,353.81,8.79;1,200.01,662.72,358.33,8.79;1,200.01,676.72,350.24,8.79;1,200.01,690.73,366.14,8.79"><s>Since the first suspected case of coronavirus disease-2019 (COVID-19) on December 1st, 2019, in Wuhan, Hubei Province, China, a total of 40,235 confirmed cases and 909 deaths have been reported in China up to February 10, 2020, evoking fear locally and internationally.</s><s>Here, based on the publicly available epidemiological data for Hubei, China from January 11 to February 10, 2020, we provide estimates of the main epidemiological parameters.</s><s>In particular, we provide an estimation of the case fatality and case recovery ratios, along with their 90% confidence intervals as the outbreak evolves.</s><s>On the basis of a Susceptible-Infectious-Recovered-Dead (SIDR) model, we provide estimations of the basic reproduction number (R 0 ), and the per day infection mortality and recovery rates.</s><s>By calibrating the parameters of the SIRD model to the reported data, we also attempt to forecast the evolution of the outbreak at the epicenter three weeks ahead, i.e. until February 29.</s><s>As the number of infected individuals, especially of those with asymptomatic or mild courses, is suspected to be much higher than the official numbers, which can be considered only as a subset of the actual numbers of infected and recovered cases in the total population, we have repeated the calculations under a second scenario that considers twenty times the number of confirmed infected cases and forty times the number of recovered, leaving the number of deaths unchanged.</s><s>Based on the reported data, the expected value of R 0 as computed considering the period from the 11th of January until the 18th of January, using the official counts of confirmed cases was found to be �4.6, while the one computed under the second scenario was found to be �3.2.</s><s>Thus, based on the SIRD simulations, the estimated average value of R 0 was found to be �2.6 based on confirmed cases and �2 based on the second scenario.</s><s>Our forecasting flashes a note of caution for the presently unfolding outbreak in China.</s><s>Based on the official counts for confirmed cases, the simulations suggest that the cumulative number of infected could reach 180,000 (with a lower bound of 45,000) by February 29.</s><s>Regarding the number of deaths, simulations forecast that on the basis of the up to the 10th of February reported data, the death toll might exceed 2,700 (as a lower bound) by February 29.</s><s>Our analysis further reveals a significant decline of the case fatality ratio from January 26 to which various factors may have contributed, such as the severe control measures taken in Hubei, China (e.g.</s><s>quarantine and hospitalization of infected individuals), but mainly because of the fact that the actual cumulative numbers of infected and recovered cases in</s></p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<facsimile>
+		<surface n="1" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+		<surface n="2" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+		<surface n="3" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+		<surface n="4" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+		<surface n="5" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+		<surface n="6" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+		<surface n="7" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+		<surface n="8" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+		<surface n="9" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+		<surface n="10" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+		<surface n="11" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+		<surface n="12" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+		<surface n="13" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+		<surface n="14" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+		<surface n="15" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+		<surface n="16" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+		<surface n="17" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+		<surface n="18" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+		<surface n="19" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+		<surface n="20" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+		<surface n="21" ulx="0.0" uly="0.0" lrx="612.0" lry="792.0"/>
+	</facsimile>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head coords="2,200.01,215.38,69.75,11.10">Introduction</head><p coords="2,200.01,234.30,371.60,8.50;2,200.01,247.28,370.24,8.50;2,200.01,260.32,66.52,8.50;2,279.09,260.32,288.55,8.50;2,200.01,273.31,367.22,8.50;2,200.01,286.29,362.75,8.50;2,200.01,299.33,364.65,8.50;2,200.01,312.31,364.93,8.50;2,200.01,325.29,110.72,8.50;2,323.37,325.29,234.65,8.50;2,200.01,338.28,369.16,8.50;2,200.01,351.32,358.57,8.50;2,200.01,364.30,361.54,8.50;2,200.01,377.28,187.50,8.50;2,400.07,377.28,3.46,8.50"><s>An outbreak of "pneumonia of unknown etiology" in Wuhan, Hubei Province, China in early December 2019 has spiraled into an epidemic that is ravaging China and threatening to reach a pandemic state <ref type="bibr" target="#b0">[1]</ref>.</s><s>The causative agent soon proved to be a new betacoronavirus related to the Middle East Respiratory Syndrome virus (MERS-CoV) and the Severe Acute Respiratory Syndrome virus (SARS-CoV).</s><s>The novel coronavirus SARS-CoV-2 disease has been named "COVID-19" by the World Health Organization (WHO) and on January 30, the COVID-19 outbreak was declared to constitute a Public Health Emergency of International Concern by the WHO Director-General <ref type="bibr" target="#b1">[2]</ref>.</s><s>Despite the lockdown of Wuhan and the suspension of all public transport, flights and trains on January 23, a total of 40,235 confirmed cases, including 6,484 (16.1%) with severe illness, and 909 deaths (2.2%) had been reported in China by the National Health Commission up to February 10, 2020; meanwhile, 319 cases and one death were reported outside of China, in 24 countries <ref type="bibr" target="#b2">[3]</ref>.</s></p><p coords="2,211.97,390.32,88.07,8.50;2,313.45,390.32,256.77,8.50;2,200.01,403.30,198.64,8.50;2,420.47,403.30,147.20,8.50;2,200.01,416.29,369.93,8.50;2,200.01,429.32,353.11,8.50;2,200.01,442.31,370.30,8.50;2,200.01,455.29,73.61,8.50;2,304.65,455.29,266.33,8.50;2,200.01,468.27,200.41,8.50;2,431.47,468.27,143.61,8.50;2,200.01,481.31,366.45,8.50;2,200.01,494.29,152.42,8.50"><s>The origin of COVID- <ref type="bibr" target="#b18">19</ref> has not yet been determined although preliminary investigations are suggestive of a zoonotic, possibly of bat, origin <ref type="bibr" target="#b3">[4,</ref><ref type="bibr" target="#b4">5]</ref>.</s><s>Similarly to SARS-CoV and MERS-CoV, the novel virus is transmitted from person to person principally by respiratory droplets, causing such symptoms as fever, cough, and shortness of breath after a period believed to range from 2 to 14 days following infection, according to the Centers for Disease Control and Prevention (CDC) <ref type="bibr" target="#b0">[1,</ref><ref type="bibr" target="#b5">6,</ref><ref type="bibr" target="#b6">7]</ref>.</s><s>Preliminary data suggest that older males with comorbidities may be at higher risk for severe illness from COVID-19 <ref type="bibr" target="#b5">[6,</ref><ref type="bibr" target="#b7">8,</ref><ref type="bibr" target="#b8">9]</ref>.</s><s>However, the precise virologic and epidemiologic characteristics, including transmissibility and mortality, of this third zoonotic human coronavirus are still unknown.</s></p><p coords="2,211.97,507.28,361.17,8.50;2,200.01,520.32,373.90,8.50;2,200.01,533.30,375.95,9.55;2,200.01,546.28,188.48,8.50;2,405.58,546.28,165.13,8.50;2,200.01,559.32,373.70,9.54;2,214.87,572.30,53.63,8.50;2,298.60,572.30,204.81,8.50;2,515.89,572.30,60.05,8.50;2,200.01,585.29,374.51,9.60;2,200.01,598.33,349.46,8.50;2,200.01,611.31,190.85,8.50;2,407.91,611.31,3.71,8.50"><s>Using the serial intervals (SI) of the two other well-known coronavirus diseases, MERS and SARS, as approximations for the true unknown SI, Zhao et al. estimated the mean basic reproduction number (R 0 ) of SARS-CoV-2 to range between 2.24 (95% CI: 1.96-2.55)</s><s>and 3.58 (95% CI: 2.89-4.39) in the early phase of the outbreak <ref type="bibr" target="#b9">[10]</ref>.</s><s>Very similar estimates, 2.2 (95% CI: 1.4-3.9),</s><s>were obtained for R 0 at the early stages of the epidemic by Imai et al. 2.6 (95% CI: 1.5-3.5)</s><s><ref type="bibr" target="#b10">[11]</ref>, as well as by <ref type="bibr">Li et al.</ref>, who also reported a doubling in size every 7.4 days <ref type="bibr" target="#b0">[1]</ref>.</s><s>Wu et al. estimated the R 0 at 2.68 (95% CI: 2.47-2.86)</s><s>with a doubling time every 6.4 days (95% CI: 5.8-7.1) and the epidemic growing exponentially in multiple major Chinese cities with a lag time behind the Wuhan outbreak of about 1-2 weeks <ref type="bibr" target="#b11">[12]</ref>.</s></p><p coords="2,211.98,624.29,362.75,8.50;2,200.01,637.28,373.34,8.50;2,200.01,650.31,200.56,8.50;2,417.66,650.31,140.64,8.50;2,200.01,663.30,302.69,8.50;2,538.13,663.30,30.44,8.50;2,200.01,676.28,356.75,8.50;2,200.01,689.32,374.89,8.50;2,200.01,702.30,77.45,8.50"><s>Amidst such an important ongoing public health crisis that also has severe economic repercussions, we reverted to mathematical modelling that can shed light to essential epidemiologic parameters that determine the fate of the epidemic <ref type="bibr" target="#b12">[13]</ref>.</s><s>Here, we present the results of the analysis of time series of epidemiological data available in the public domain <ref type="bibr" target="#b13">[14]</ref><ref type="bibr" target="#b14">[15]</ref><ref type="bibr" target="#b15">[16]</ref> (WHO, CDC, ECDC, NHC and DXY) from January 11 to February 10, 2020, and attempt a threeweek forecast of the spreading dynamics of the emerged coronavirus epidemic in the epicenter in mainland China.</s></p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head coords="3,200.01,77.33,74.42,11.10">Methodology</head><p coords="3,200.01,96.20,375.96,8.50;3,200.01,109.24,295.13,8.50;3,526.44,109.24,42.39,8.50;3,200.01,122.22,348.89,8.50;3,200.01,134.58,364.51,12.32;3,200.01,150.34,285.28,8.50;3,502.41,150.34,62.73,8.50;3,200.01,163.32,354.05,8.50;3,200.01,176.36,370.46,8.50;3,200.01,189.34,356.15,8.50;3,200.01,202.33,373.53,8.50;3,200.01,215.37,358.59,8.50;3,200.01,228.35,210.70,8.50"><s>Our analysis was based on the publicly available data of the new confirmed daily cases reported for the Hubei province from the 11th of January until the 10th of February <ref type="bibr" target="#b13">[14]</ref><ref type="bibr" target="#b14">[15]</ref><ref type="bibr" target="#b15">[16]</ref>.</s><s>Based on the released data, we attempted to estimate the mean values of the main epidemiological parameters, i.e. the basic reproduction number R 0 , the case fatality (ĝ) and case recovery ( b) ratios, along with their 90% confidence intervals.</s><s>However, as suggested <ref type="bibr" target="#b16">[17]</ref>, the number of infectious, and consequently the number of recovered, people is likely to be much higher.</s><s>Thus, in a second scenario, we have also derived results by taking twenty times the number of reported cases for the infectious and forty times the number for the recovered cases, while keeping constant the number of deaths that is more likely to be closer to the real number.</s><s>Furthermore, by calibrating the parameters of the SIRD model to fit the reported data, we also provide tentative forecasts until the 29th of February.</s></p><p coords="3,211.98,241.33,352.51,9.60;3,200.01,254.37,374.66,9.54;3,200.02,267.35,372.56,8.50;3,200.02,280.34,358.87,8.50;3,200.02,293.38,372.18,9.54;3,200.01,306.36,372.39,9.43;3,200.01,319.34,40.33,9.60"><s>The basic reproduction number (R 0 ) is one of the key values that can predict whether the infectious disease will spread into a population or die out.</s><s>R 0 represents the average number of secondary cases that result from the introduction of a single infectious case in a totally susceptible population during the infectiousness period.</s><s>Based on the reported data of confirmed cases, we provide estimations of the R 0 from the 16th up to the 20th of January in order to satisfy as much as possible the hypothesis of S � N that is a necessary condition for the computation of R 0 .</s></p><p coords="3,211.98,331.70,345.81,11.28;3,200.01,347.46,375.91,8.50;3,200.01,360.50,143.18,8.50"><s>We also provide estimations of the case fatality (ĝ) and case recovery ( b) ratios over the entire period using a rolling window of one day from the 11th of January to the 16th of January to provide the very first estimations.</s></p><p coords="3,211.98,373.48,356.22,8.50;3,200.01,386.46,369.76,8.50;3,200.01,399.50,357.99,9.22;3,200.01,412.49,342.07,8.50;3,200.01,425.47,363.84,8.50;3,200.01,438.45,368.83,8.50;3,200.01,451.49,372.16,8.50;3,200.01,464.47,102.86,8.50"><s>Furthermore, we calibrated the parameters of the SIRD model to fit the reported data.</s><s>We first provide a coarse estimation of the recovery (β) and mortality rates (γ) of the SIRD model using the first period of the outbreak.</s><s>Then, an estimation of the infection rate α is accomplished by "wrapping" around the SIRD simulator an optimization algorithm to fit the reported data from the 11th of January to the 10th of February.</s><s>We have started our simulations with one infected person on the 16th of November, which has been suggested as a starting date of the epidemic and run the SIR model until the 10th of February.</s><s>Below, we describe analytically our approach.</s></p><p coords="3,211.98,477.46,362.46,9.43;3,200.01,490.50,363.84,9.43;3,200.01,503.48,367.71,8.50;3,200.01,516.46,308.71,9.43"><s>Let us start by denoting with S(t), I(t), R(t), D(t), the number of susceptible, infected, recovered and dead persons respectively at time t in the population of size N.</s><s>For our analysis, we assume that the total number of the population remains constant.</s><s>Based on the demographic data for the province of Hubei N = 59m.</s><s>Thus, the discrete SIRD model reads:</s></p><formula xml:id="formula_0">SðtÞ ¼ Sðt À 1Þ À a N Sðt À 1ÞIðt À 1Þ<label>ð1Þ</label></formula><formula xml:id="formula_1">IðtÞ ¼ Iðt À 1Þ þ a N Sðt À 1ÞIðt À 1Þ À bIðt À 1Þ À gIðt À 1Þ<label>ð2Þ</label></formula><formula xml:id="formula_2">RðtÞ ¼ Rðt À 1Þ þ bIðt À 1Þ<label>ð3Þ</label></formula><formula xml:id="formula_3">DðtÞ ¼ Dðt À 1Þ þ gIðt À 1Þ<label>ð4Þ</label></formula><p coords="3,211.98,663.30,361.52,9.43;3,200.01,676.28,182.85,8.50"><s>The above system is defined in discrete time points t = 1, 2, . .</s><s>., with the corresponding initial condition at the very start of the epidemic:</s></p><formula xml:id="formula_4">S(0) = N -1, I(0) = 1, R(0) = D(0) = 0.</formula><p coords="3,537.84,676.28,29.27,9.22;3,200.01,689.32,348.20,9.22;3,200.01,702.30,360.76,8.50;4,200.01,77.89,363.06,8.50;4,200.01,90.93,371.96,8.50;4,200.01,103.91,366.95,8.50;4,200.01,116.89,155.20,8.50"><s>Here, β and γ denote the "effective/apparent" per day recovery and fatality rates.</s><s>Note that these parameters do not correspond to the actual per day recovery and mortality rates as the new cases of recovered and deaths come from infected cases several days back in time.</s><s>However, one can attempt to provide some coarse estimations of the "effective/apparent" values of these epidemiological parameters based on the reported confirmed cases using an assumption and approach described in the next section.</s></p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head coords="4,200.01,144.24,335.71,10.20">Estimation of the basic reproduction number from the SIRD model</head><p coords="4,200.01,162.59,368.49,9.54;4,200.01,175.57,374.72,9.43;4,200.01,188.61,34.52,8.50;4,237.99,188.61,323.52,8.50;4,200.01,201.59,37.66,8.50"><s>Let us first start with the estimation of R 0 .</s><s>Initially, when the spread of the epidemic starts, all the population is considered to be susceptible, i.e. S � N. Based on this assumption, by Eqs (2), (3) and ( <ref type="formula" target="#formula_3">4</ref>), the basic reproduction number can be estimated by the parameters of the SIRD model as:</s></p><formula xml:id="formula_5">R 0 ¼ a b þ g<label>ð5Þ</label></formula><p coords="4,211.98,252.78,125.82,9.43"><s>Let us denote with ΔI(t) = I(t) -</s></p><formula xml:id="formula_6">I(t -1), ΔR(t) = R(t) -R(t -1), ΔD(t) = D(t) -D(t -1)</formula><p coords="4,556.25,252.78,18.15,8.50;4,200.01,265.82,374.95,9.43;4,200.01,278.80,220.39,9.43"><s>, the reported new cases of infectious, recovered and dead at time t, with CΔI(t), CΔR(t), CΔD(t) the cumulative numbers of confirmed cases at time t.</s><s>Thus:</s></p><formula xml:id="formula_7">CDXðtÞ ¼ X t i¼1 DXðtÞ;<label>ð6Þ</label></formula><p coords="4,200.01,336.35,72.83,9.43"><s>where, X = I, R, D.</s></p><p coords="4,211.98,349.22,221.82,9.37;4,433.81,347.27,4.52,6.16;4,440.50,349.33,128.49,9.43;4,200.02,362.20,361.08,9.54;4,561.09,360.25,4.52,6.16;4,565.57,362.31,2.29,8.50;4,200.02,375.35,363.17,9.43;4,200.02,388.34,82.77,8.50;4,286.64,388.34,26.81,8.50;4,316.91,388.34,244.09,9.54;4,200.02,401.32,64.87,9.22"><s>Let us also denote by Δ X(t) = [ΔX(1), ΔX(2), � � �, ΔX(t)] T the t × 1 column vector containing all the reported new cases up to time t and by C Δ X(t) = [CΔX(1), CΔX(2), � � �, CΔX(t)] T , the t × 1 column vector containing the corresponding cumulative numbers up to time t.</s><s>On the basis of Eqs (2), ( <ref type="formula" target="#formula_2">3</ref>) and ( <ref type="formula" target="#formula_3">4</ref>), one can provide a coarse estimation of the parameters R 0 , β and γ as follows.</s></p><p coords="4,211.98,414.36,363.37,9.54;4,200.01,427.34,365.66,8.50;4,200.01,440.32,363.73,9.43;4,200.01,453.36,357.49,9.54;4,200.01,466.35,349.30,9.43;4,200.01,479.33,315.86,9.43"><s>Starting with the estimation of R 0 , we note that as the province of Hubei has a population of 59m, one can reasonably assume that for any practical means, at least at the beginning of the outbreak, S � N. By making this assumption, one can then provide an approximation of the expected value of R 0 using Eqs (5), (2), (3) and (4).</s><s>In particular, substituting in Eq (2), the terms βI(t -1) and γI(t -1) with ΔR(t) = R(t) -R(t -1) from Eq (3), and ΔD(t) = D(t) -D(t -1) from Eq (4) and bringing them into the left-hand side of Eq (2), we get:</s></p><formula xml:id="formula_8">IðtÞ À Iðt À 1Þ þ RðtÞ À Rðt À 1Þ þ DðtÞ À Dðt À 1Þ ¼ a N Sðt À 1ÞIðt À 1Þ<label>ð7Þ</label></formula><p coords="4,211.98,528.65,123.50,8.50"><s>Adding Eqs (3) and (4), we get:</s></p><formula xml:id="formula_9">RðtÞ À Rðt À 1Þ þ DðtÞ À Dðt À 1Þ ¼ bIðt À 1Þ þ gIðt À 1Þ<label>ð8Þ</label></formula><p coords="4,211.98,569.64,361.69,9.43;4,200.02,582.68,72.75,9.43;4,288.68,582.68,65.96,8.50"><s>Finally, assuming that for any practical means at the beginning of the spread that S(t -1) � N and dividing Eq <ref type="bibr" target="#b6">(7)</ref> by Eq (8) we get:</s></p><formula xml:id="formula_10">IðtÞ À Iðt À 1Þ þ RðtÞ À Rðt À 1Þ þ DðtÞ À Dðt À 1Þ RðtÞ À Rðt À 1Þ þ DðtÞ À Dðt À 1Þ ¼ a b þ g ¼ R 0<label>ð9Þ</label></formula><p coords="4,211.98,637.28,131.36,8.50;4,359.27,637.28,202.25,9.60;4,200.02,650.31,197.52,9.22"><s>Note that one can use directly Eq <ref type="bibr" target="#b8">(9)</ref> to compute R 0 with regression, without the need to compute first the other parameters, i.e. β, γ and α.</s></p><p coords="4,211.98,663.30,356.06,8.50;4,200.02,676.28,360.30,9.60;4,200.01,689.32,34.65,8.50;4,247.19,689.32,267.24,8.50;4,518.29,689.32,27.21,8.50;4,549.35,689.32,23.59,8.50;4,200.01,702.30,370.63,8.50"><s>At this point, the regression can be done either by using the differences per se, or by using the corresponding cumulative functions (instead of the differences for the calculation of R 0 using Eq <ref type="bibr" target="#b8">(9)</ref>).</s><s>Indeed, it is easy to prove that by summing up both sides of Eqs ( <ref type="formula" target="#formula_8">7</ref>) and ( <ref type="formula" target="#formula_9">8</ref>) over time and then dividing them, we get the following equivalent expression for the calculation of</s></p><formula xml:id="formula_11">R 0 . CDIðtÞ þ CDRðtÞ þ CDDðtÞ CDRðtÞ þ CDDðtÞ ¼ a b þ g ¼ R 0<label>ð10Þ</label></formula><p coords="5,211.98,132.82,69.00,8.50;5,301.67,132.82,256.68,9.54;5,200.01,145.80,358.17,8.50;5,200.01,158.84,83.62,8.50"><s>Here, we used Eq <ref type="bibr" target="#b9">(10)</ref> to estimate R 0 in order to reduce the noise included in the differences.</s><s>Note that the above expression is a valid approximation only at the beginning of the spread of the disease.</s></p><p coords="5,211.98,171.83,362.87,9.54;5,200.01,184.81,359.96,8.50"><s>Thus, based on the above, a coarse estimation of R 0 and its corresponding confidence intervals can be provided by solving a linear regression problem using least-squares problem as:</s></p><formula xml:id="formula_12">R0 ¼ ð½CDRðtÞ þ CDDðtÞ� T ½CDRðtÞ þ CDDðtÞ�Þ À 1 ½CDRðtÞ þ CDDðtÞ� T ½CDIðtÞ þ CDRðtÞ þ CDDðtÞ�;<label>ð11Þ</label></formula><p coords="5,200.01,256.49,340.62,10.20;5,200.01,270.44,115.25,10.20"><s>Estimation of the case fatality and case recovery ratios for the period January11-February 10</s></p><p coords="5,200.01,288.16,358.29,11.28;5,200.01,303.92,363.12,8.50;5,200.01,316.96,328.90,8.50;5,549.63,316.96,11.68,8.50;5,200.01,329.94,296.01,8.50;5,512.85,329.94,44.93,8.50;5,200.01,342.93,375.05,8.50;5,200.01,355.91,224.89,8.50;5,211.97,368.95,359.19,8.50;5,200.01,381.93,372.72,8.50;5,200.01,394.91,260.69,8.50"><s>Here, we denote by ĝ the case fatality and by b the case recovery ratios.</s><s>Several approaches have been proposed for the calculation of the case fatality ratio (see for example the formula used by the National Health Commission (NHC) of the People's Republic of China <ref type="bibr" target="#b17">[18]</ref> for estimating the mortality ratio for the COVID-19 and also the discussion in <ref type="bibr" target="#b18">[19]</ref>).</s><s>Here, we adopt the one used also by the NHC which defines the case mortality ratio as the proportion of the total cases of infected cases, that die from the disease.</s><s>Thus, a coarse estimation of the case fatality and recovery ratios for the period under study can be calculated using the reported cumulative infected, recovered and dead cases, by solving a linear regression problem, which for the case fatality ratio reads:</s></p><formula xml:id="formula_13">ĝ ¼ ½CDIðtÞ T CDIðtÞ� À 1 CDIðtÞ T CDDðtÞ;<label>ð12Þ</label></formula><p coords="5,211.98,454.89,276.05,8.50"><s>Accordingly, in an analogy to the above, the case recovery ratio reads:</s></p><formula xml:id="formula_14">b ¼ ½CDIðtÞ T CDIðtÞ� À 1 CDIðtÞ T CDRðtÞ;<label>ð13Þ</label></formula><p coords="5,211.98,515.27,342.52,8.50;5,200.01,528.31,325.61,8.50;5,200.01,541.29,351.54,8.50;5,200.01,554.28,374.76,8.50;5,200.01,567.32,367.81,8.50;5,200.01,580.30,48.08,8.50"><s>As the reported data are just a subset of the actual number of infected and recovered cases including the asymptomatic and/or mild ones, we have repeated the above calculations considering twenty times the reported number of infected and forty times the reported number of recovered in the toal population, while leaving the reported number of dead the same given that their cataloguing is close to the actual number of deaths due to COVID-19.</s></p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head coords="5,200.01,618.98,270.46,10.20">Estimation of the "effective" SIRD model parameters</head><p coords="5,200.01,637.28,361.02,9.43;5,200.01,650.31,362.14,8.50;5,200.01,663.30,367.55,8.50;5,200.01,676.28,375.92,8.50;5,200.01,689.32,373.61,8.50;5,200.01,702.30,363.33,8.50;6,200.01,77.89,64.86,8.50;6,268.40,77.89,303.29,9.22;6,200.01,90.93,373.26,9.22;6,200.01,103.91,20.75,8.50;6,224.68,103.91,37.83,8.50"><s>Here we note that the new cases of recovered and deaths at each time time t appear with a time delay with respect to the actual number of infected cases.</s><s>This time delay is generally unknown but an estimate can be given by clinical studies.</s><s>However, one could also attempt to provide a coarse estimation of these parameters based only on the reported data by considering the first period of the outbreak and in particular the period from the 11th of January to the 16th of January where the number of infected cases appear to be constant.</s><s>Thus, based on Eqs (3) and ( <ref type="formula" target="#formula_3">4</ref>), and the above assumption, the "effective" per day recovery rate β and the "effective" per day mortality rate γ were computed by solving the least squares problems (see Eqs ( <ref type="formula" target="#formula_1">2</ref>) and (4):</s></p><formula xml:id="formula_15">g ¼ ½ðCDIðt À 1Þ À CDDðt À 1Þ À CDRðt À 1ÞÞ T ðCDIðt À 1Þ À CDDðt À 1Þ À CDRðt À 1ÞÞ� À 1 ðCDIðt À 1Þ À CDDðt À 1Þ À CDRðt À 1ÞÞ T DDðtÞ;<label>ð14Þ</label></formula><formula xml:id="formula_16">and b ¼ ½ðCDIðt À 1Þ À CDDðt À 1Þ À CDRðt À 1ÞÞ T ðCDIðt À 1Þ À CDDðt À 1Þ À CDRðt À 1ÞÞ� À 1 ðCDIðt À 1Þ À CDDðt À 1Þ À CDRðt À 1ÞÞ T DRðtÞ;<label>ð15Þ</label></formula><p coords="6,211.98,256.24,359.78,8.50;6,200.01,269.28,361.25,8.50;6,200.01,282.26,368.26,9.22;6,200.01,295.25,369.98,9.43;6,200.01,308.29,364.68,8.50;6,200.01,321.27,359.76,9.22;6,200.01,334.25,208.46,8.50;6,416.63,334.25,21.36,8.50;6,455.08,334.25,120.45,8.50;6,200.01,347.29,366.23,8.50;6,200.01,360.27,373.31,8.50;6,200.01,373.26,375.89,9.22;6,200.01,386.24,354.70,8.50"><s>As noted, these values do not correspond to the actual per day mortality and recovery rates as these would demand the exact knowledge of the corresponding time delays.</s><s>Having provided an estimation of the above "effective" approximate values of the parameters β and γ, an approximation of the "effective" infected rate α, that is not biased by the assumption of S = N, can be obtained by using the SIRD simulator.</s><s>In particular, in the SIRD model, the values of the β and γ parameters were set equal to the ones found using the reported data solving the corresponding least squares problems given by Eqs ( <ref type="formula" target="#formula_15">14</ref>) and <ref type="bibr" target="#b14">(15)</ref>.</s><s>As initial conditions we have set one infected person on the 16th of November and ran the simulator until the last date for which there are available data (here up to the 10th of February).</s><s>Then, the optimal value of the infection rate α that fits the reported data was found by "wrapping" around the SIRD simulator an optimization algorithm (such as a nonlinear least-squares solver) to solve the problem:</s></p><formula xml:id="formula_17">argmin a f X M t¼1 ðw 1 f t ða; b; gÞ 2 þ</formula><p coords="6,372.53,413.81,6.70,9.24;6,379.28,418.80,3.00,5.10;6,382.73,413.81,4.20,9.24;6,386.93,418.91,1.84,5.54;6,389.48,413.62,31.35,8.50;6,420.83,412.16,3.00,5.10;6,426.56,413.62,16.68,9.43;6,443.23,418.80,3.00,5.10;6,446.68,413.81,5.11,9.24;6,451.84,418.91,1.84,5.54;6,454.34,413.62,31.35,8.50;6,485.69,412.16,3.00,5.10;6,489.20,413.62,11.55,8.50;6,558.71,413.62,17.28,8.50;6,200.02,444.18,24.31,8.50;6,324.23,462.96,2.71,9.24;6,326.95,468.06,1.84,5.54;6,329.44,462.77,61.18,9.43;6,391.07,461.94,66.98,10.26;6,318.33,479.97,4.20,9.24;6,322.53,485.07,1.84,5.54;6,325.02,479.78,63.82,9.43;6,388.86,478.95,69.19,10.26;6,317.94,496.92,5.11,9.24;6,323.04,502.02,1.84,5.54;6,325.59,496.73,64.88,9.43;6,390.44,495.90,67.57,10.26"><s>w 2 g t ða; b; gÞ 2 þ w 3 h t ða; b; gÞ 2 Þg; ð16Þ where f t ða; b; gÞ ¼ CDI SIRD ðtÞ À CDIðtÞ; g t ða; b; gÞ ¼ CDR SIRD ðtÞ À CDRðtÞ; h t ða; b; gÞ ¼ CDD SIRD ðtÞ À CDDðtÞ</s></p><p coords="6,200.01,518.33,47.46,9.43;6,247.46,516.21,15.71,6.16;6,263.11,518.33,308.73,9.43;6,200.01,531.32,361.72,9.54;6,200.01,544.30,367.43,8.50;6,200.01,557.34,54.25,8.50;6,275.02,557.34,168.06,8.50"><s>where, CΔX SIRD (t), (X = I, R, D) are the cumulative cases resulting from the SIRD simulator at time t; w 1 , w 2 , w 3 correspond to scalars serving in the general case as weights to the relevant functions.</s><s>For the solution of the above optimization problem we used the function "lsqnonlin" of matlab <ref type="bibr" target="#b19">[20]</ref> using the Levenberg-Marquard algorithm.</s></p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head coords="6,200.01,592.39,42.99,11.10">Results</head><p coords="6,200.01,611.31,369.26,8.50;6,200.01,624.29,373.42,8.50;6,200.01,637.28,375.96,8.50;6,200.01,650.31,372.85,8.50;6,200.01,663.30,375.52,8.50;6,200.01,676.28,365.88,8.50;6,200.01,689.32,361.92,8.50;6,200.01,702.30,368.04,8.50;7,200.01,77.89,187.05,8.50;7,387.04,75.70,3.59,5.67;7,390.56,77.89,177.43,8.50;7,200.01,90.93,353.83,8.50;7,200.01,103.91,371.41,9.54;7,200.01,116.89,342.07,8.50;7,211.98,129.87,359.36,8.50;7,200.01,142.91,375.86,8.50;7,200.01,155.90,375.84,9.22;7,200.01,168.88,360.48,8.50;7,200.01,181.92,369.84,8.50;7,200.01,194.90,115.06,8.50"><s>As discussed, we have derived results using two different scenarios (see in Methodology).</s><s>For each scenario, we first present the results for the basic reproduction number as well as the case fatality and case recovery ratios as obtained by solving the least squares problem using a rolling window of an one-day step.</s><s>For their computation, we used the first six days i.e. from the 11th up to the 16th of January to provide the very first estimations.</s><s>We then proceeded with the calculations by adding one day in the rolling window as described in the methodology until the 10th of February.</s><s>We also report the corresponding 90% confidence intervals instead of the more standard 95% because of the small size of the data.</s><s>For each window, we also report the corresponding coefficients of determination (R 2 ) representing the proportion of the variance in the dependent variable that is predictable from the independent variables, and the root mean square of error (RMSE).</s><s>The estimation of R 0 was based on the data until January 20, in order to satisfy as much as possible the hypothesis underlying its calculation by Eq (9).</s><s>Then, as described above, we provide coarse estimations of the "effective" per day recovery and mortality rates of the SIRD model based on the reported data by solving the corresponding least squares problems.</s><s>Then, an estimation of the infection rate α was obtained by "wrapping" around the SIRD simulator an optimization algorithm as described in the previous section.</s><s>Finally, we provide tentative forecasts for the evolution of the outbreak based on both scenarios until the end of February.</s></p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head coords="7,200.01,222.02,339.72,10.20;7,200.01,236.02,79.77,10.20">Scenario I: Results obtained using the exact numbers of the reported confirmed cases</head><p coords="7,200.01,254.37,370.35,9.54;7,200.01,266.73,372.96,10.66;7,200.01,281.36,338.89,10.71;7,200.02,296.04,358.58,10.71;7,200.02,310.72,346.28,10.65;7,200.01,672.40,363.86,7.62;7,200.01,681.87,369.02,6.80;7,200.01,691.40,142.79,6.80;10,200.01,77.89,344.74,8.50;10,200.01,90.93,371.65,8.50;10,200.01,103.62,359.76,8.78;10,200.01,116.27,369.22,11.28;10,200.01,132.03,371.61,8.50;10,200.01,145.01,58.80,8.50;10,282.76,145.01,3.48,8.50"><s>Fig 1 depicts an estimation of R 0 for the period January 16-January 20.</s><s>Using the first six days from the 11th of January, R0 results in � 4.80 (90% CI: 3.36-6.67);</s><s>using the data until January 17, R0 results in � 4.60 (90% CI: 3.56-5.65);</s><s>using the data until January 18, R0 results in � 5.14 (90%CI: 4.25-6.03);</s><s>using the data until January 19, R0 results in � 6.09 (90% CI: 5.02-7.16);</s><s>and using the data until January 20, R0 results in � 7.09 (90% CI: 5.84-8.35).</s><s>Fig 1. Scenario I.</s><s>Estimated values of the basic reproduction number (R 0 ) as computed by least squares using a rolling window with initial date the 11th of January.</s><s>The solid line corresponds to the mean value and dashed lines to lower and upper 90% confidence intervals.</s><s>confidence intervals.</s><s>As more data are taken into account, this variation is significantly reduced.</s><s>Thus, using all the available data from the 11th of January until the 10th of February, the estimated value of the case fatality ratio ĝ is � 2.94% (90% CI: 2.9%-3%) and that of the case recovery ratio b is � 0.05 (90% CI: 0.046-0.055).</s><s>It is interesting to note that as the available data become more, the estimated case recovery ratio increases significantly from the 31th of January (see <ref type="bibr">Fig 2)</ref>.</s></p><p coords="10,211.97,158.05,249.64,8.50;10,461.59,155.80,3.59,5.67;10,465.17,158.05,89.04,8.50;10,200.01,170.41,205.84,11.28"><s>In Figs 3, 4 and 5, we show the coefficients of determination (R 2 ) and the root of mean squared errors (RMSE) for R0 , b and ĝ, respectively.</s></p><p coords="10,211.98,186.28,361.39,8.50;10,200.01,199.27,368.91,9.22;10,200.01,212.30,358.14,8.50;10,200.01,225.29,352.15,8.50;10,200.01,238.27,359.17,9.22;10,200.01,251.31,360.37,9.22;10,200.01,264.29,366.56,8.50;10,200.01,277.27,358.13,9.22;10,200.01,290.26,349.15,9.60;10,200.01,303.30,360.84,9.22;10,200.01,653.86,368.67,6.80;10,200.01,663.39,370.05,7.38;10,200.01,671.23,340.73,9.06;10,200.01,682.38,222.31,6.80;11,200.01,471.17,366.40,8.50;11,200.01,484.15,359.09,8.50;11,200.01,497.19,372.09,8.50;11,200.01,509.55,374.66,10.66;11,200.01,524.85,95.05,8.50"><s>The computed approximate values of the "effective" per day mortality and recovery rates of the SIRD model were γ � 0.01 and β � 0.064 (corresponding to a recovery period of � 15 d).</s><s>Note that because of the extremely small number of the data used, the confidence intervals have been disregarded.</s><s>Instead, for our calculations, we have considered intervals of 20% around the expected least squares solutions.</s><s>Hence, for γ, we have taken the interval (0.008 and 0.012) and for β, we have taken the interval between (0.05 and 0.077) corresponding to recovery periods from 13 to 20 days.</s><s>As described in the methodology, we have also used the SIRD simulator to provide an estimation of the "effective" infection rate α by optimization with w 1 = 1, w 2 = 2, w 3 = 2. Thus, we performed the simulations by setting β = 0.064 and γ = 0.01, and as initial conditions one infected, zero recovered and zero dead on November The initial date of the simulations was the 16th of November with one infected, zero recovered and zero deaths.</s><s>Solid lines correspond to the dynamics obtained using the estimated expected values of the epidemiological parameters α = 0.191, β = 0.064d -1 , γ = 0.01; dashed lines correspond to the lower and upper bounds derived by performing simulations on the limits of the confidence intervals of the parameters.</s><s><ref type="url" target="https://doi.org/10.1371/journal.pone.0230405.g006">https://doi.org/10.1371/journal.pone.0230405.g006</ref></s><s>16th 2019, and ran until the 10th of February.</s><s>The optimal, with respect to the reported confirmed cases from the 11th of January to the 10th of February, value of the infected rate (α) was � 0.191 (90% CI: 0.19-0.192).</s><s>This corresponds to a mean value of the basic reproduction number R0 � 2:6.</s><s>Note that this value is lower compared to the value that was estimated using solely the reported data.</s></p><p coords="11,211.98,537.84,354.57,9.22;11,200.01,550.82,352.62,8.50;11,200.01,563.86,365.80,8.50;11,200.01,576.84,370.12,8.50;11,200.01,589.82,129.46,8.50"><s>Finally, using the derived values of the parameters α, β, γ, we performed simulations until the end of February.</s><s>The results of the simulations are given in Figs 6, 7 and 8. Solid lines depict the evolution, when using the expected (mean) estimations and dashed lines illustrate the corresponding lower and upper bounds as computed at the limits of the confidence intervals of the estimated parameters.</s></p><p coords="11,211.98,602.80,345.59,8.50;11,200.01,615.84,345.47,8.50;11,200.01,628.83,357.17,8.50;11,200.01,641.81,373.91,8.50;11,200.01,654.85,363.21,8.50;11,200.01,667.83,348.79,8.50;11,200.01,680.81,360.65,8.50;11,200.01,693.85,106.57,8.50;12,211.98,468.90,363.73,8.50;12,200.01,481.88,372.67,8.50;12,200.01,494.92,196.49,8.50"><s>As Figs 6 and 7 suggest, the forecast of the outbreak at the end of February, through the SIRD model is characterized by high uncertainty.</s><s>In particular, simulations result in an expected number of � 180,000 infected cases but with a high variation: the lower bound is at � 45,000 infected cases while the upper bound is at � 760,000 cases.</s><s>Similarly for the recovered population, simulations result in an expected number of � 60,000, while the lower and upper bounds are at � 22,000 and � 170,000, respectively.</s><s>Finally, regarding the deaths, simulations result in an average number of � 9,000, with lower and upper bounds, � 2,700 and � 34,000, respectively.</s><s>Thus, the expected trends of the simulations suggest that the mortality rate is lower than the estimated with the current data and thus the death toll is expected to be significantly less compared with the expected trends of the predictions.</s></p><p coords="12,211.98,507.90,353.83,8.50;12,200.01,520.88,368.74,8.50;12,200.01,533.87,360.26,8.50;12,200.01,546.91,375.95,8.50;12,200.01,559.89,357.50,8.50;12,200.01,572.87,353.55,8.50;12,200.01,585.91,46.08,8.50"><s>As this paper was revised, the reported number of deaths on the 22th February was 2,344, while the expected number of the forecast was �4300 with a lower bound of �1,300.</s><s>Regarding the number of infected and recovered cases by February 20, the cumulative numbers of confirmed reported cases were 64,084 infected and 15,299 recovered, while the expected trends of the forecasts were �83,000 for the infected and �28,000 for the recovered cases.</s><s>Hence, based on this estimation, the evolution of the epidemic was well within the bounds of our forecasting.</s></p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head coords="12,200.01,615.41,363.22,10.20;12,200.01,629.41,374.49,10.20;12,200.01,643.42,79.77,10.20">Scenario II. Results obtained based by taking twenty times the number of infected and forty times the number of recovered people with respect to the confirmed cases</head><p coords="12,200.01,661.77,363.83,8.50;12,200.01,674.75,368.63,8.50;12,200.01,687.73,371.81,9.60;12,200.01,700.15,373.53,10.66;13,200.01,350.39,366.81,7.68;13,200.01,359.91,369.02,6.80;13,200.01,369.38,142.79,6.80;13,200.01,681.02,373.16,8.78;13,200.01,692.47,363.60,6.80;13,200.01,702.00,115.12,6.80;15,200.01,397.69,375.96,10.65;15,200.01,412.37,359.09,10.65;15,200.01,427.00,347.55,10.71"><s>For our illustrations, we assumed that the number of infected is twenty times the number of the confirmed infected and forty times the number of the confirmed recovered people.</s><s>Based on this scenario, Fig 9 depicts an estimation of R 0 for the period January 16-January 20.</s><s>Using the first six days from the 11th of January to the 16th of January, R0 results in 3.2 (90% CI: 2.4- Fig 9. Scenario II.</s><s>Estimated values of the basic reproduction number (R 0 ) as computed by least squares using a rolling window with initial date the 11th of January.</s><s>The solid line corresponds to the mean value and dashed lines to lower and upper 90% confidence intervals.</s><s><ref type="url" target="https://doi.org/10.1371/journal.pone.0230405.g009">https://doi.org/10.1371/journal.pone.0230405.g009</ref></s><s>Fig 10.</s><s>Scenario II.</s><s>Estimated values of case fatality (γ) and case recovery ( β) ratios, as computed by least squares using a rolling window (see in Methodology).</s><s>Solid lines correspond to the mean values and dashed lines to lower and upper 90% confidence intervals.</s><s>4.0); using the data until January 17, R0 results in 3.1 (90% CI: 2.5-3.7);</s><s>using the data until January 18, R0 results in 3.4 (90% CI: 2.9-3.9);</s><s>using the data until January 19, R0 results in 3.9 (90% CI: 3.3-4.5)</s><s>and using the data until January 20, R0 results in 4.5 (90% CI: 3.8-5.3).</s></p><p coords="15,211.98,442.31,355.27,9.60;15,200.01,455.35,212.56,8.50;15,200.01,495.83,354.32,11.28;15,200.01,511.59,362.92,8.50;15,200.01,524.57,361.16,8.50;15,200.01,537.61,363.17,8.50;15,200.01,550.31,367.77,8.78;15,200.01,563.57,373.07,8.50;15,200.01,576.56,345.61,8.50;15,211.40,589.60,330.00,8.50;15,200.01,602.58,46.42,8.50"><s>It is interesting to note that the above estimation of R 0 is close enough to the one reported in other studies (see in the Introduction for a review).</s><s>Note that the large variation in the estimated values of b and ĝ should be attributed to the small size of the data and data uncertainty.</s><s>This is also reflected in the corresponding confidence intervals.</s><s>As more data are taken into account, this variation is significantly reduced.</s><s>Thus,using all the (scaled) data from the 11th of January until the 10th of February, the estimated value of the case fatality ratio ĝ now drops to � 0.147% (90% CI: 0.144%-0.15%)</s><s>while that of the case recovery ratio is � 0.1 (90% CI: 0.091-0.11).</s><s>It is interesting also to note that as the available data become more, the estimated case recovery ratio increases slightly (see <ref type="bibr">Fig 10)</ref>, while the case fatality ratio (in the total population) seems to be stabilized at a rate of � 0.15%.</s></p><p coords="15,211.98,615.56,263.93,8.50;15,475.82,613.37,3.59,5.67;15,479.40,615.56,89.04,8.50;15,200.02,627.92,208.11,11.28;15,211.98,643.85,347.27,8.50;15,200.01,656.83,147.31,9.22;15,347.30,654.77,7.90,6.16;15,357.39,656.83,205.44,8.50;15,200.01,669.82,356.92,8.50;15,200.01,682.86,364.95,8.50;15,200.01,695.84,348.23,8.50;16,200.01,469.18,372.90,9.22;16,200.01,482.16,370.73,8.50"><s>In Figs 11, 12 and 13, we show the coefficients of determination (R 2 ) and the root of mean squared errors (RMSE), for R0 , b and ĝ, respectively.</s><s>The computed values of the "effective" per day mortality and recovery rates of the SIRD model were γ � 0.0005 and β �0.16d -1 (corresponding to a recovery period of � 6 d).</s><s>Note that because of the extremely small number of the data used, the confidence intervals have been disregarded.</s><s>Instead, for calculating the corresponding lower and upper bounds in our simulations, we have taken intervals of 20% around the expected least squares solutions.</s><s>Hence, for γ we have taken the interval (0.0004 and 0.0006) and for β, we have taken the interval between (0.13 and 0.19) corresponding to an interval of recovery periods from 5 to 8 days.</s></p><p coords="16,211.97,495.20,357.95,8.50;16,200.01,508.18,374.74,9.54;16,200.01,521.17,358.51,8.50;16,200.01,534.15,200.97,9.22;16,401.05,532.09,7.99,6.16;16,409.10,534.15,163.23,9.22;16,200.01,547.19,368.00,8.50;16,200.01,560.17,39.13,8.50"><s>Again, we used the SIRD simulator to provide estimation of the infection rate by optimization setting w 1 = 1, w 2 = 400, w 3 = 1 to balance the residuals of deaths with the scaled numbers of the infected and recovered cases.</s><s>Thus, to find the optimal infection transmission rate, we used the SIRD simulations with β = 0.16d -1 , and γ = 0.0005 and as initial conditions one infected, zero recovered, zero deaths on November 16th 2019, and ran until the 10th of February.</s></p><p coords="16,211.98,573.15,354.15,8.50;16,200.01,586.19,362.82,8.50;16,200.01,598.55,302.37,10.66"><s>The optimal, with respect to the reported confirmed cases from the 11th of January to the 10th of February value of the infected rate (α) was found to be � 0.319(90% CI: 0.318-0.32).</s><s>This corresponds to a mean value of the basic reproduction number R0 � 2.</s></p><p coords="16,211.98,613.86,356.62,9.22;16,200.02,626.84,359.53,8.50;16,200.02,639.83,365.80,8.50;16,200.02,652.87,370.12,8.50;16,200.02,665.85,129.46,8.50"><s>Finally, using the derived values of the parameters α, β, γ, we have run the SIRD simulator until the end of February.</s><s>The simulation results are given in Figs 14, 15 and 16.</s><s>Solid lines depict the evolution, when using the expected (mean) estimations and dashed lines illustrate the corresponding lower and upper bounds as computed at the limits of the confidence intervals of the estimated parameters.</s></p><p coords="16,211.98,678.83,363.95,8.50;16,200.02,691.87,373.20,8.50;17,200.01,468.33,374.69,8.50;17,200.01,481.31,367.33,8.50;17,200.01,494.35,373.37,8.50;17,200.01,507.33,367.50,8.50;17,200.01,520.32,369.84,8.50;17,200.01,533.30,365.59,8.50;17,200.01,546.34,40.74,8.50"><s>Again as Figs 15 and 16 suggest, the forecast of the outbreak at the end of February, through the SIRD model is characterized by high uncertainty.</s><s>In particular, in Scenario II, by February 29, simulations result in an expected actual number of �8m infected cases (corresponding to a ~13% of the total population) with a lower bound at �720,000 and an upper bound at �37m cases.</s><s>Similarly, for the recovered population, simulations result in an expected actual number of �4.5m (corresponding to a 8% of the total population), while the lower and upper bounds are at �430,000 and �23m, respectively.</s><s>Finally, regarding the deaths, simulations under this scenario result in an average number of �14,000, with lower and upper bounds at �900 and �100,000.</s></p><p coords="17,211.97,559.32,248.28,8.50;17,474.18,559.32,91.21,8.50;17,200.01,572.30,152.27,8.50;17,361.42,572.30,192.09,8.50"><s>Importantly, under this scenario, the simulations shown in Fig <ref type="figure" target="#fig_6">14</ref> suggest a decline of the outbreak at the end of February.</s><s>Table <ref type="table" target="#tab_1">1</ref> summarizes the above results for both scenarios.</s></p><p coords="17,211.97,585.34,355.02,8.50;17,200.01,598.33,162.79,8.50"><s>We note that the results derived under Scenario II seem to predict a slowdown of the outbreak in Hubei after the end of February.</s></p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head coords="17,200.01,628.44,63.60,11.10">Discussion</head><p coords="17,200.01,647.37,371.88,8.50;17,200.01,660.35,350.83,8.50;17,200.01,673.39,372.09,8.50;17,200.01,686.37,45.04,8.50;18,211.98,462.09,346.55,8.50;18,200.01,475.08,367.02,8.50;18,200.01,488.12,362.82,8.50;18,200.01,501.10,374.66,8.50;18,200.01,514.08,373.69,8.50;18,200.01,527.06,369.91,8.50;18,200.01,540.10,355.55,8.50;18,200.01,553.09,363.43,8.50"><s>We have proposed a methodology for the estimation of the key epidemiological parameters as well as the modelling and forecasting of the spread of the COVID-19 epidemic in Hubei, China by considering publicly available data from the 11th of January 2020 to the 10th of February 2020.</s><s>By the time of the acceptance of our paper, according to the official data released on the 29th of February, the cumulative number of confirmed infected cases in Hubei was �67,000, that of recovered was �31,300 and the death toll was �2,800.</s><s>These numbers are within the lower bounds and expected trends of our forecasts from the 10th of February that are based on Scenario I. Importantly, by assuming a 20-fold scaling of the confirmed cumulative number of the infected cases and a 40-fold scaling of the confirmed number of the recovered cases in the total population, forecasts show a decline of the outbreak in Hubei at the end of February.</s><s>Based on this scenario the case fatality rate in the total population is of the order of �0.15%.</s></p><p coords="18,211.98,566.07,354.94,8.50;18,200.01,579.11,375.18,8.50;18,200.01,592.09,371.69,8.50;18,200.01,605.07,362.87,8.50;18,200.01,618.11,361.46,8.50;18,200.01,631.09,375.92,8.50;18,200.01,644.08,374.03,8.50;18,200.01,657.06,369.32,8.50;18,200.01,670.10,184.17,8.50;18,404.84,670.10,147.07,8.50;18,200.01,683.08,373.42,8.50;18,200.01,696.06,366.93,8.50;19,200.01,451.61,375.17,8.50;19,200.01,464.59,373.72,8.50;19,200.01,477.63,208.15,8.50;19,425.14,477.63,150.81,8.50;19,200.01,490.61,347.93,8.50;19,200.01,503.59,331.13,8.50"><s>At this point we should note that our SIRD modelling approach did not take into account many factors that play an important role in the dynamics of the disease such as the effect of the incubation period in the transmission dynamics, the heterogeneous contact transmission network, the effect of the measures already taken to combat the epidemic, the characteristics of the population (e.g. the effect of the age, people who had already health problems).</s><s>Also the estimation of the model parameters is based on an assumption, considering just the first period in which the first cases were confirmed and reported.</s><s>Of note, COVID-19, which is thought to be principally transmitted from person to person by respiratory droplets and fomites without excluding the possibility of the fecal-oral route <ref type="bibr" target="#b20">[21]</ref> had been spreading for at least over a month and a half before the imposed lockdown and quarantine of Wuhan on January 23, having thus infected unknown numbers of people.</s><s>The number of asymptomatic and mild cases with subclinical manifestations that probably did not present to hospitals for treatment may be substantial; these cases, which possibly represent the bulk of the COVID-19 infections, remain unrecognized, especially during the influenza season <ref type="bibr" target="#b21">[22]</ref>.</s><s>This highly likely gross under-detection and underreporting of mild or asymptomatic cases inevitably throws severe disease courses calculations and death rates out of context, distorting epidemiologic reality.</s></p><p coords="19,211.97,516.58,362.51,8.50;19,200.01,529.61,373.99,8.50;19,200.01,542.60,364.57,8.50;19,200.01,555.58,213.37,8.50;19,430.47,555.58,142.32,8.50;19,200.01,568.62,366.87,8.50;19,200.01,581.60,363.41,8.50;19,200.01,594.58,374.23,8.50;19,200.01,607.62,270.16,8.50;19,487.22,607.62,3.71,8.50"><s>Another important factor that should be taken into consideration pertains to the diagnostic criteria used to determine infection status and confirm cases.</s><s>A positive PCR test was required to be considered a confirmed case by China's Novel Coronavirus Pneumonia Diagnosis and Treatment program in the early phase of the outbreak <ref type="bibr" target="#b13">[14]</ref>.</s><s>However, the sensitivity of nucleic acid testing for this novel viral pathogen may only be 30-50%, thereby often resulting in false negatives, particularly early in the course of illness.</s><s>To complicate matters further, the guidance changed in the recently-released fourth edition of the program on February 6 to allow for diagnosis based on clinical presentation, but only in Hubei province <ref type="bibr" target="#b13">[14]</ref>.</s></p><p coords="19,211.97,620.61,356.54,8.50;19,200.01,633.59,348.84,8.50;19,200.01,646.57,361.60,8.50;19,200.01,659.61,367.98,8.50;19,200.01,672.59,348.58,8.50;19,200.01,685.58,365.18,8.50;19,200.01,698.62,360.10,8.50"><s>The swiftly growing epidemic seems to be overwhelming even for the highly efficient Chinese logistics that did manage to build two new hospitals in record time to treat infected patients.</s><s>Supportive care with extracorporeal membrane oxygenation (ECMO) in intensive care units (ICUs) is critical for severe respiratory disease.</s><s>Large-scale capacities for such level of medical care in Hubei province, or elsewhere in the world for that matter, amidst this public health emergency may prove particularly challenging.</s><s>We hope that the results of our analysis contribute to the elucidation of critical aspects of this outbreak so as to contain the</s></p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head coords="20,200.01,119.57,65.09,11.10">Conclusion</head><p coords="20,200.01,138.49,371.34,8.50;20,200.01,151.47,372.13,8.50;20,200.01,164.51,362.73,8.50;20,200.01,177.50,363.60,8.50;20,200.01,190.48,364.45,8.50;20,200.01,203.52,361.14,8.50;20,200.01,216.50,134.41,8.50;20,374.67,216.50,3.80,8.50"><s>In the digital and globalized world of today, new data and information on the novel coronavirus and the evolution of the outbreak become available at an unprecedented pace.</s><s>Still, crucial questions remain unanswered and accurate answers for predicting the dynamics of the outbreak simply cannot be obtained at this stage.</s><s>We emphatically underline the uncertainty of available official data, particularly pertaining to the true baseline number of infected (cases), that may lead to ambiguous results and inaccurate forecasts by orders of magnitude, as also pointed out by other investigators <ref type="bibr" target="#b0">[1,</ref><ref type="bibr" target="#b16">17,</ref><ref type="bibr" target="#b21">22]</ref>.</s></p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0" coords="7,211.98,325.41,344.69,11.28;7,200.01,341.17,367.03,8.50;7,200.01,353.53,352.23,11.28;7,200.01,369.29,361.75,8.50"><head>Fig 2 Fig 1 .Fig 2 .Fig 3 .Fig 5 .Fig 4 .</head><label>212354</label><figDesc><div><p><s>Fig 2 depicts the estimated values of the case fatality (ĝ) and case recovery ( b) ratios for the period January 16 to February 10.</s><s>The confidence intervals are also depicted with dashed lines.</s><s>Note that the large variation in the estimated values of b and ĝ should be attributed to the small size of the data and data uncertainty.</s><s>This is also reflected in the corresponding</s></p></div></figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1" coords="10,200.01,634.87,368.37,6.80;10,200.01,644.40,373.37,6.80;10,200.01,653.86,368.67,6.80;10,200.01,663.39,370.05,7.38;10,200.01,671.23,340.73,9.06;10,200.01,682.38,222.31,6.80"><head>Fig 6 .</head><label>6</label><figDesc><div><p><s>Fig 6.</s><s>Scenario I. Simulations until the 29th of February of the cumulative number of infected as obtained using the SIRD model.</s><s>Dots correspond to the number of confirmed cases from the 16th of January to the 10th of February.The initial date of the simulations was the 16th of November with one infected, zero recovered and zero deaths.</s><s>Solid lines correspond to the dynamics obtained using the estimated expected values of the epidemiological parameters α = 0.191, β = 0.064d -1 , γ = 0.01; dashed lines correspond to the lower and upper bounds derived by performing simulations on the limits of the confidence intervals of the parameters.</s></p></div></figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2" coords="11,200.01,375.28,373.99,6.80;11,200.01,384.74,373.37,6.80;11,200.01,394.27,368.67,6.80;11,200.01,403.74,370.05,7.38;11,200.01,411.58,340.73,9.06;11,200.01,422.78,222.31,6.80;11,200.01,438.26,152.71,6.80"><head>Fig 7 .</head><label>7</label><figDesc><div><p><s>Fig 7. Scenario I. Simulations until the 29th of February of the cumulative number of recovered as obtained using the SIRD model.</s><s>Dots correspond to the number of confirmed cases from the 16th of January to the 10th of February.</s><s>The initial date of the simulations was the 16th of November with one infected, zero recovered and zero deaths.</s><s>Solid lines correspond to the dynamics obtained using the estimated expected values of the epidemiological parameters α = 0.191, β = 0.064d -1 , γ = 0.01; dashed lines correspond to the lower and upper bounds derived by performing simulations on the limits of the confidence intervals of the parameters.</s><s>https://doi.org/10.1371/journal.pone.0230405.g007</s></p></div></figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3" coords="12,200.01,372.84,375.56,6.80;12,200.01,382.36,363.54,6.80;12,200.01,391.89,370.94,6.80;12,200.01,401.35,374.08,7.38;12,200.01,409.20,369.02,9.06;12,200.01,420.35,173.57,6.80;12,200.01,435.88,152.71,6.80"><head>Fig 8 .Fig 9 .Fig 10 .Fig 12 .Fig 11 .</head><label>89101211</label><figDesc><div><p><s>Fig 8. Scenario I. Simulations until the 29th of February of the cumulative number of deaths as obtained using the SIRD model.</s><s>Dots correspond to the number of confirmed cases from 16th of January to the 10th of February.</s><s>The initial date of the simulations was the 16th of November with one infected, zero recovered and zero deaths.</s><s>Solid lines correspond to the dynamics obtained using the estimated expected values of the epidemiological parameters α = 0.191, β = 0.064d -1 , γ = 0.01; dashed lines correspond to the lower and upper bounds derived by performing simulations on the limits of the confidence intervals of the parameters.</s><s>https://doi.org/10.1371/journal.pone.0230405.g008</s></p></div></figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_4" coords="15,211.98,467.71,360.78,11.22;15,200.01,483.47,375.28,8.50"><head>Fig 10</head><label>10</label><figDesc><div><p><s>Fig 10 depicts the estimated values of the case fatality (ĝ) and case recovery ( b ratios for the period January 16 to February 10.</s><s>The confidence intervals are also depicted with dashed lines.</s></p></div></figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_5" coords="15,200.01,344.32,169.03,6.80;15,369.01,342.54,3.00,4.53;15,371.96,344.32,185.41,6.80;15,200.01,353.79,281.90,6.80;15,200.01,369.32,152.71,6.80"><head>Fig 13 .</head><label>13</label><figDesc><div><p><s>Fig 13.</s><s>Scenario II.</s><s>Coefficient of determination (R 2 ) and root mean square error (RMSE) resulting from the solution of the linear regression problem with least-squares for the mortality rate (γ).</s><s>https://doi.org/10.1371/journal.pone.0230405.g013</s></p></div></figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_6" coords="16,200.01,372.73,375.29,6.80;16,200.01,382.25,361.61,6.80;16,200.01,391.77,370.94,6.80;16,200.01,401.24,374.08,7.38;16,200.01,409.08,372.82,9.06;16,200.01,420.23,173.57,6.80;16,200.01,435.77,152.70,6.80"><head>Fig 14 .</head><label>14</label><figDesc><div><p><s>Fig 14.</s><s>Scenario II.</s><s>Simulations until the 29th of February of the cumulative number of infected as obtained using the SIRD model.</s><s>Dots correspond to the number of confirmed cases from 16th of Jan to the 10th of February.</s><s>The initial date of the simulations was the 16th of November with one infected, zero recovered and zero deaths.</s><s>Solid lines correspond to the dynamics obtained using the estimated expected values of the epidemiological parameters α = 0.319, β = 0.16d -1 , γ = 0.0005; dashed lines correspond to the lower and upper bounds derived by performing simulations on the limits of the confidence intervals of the parameters.</s><s>https://doi.org/10.1371/journal.pone.0230405.g014</s></p></div></figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_7" coords="17,200.01,372.50,361.17,6.80;17,200.01,381.97,349.07,6.80;17,200.01,391.49,360.95,6.80;17,200.01,401.01,362.16,6.80;17,200.01,408.80,356.02,9.06;17,200.01,420.01,260.46,6.80;17,200.01,435.48,152.71,6.80"><head>Fig 15 .</head><label>15</label><figDesc><div><p><s>Fig 15.</s><s>Scenario II.</s><s>Simulations until the 29th of February of the cumulative number of recovered as obtained using the SIRD model.</s><s>Dots correspond to the number of confirmed cases from 16th of January to the 10th of February.</s><s>The initial date of the simulations was the 16th of November, with one infected, zero recovered and zero deaths.</s><s>Solid lines correspond to the dynamics obtained using the estimated expected values of the epidemiological parameters α = 0.319, β = 0.16d -1 , γ = 0.0005; dashed lines correspond to the lower and upper bounds derived by performing simulations on the limits of the confidence intervals of the parameters.</s><s>https://doi.org/10.1371/journal.pone.0230405.g015</s></p></div></figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_8" coords="18,200.01,374.99,370.19,6.80;18,200.01,384.52,350.09,6.80;18,200.01,393.98,361.00,6.80;18,200.01,403.51,362.16,6.80;18,200.01,411.35,356.02,9.00;18,200.01,422.50,260.46,6.80;18,200.01,437.98,152.71,6.80"><head>Fig 16 .</head><label>16</label><figDesc><div><p><s>Fig 16.</s><s>Scenario II.</s><s>Simulations until the 29th of February of the cumulative number of deaths as obtained using the SIRD model.</s><s>Dots correspond to the number of confirmed cases from the 16th of November to the 10th of February.</s><s>The initial date of the simulations was the 16th of November with zero infected, zero recovered and zero deaths.</s><s>Solid lines correspond to the dynamics obtained using the estimated expected values of the epidemiological parameters α = 0.319, β = 0.16d -1 , γ = 0.0005; dashed lines correspond to the lower and upper bounds derived by performing simulations on the limits of the confidence intervals of the parameters.</s><s>https://doi.org/10.1371/journal.pone.0230405.g016</s></p></div></figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_1" coords="19,36.00,77.92,526.37,351.49"><head>Table 1 . Model parameters, their computed values and forecasts for the Hubei province under two scenarios: (I) using the exact values of confirmed cases or (II) using estimations for infected and recovered (twenty and forty times the number of confirmed cases, respectively).</head><label>1</label><figDesc><div><p><s>/doi.org/10.1371/journal.pone.0230405.t001</s><s>novel coronavirus as soon as possible and mitigate its effects regionally, in mainland China, and internationally.</s></p></div></figDesc><table coords="19,36.00,102.24,508.38,327.17"><row><cell>Estimations</cell><cell>Symbol</cell><cell>Parameter</cell><cell>Computed values</cell><cell>90% CI</cell></row><row><cell></cell><cell cols="2">Scenario I: Exact numbers for confirmed cases</cell><cell></cell><cell></cell></row><row><cell>Based on linear regression of the data</cell><cell>R 0</cell><cell>Basic reproduction number</cell><cell></cell><cell></cell></row><row><cell></cell><cell></cell><cell>11-16 Jan</cell><cell>4.80</cell><cell>3.36-6.67</cell></row><row><cell></cell><cell></cell><cell>11-17 Jan</cell><cell>4.60</cell><cell>3.56-5.65</cell></row><row><cell></cell><cell></cell><cell>11-18 Jan</cell><cell>5.14</cell><cell>4.25-6.03</cell></row><row><cell></cell><cell>b</cell><cell>case recovery ratio</cell><cell>0.05</cell><cell>0.046-0.055</cell></row><row><cell></cell><cell>ĝ</cell><cell>case fatality ratio</cell><cell>2.94%</cell><cell>2.9%-3%</cell></row><row><cell>Based on the SIRD simulator (Nov 16-Feb 10)</cell><cell>R 0</cell><cell>Basic reproduction number</cell><cell>2.6</cell><cell>-</cell></row><row><cell></cell><cell>α</cell><cell>infection rate</cell><cell>0.191</cell><cell>0.19-0.192</cell></row><row><cell>Forecast to Feb 29 (Cumulative)</cell><cell></cell><cell>infected</cell><cell>180,000</cell><cell>45,000-760,000</cell></row><row><cell></cell><cell></cell><cell>recovered</cell><cell>60,000</cell><cell>22,000-170,000</cell></row><row><cell></cell><cell></cell><cell>deaths</cell><cell>9,000</cell><cell>2,700-34,000</cell></row><row><cell></cell><cell cols="3">Scenario II: x20 Infected, x40 recovered of confirmed cases</cell><cell></cell></row><row><cell>Based on linear regression of the data</cell><cell>R 0</cell><cell>Basic reproduction number</cell><cell></cell><cell></cell></row><row><cell></cell><cell></cell><cell>11-16 Jan</cell><cell>3.2</cell><cell>2.4-4.0</cell></row><row><cell></cell><cell></cell><cell>11-17 Jan</cell><cell>3.1</cell><cell>2.5-3.7</cell></row><row><cell></cell><cell></cell><cell>11-18 Jan</cell><cell>3.4</cell><cell>2.9-3.9</cell></row><row><cell></cell><cell>b</cell><cell>case recovery ratio</cell><cell>0.1</cell><cell>0.091-0.11</cell></row><row><cell></cell><cell>ĝ</cell><cell>case fatality ratio</cell><cell>0.147%</cell><cell>0.144%-0.15%</cell></row><row><cell>Based on the SIRD simulator (Nov 16-Feb 10)</cell><cell>R 0</cell><cell>Basic reproduction number</cell><cell>2</cell><cell>-</cell></row><row><cell></cell><cell>α</cell><cell>infection rate</cell><cell>0.319</cell><cell>0.318-0.32</cell></row><row><cell>Forecast to Feb 29 (Cumulative)</cell><cell></cell><cell>infected</cell><cell>8m</cell><cell>720,000-37m</cell></row><row><cell></cell><cell></cell><cell>recovered</cell><cell>4.5m</cell><cell>430,000-23m</cell></row><row><cell></cell><cell></cell><cell>deaths</cell><cell>14,000</cell><cell>900-100,000</cell></row><row><cell>https:/</cell><cell></cell><cell></cell><cell></cell><cell></cell></row></table></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_0" coords="2,36.00,750.26,263.82,7.40"><p><s>PLOS ONE | https://doi.org/10.1371/journal.pone.0230405</s><s>March 31, 2020</s></p></note>
+		</body>
+		<back>
+
+			
+			<div type="funding">
+<div xmlns="http://www.tei-c.org/ns/1.0"><p coords="2,64.57,116.93,119.79,6.80;2,36.00,127.93,39.33,6.80"><s>The authors received no specific funding for this work.</s></p></div>
+			</div>
+
+
+			<div type="availability">
+<div xmlns="http://www.tei-c.org/ns/1.0"><p coords="1,123.70,659.65,61.20,6.80;1,36.00,670.64,151.42,6.80;1,36.00,681.64,132.95,6.80;1,36.00,692.64,135.38,6.80;1,36.00,703.64,140.55,6.80;1,123.70,659.65,61.20,6.80;1,36.00,670.64,76.41,6.80;1,150.48,692.64,20.90,6.80;1,36.00,703.64,140.55,6.80"><s>The data used in this paper were acquired from <ref type="url" target="https://gisanddata.maps.arcgis.com/apps/opsdashboard/index.html#/bda7594740fd40299423467b48e9ecf6">https://gisanddata.maps.  arcgis.com/apps/opsdashboard/index.html#/  bda7594740fd40299423467b48e9ecf6</ref>.</s><s>In S1 Table we provide the data that we have used for</s></p></div>
+			</div>
+
+			<div type="annex">
+<div xmlns="http://www.tei-c.org/ns/1.0"><head coords="20,200.01,245.20,132.12,11.10">Supporting information</head><p coords="20,200.01,264.12,33.62,8.50;20,240.09,264.12,335.84,8.50;20,200.01,277.10,100.75,8.50;20,200.01,290.09,25.02,8.50"><s>S1 Table .</s><s>Reported cumulative numbers of cases for the Hubei region, China for the period January 11-February 10. (PDF)</s></p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head coords="20,200.01,324.80,120.05,11.10">Author Contributions</head><p coords="20,200.01,343.72,259.01,8.50"><s>Conceptualization: Cleo Anastassopoulou, Constantinos Siettos.</s></p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head coords="20,200.01,361.69,153.55,8.50">Data curation: Cleo Anastassopoulou.</head><p coords="20,200.01,379.72,206.73,8.50"><s>Formal analysis: Lucia Russo, Constantinos Siettos.</s></p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head coords="20,200.01,397.69,137.27,8.50">Investigation: Athanasios Tsakris.</head><p coords="20,200.01,415.72,196.53,8.50"><s>Methodology: Lucia Russo, Constantinos Siettos.</s></p><p coords="20,200.01,433.69,280.83,8.50"><s>Writing -original draft: Cleo Anastassopoulou, Constantinos Siettos.</s></p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head coords="20,200.01,451.72,113.34,8.50">Writing -review &amp; editing:</head><p coords="20,315.61,451.72,257.30,8.50"><s>Cleo Anastassopoulou, Athanasios Tsakris, Constantinos Siettos.</s></p></div>			</div>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct coords="20,208.20,501.77,343.70,7.40;20,221.50,511.24,332.93,7.40;20,221.50,520.76,24.62,7.40" xml:id="b0">
+	<monogr>
+		<title level="m" type="main">Early Transmission Dynamics in Wuhan, China, of Novel Coronavirus-Infected Pneumonia</title>
+		<author>
+			<persName><forename type="first">Q</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Wu</surname></persName>
+		</author>
+		<ptr target="https://doi.org/10.1088%2F0951-7715%2F16%2F2%2F308" />
+		<imprint>
+			<date type="published" when="2020">2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct coords="20,208.20,533.75,355.12,7.40;20,221.50,543.27,353.53,7.40;20,221.50,552.74,120.19,7.40" xml:id="b1">
+	<monogr>
+		<title level="m" type="main">WHO Statement Regarding Cluster of Pneumonia Cases in Wuhan, China</title>
+		<author>
+			<persName><forename type="first">W</forename><forename type="middle">H</forename><surname>Organization</surname></persName>
+		</author>
+		<ptr target="https://www.who.int/china/news/detail/09-01-2020-who-statement-regarding-cluster-of-pneumonia-cases-in-wuhan-china" />
+		<imprint>
+			<date type="published" when="2020">2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct coords="20,208.20,565.78,352.23,7.40;20,221.50,575.24,309.99,7.40;20,221.50,584.77,279.85,7.40" xml:id="b2">
+	<analytic>
+		<title level="a" type="main">World Health Organization</title>
+		<author>
+			<persName><forename type="first">W</forename><forename type="middle">H</forename><surname>Organization</surname></persName>
+		</author>
+		<ptr target="https://www.who.int/docs/default-source/coronaviruse/situation-reports/20200210-sitrep-21-ncov.pdf" />
+	</analytic>
+	<monogr>
+		<title level="m">Situation report 21</title>
+		<meeting><address><addrLine>Geneva, Switzerland</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2019">2019-nCoV. 2020. 2020</date>
+			<biblScope unit="page" from="947679" to="947681" />
+		</imprint>
+	</monogr>
+	<note>Novel coronavirus</note>
+</biblStruct>
+
+<biblStruct coords="20,208.20,597.75,351.04,7.40;20,221.50,607.28,350.78,7.40;20,221.50,616.74,116.18,7.40" xml:id="b3">
+	<monogr>
+		<title level="m" type="main">Genomic characterisation and epidemiology of 2019 novel coronavirus: implications for virus origins and receptor binding. The Lancet</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Lu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Zhao</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Niu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Yang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Wu</surname></persName>
+		</author>
+		<idno type="DOI">10.1016/S0140-6736(20)30251-8</idno>
+		<ptr target="https://doi.org/10.1016/S0140-6736(20)30251-8" />
+		<imprint>
+			<date type="published" when="2020">2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct coords="20,208.20,629.78,360.59,7.40;20,221.50,639.25,332.95,7.40" xml:id="b4">
+	<analytic>
+		<title level="a" type="main">A pneumonia outbreak associated with a new coronavirus of probable bat origin</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Zhou</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><forename type="middle">L</forename><surname>Yang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><forename type="middle">G</forename><surname>Wang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Hu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Zhang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Zhang</surname></persName>
+		</author>
+		<idno type="DOI">10.1038/s41586-020-2012-7</idno>
+		<ptr target="https://doi.org/10.1038/s41586-020-2012-7" />
+	</analytic>
+	<monogr>
+		<title level="j">Nature</title>
+		<imprint>
+			<date type="published" when="2020">2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct coords="20,208.20,652.23,363.21,7.40;20,221.50,661.76,345.39,7.40;20,221.50,671.28,166.08,7.40" xml:id="b5">
+	<monogr>
+		<title level="m" type="main">Epidemiological and clinical characteristics of 99 cases of 2019 novel coronavirus pneumonia in Wuhan, China: a descriptive study. The Lancet</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Chen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Zhou</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Dong</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Qu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Gong</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Han</surname></persName>
+		</author>
+		<idno type="DOI">10.1016/S0140-6736(20)30211-7</idno>
+		<ptr target="https://doi.org/10.1016/S0140-6736(20)30211-7" />
+		<imprint>
+			<date type="published" when="2020">2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct coords="20,208.20,684.26,355.99,7.40;20,221.50,693.73,345.99,7.40;20,221.50,703.26,299.65,7.40" xml:id="b6">
+	<analytic>
+		<title level="a" type="main">Initial Public Health Response and Interim Clinical Guidance for the 2019 Novel Coronavirus Outbreak-United States</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Patel</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Jernigan</surname></persName>
+		</author>
+		<author>
+			<persName><surname>Cdc Response</surname></persName>
+		</author>
+		<author>
+			<persName><surname>Team</surname></persName>
+		</author>
+		<idno type="DOI">10.15585/mmwr.mm6905e1</idno>
+		<ptr target="https://doi.org/10.15585/mmwr.mm6905e1" />
+	</analytic>
+	<monogr>
+		<title level="j">MMWR Morb Mortal Wkly Rep</title>
+		<imprint>
+			<date type="published" when="2019-12-31">December 31, 2019-February 4, 2020. 2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct coords="21,208.20,77.54,342.79,7.40;21,221.50,87.06,268.46,7.40" xml:id="b7">
+	<analytic>
+		<title level="a" type="main">Clinical features of patients infected with 2019 novel coronavirus in Wuhan, China</title>
+		<author>
+			<persName><forename type="first">C</forename><surname>Hunag</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Wang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Li</surname></persName>
+		</author>
+		<idno type="DOI">10.1016/S0140-6736(20)30183-5</idno>
+		<ptr target="https://doi.org/10.1016/S0140-6736(20)30183-5" />
+	</analytic>
+	<monogr>
+		<title level="j">Lancet</title>
+		<imprint>
+			<date type="published" when="2020">2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct coords="21,208.20,100.05,360.57,7.40;21,221.50,109.51,345.15,7.40;21,221.50,119.04,76.15,7.40" xml:id="b8">
+	<analytic>
+		<title level="a" type="main">Clinical Characteristics of 138 Hospitalized Patients With 2019 Novel Coronavirus-Infected Pneumonia in Wuhan</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Wang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Hu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Hu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Zhu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Zhang</surname></persName>
+		</author>
+		<idno type="DOI">10.1001/jama.2020.1585</idno>
+		<ptr target="https://doi.org/10.1001/jama.2020.1585" />
+	</analytic>
+	<monogr>
+		<title level="j">JAMA</title>
+		<imprint>
+			<date type="published" when="2020">2020</date>
+			<pubPlace>China</pubPlace>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct coords="21,207.86,132.02,360.51,7.40;21,221.50,141.54,343.84,7.40;21,221.50,151.01,182.52,7.40" xml:id="b9">
+	<analytic>
+		<title level="a" type="main">Preliminary estimation of the basic reproduction number of novel coronavirus (2019-nCoV) in China</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Zhao</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Q</forename><surname>Lin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Ran</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><forename type="middle">S</forename><surname>Musa</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Yang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Wang</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Int J Infect Dis</title>
+		<imprint>
+			<date type="published" when="2020">2020</date>
+		</imprint>
+	</monogr>
+	<note>from 2019 to 2020: A data-driven analysis in the early phase of the outbreak</note>
+</biblStruct>
+
+<biblStruct coords="21,207.86,164.05,334.32,7.40" xml:id="b10">
+	<analytic>
+		<title level="a" type="main">Report 3: Transmissibility of 2019-nCoV</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Imai</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Cori</forename><forename type="middle">A</forename><surname>Dorigatti</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Int J Infect Dis</title>
+		<imprint>
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct coords="21,207.86,177.03,345.56,7.40;21,221.50,186.56,346.58,7.40;21,221.50,196.03,166.08,7.40" xml:id="b11">
+	<monogr>
+		<title level="m" type="main">Nowcasting and forecasting the potential domestic and international spread of the 2019-nCoV outbreak originating in Wuhan, China: a modelling study. The Lancet</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">T</forename><surname>Wu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Leung</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><forename type="middle">M</forename><surname>Leung</surname></persName>
+		</author>
+		<idno type="DOI">10.1016/S0140-6736(20)30260-9</idno>
+		<ptr target="https://doi.org/10.1016/S0140-6736(20)30260-9" />
+		<imprint>
+			<date type="published" when="2020">2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct coords="21,207.86,209.01,366.91,7.40;21,221.50,218.53,194.69,7.40" xml:id="b12">
+	<analytic>
+		<title level="a" type="main">Mathematical modeling of infectious disease dynamics</title>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">I</forename><surname>Siettos</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Russo</surname></persName>
+		</author>
+		<idno type="DOI">10.4161/viru.24041</idno>
+		<idno type="PMID">23552814</idno>
+		<ptr target="https://doi.org/10.4161/viru.24041" />
+	</analytic>
+	<monogr>
+		<title level="j">Virulence</title>
+		<imprint>
+			<biblScope unit="volume">4</biblScope>
+			<biblScope unit="issue">4</biblScope>
+			<biblScope unit="page" from="295" to="306" />
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct coords="21,207.86,231.51,360.32,7.40;21,221.50,241.04,348.12,7.40;21,221.50,250.51,270.47,7.40" xml:id="b13">
+	<analytic>
+		<title level="a" type="main">Daily updates on the emerging novel coronavirus from the Johns Hopkins Center for Health Security</title>
+		<ptr target="https://hub.jhu.edu/2020/01/23/coronavirus-outbreak-mapping-tool-649-em1-art1-dtd-health/" />
+	</analytic>
+	<monogr>
+		<title level="j">February</title>
+		<imprint>
+			<biblScope unit="volume">9</biblScope>
+			<date type="published" when="2020">2020. 2020</date>
+			<publisher>The Johns Hopkins Center for Health Security</publisher>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct coords="21,207.86,263.55,367.10,7.40;21,221.50,273.01,339.92,7.40;21,221.50,282.54,137.13,7.40" xml:id="b14">
+	<monogr>
+		<title level="m" type="main">Coronavirus COVID-19 Global Cases by Johns Hopkins CSSE</title>
+		<ptr target="https://gisanddata.maps.arcgis.com/apps/opsdashboard/index.html#/" />
+		<imprint>
+			<date type="published" when="2020">2020</date>
+			<publisher>The Johns Hopkins Center for Health Security</publisher>
+		</imprint>
+	</monogr>
+	<note>bda7594740fd40299423467b48e9ecf6</note>
+</biblStruct>
+
+<biblStruct coords="21,207.86,295.52,352.32,7.40;21,221.50,305.05,347.13,7.40" xml:id="b15">
+	<analytic>
+		<title level="a" type="main">An interactive web-based dashboard to track COVID-19 in real time</title>
+		<author>
+			<persName><forename type="first">E</forename><surname>Dong</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Du</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Gardner</surname></persName>
+		</author>
+		<idno type="DOI">10.1016/S1473-3099(20)30120-1</idno>
+		<idno type="PMID">32087114</idno>
+		<ptr target="https://doi.org/10.1016/S1473-3099(20)30120-1" />
+	</analytic>
+	<monogr>
+		<title level="j">The Lancet Infectious Diseases</title>
+		<imprint>
+			<date type="published" when="2020">2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct coords="21,207.86,318.03,366.80,7.40;21,221.50,327.55,342.96,7.40;21,221.50,337.02,330.14,7.40;21,221.50,346.54,35.05,7.40" xml:id="b16">
+	<analytic>
+		<title level="a" type="main">Real-time tentative assessment of the epidemiological characteristics of novel coronavirus infections in Wuhan</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Wu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Hao</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Ehy</forename><surname>Lau</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">Y</forename><surname>Wong</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Ksm</forename><surname>Leung</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">T</forename><surname>Wu</surname></persName>
+		</author>
+		<idno type="DOI">10.2807/1560-7917.ES.2020.25.3.2000044</idno>
+		<idno type="PMID">31992388</idno>
+		<ptr target="https://doi.org/10.2807/1560-7917.ES.2020.25.3.2000044" />
+	</analytic>
+	<monogr>
+		<title level="j">Eurosurveillance</title>
+		<imprint>
+			<biblScope unit="volume">25</biblScope>
+			<biblScope unit="issue">3</biblScope>
+			<date type="published" when="2020-01">January 2020. 2020</date>
+			<pubPlace>China</pubPlace>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct coords="21,207.86,359.53,343.97,7.40;21,221.50,369.05,84.78,7.40" xml:id="b17">
+	<monogr>
+		<title level="m" type="main">-National Health Commission (NHC) of the People&apos;s Republic of China</title>
+		<author>
+			<persName><surname>Nhc</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2020-04">Feb. 4 2020. 2020</date>
+			<publisher>NHS Press Conference</publisher>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct coords="21,207.86,382.03,361.82,7.40;21,221.50,391.56,347.94,7.40;21,221.50,401.03,224.34,7.40" xml:id="b18">
+	<analytic>
+		<title level="a" type="main">Methods for Estimating the Case Fatality Ratio for a Novel, Emerging Infectious Disease</title>
+		<author>
+			<persName><forename type="first">A</forename><forename type="middle">C</forename><surname>Ghani</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">A</forename><surname>Donnelly</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><forename type="middle">R</forename><surname>Cox</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">T</forename><surname>Griffin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Fraser</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><forename type="middle">H</forename><surname>Lam</surname></persName>
+		</author>
+		<idno type="DOI">10.1093/aje/kwi230</idno>
+		<idno type="PMID">16076827</idno>
+		<ptr target="https://doi.org/10.1093/aje/kwi230" />
+	</analytic>
+	<monogr>
+		<title level="j">American Journal of Epidemiology</title>
+		<imprint>
+			<biblScope unit="volume">162</biblScope>
+			<biblScope unit="issue">5</biblScope>
+			<biblScope unit="page" from="479" to="486" />
+			<date type="published" when="2005">2005</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct coords="21,207.86,414.01,98.31,7.40" xml:id="b19">
+	<monogr>
+		<title/>
+		<author>
+			<persName><surname>Matlab R</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2018">2018b; 2018</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct coords="21,207.86,427.05,349.14,7.40;21,221.50,436.52,337.45,7.40;21,221.50,446.04,73.07,7.40" xml:id="b20">
+	<monogr>
+		<title level="m" type="main">Coronavirus May Transmit Along Fecal-Oral Route, Xinhua Reports</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Gale</surname></persName>
+		</author>
+		<ptr target="https://www.bloomberg.com/news/articles/2020-02-02/coronavirus-may-transmit-along-fecal-oral-route-xinhua-reports" />
+		<imprint>
+			<date type="published" when="2020">2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct coords="21,207.86,459.02,358.55,7.40;21,221.50,468.55,326.74,7.40" xml:id="b21">
+	<analytic>
+		<title level="a" type="main">-nCoV): estimating the case fatality rate-a word of caution</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Battegay</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Kuehl</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Tschudin-Sutter</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><forename type="middle">H</forename><surname>Hirsch</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><forename type="middle">F</forename><surname>Widmer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">A</forename><surname>Neher</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Swiss Medical Weekly</title>
+		<imprint>
+			<date type="published" when="2019">2019-novel Coronavirus (2019. 2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>
