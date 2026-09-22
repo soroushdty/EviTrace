@@ -1064,3 +1064,197 @@ def test_is_output_valid_is_insensitive_to_evidence_coverage(tmp_path):
 
     # No output_path at all is invalid regardless of the coverage record.
     assert manifest_mod._is_output_valid({"status": "complete", "evidence_coverage": coverage}, output_dir=tmp_path) is False
+
+
+# ---------------------------------------------------------------------------
+# process_pdf: synthesis stage runs through RepairRetryLoop
+# (feature: risk-remediation, task 10.2; design.md "SynthesisRepair", D4)
+# Requirements: 5.1, 5.2, 5.4
+# ---------------------------------------------------------------------------
+
+_SYNTH_CHUNK_FIELDS = {
+    1: [{"field_index": 3, "domain_group": "2. Clinical context", "field_name": "Study design"}],
+    2: [{"field_index": 4, "domain_group": "2. Clinical context", "field_name": "Sample size"}],
+    3: [{"field_index": 5, "domain_group": "13. Reviewer assessment", "field_name": "Synthesis notes"}],
+}
+_SYNTH_FIELD_LOOKUP = {
+    3: {"domain_group": 2, "field_name": "Study design"},
+    4: {"domain_group": 2, "field_name": "Sample size"},
+    5: {"domain_group": 13, "field_name": "Synthesis notes"},
+}
+
+
+def _synth_bundle():
+    return _make_fake_bundle(evidence_map={
+        "ev-1": {"id": "ev-1", "type": "sentence", "text": "Randomised controlled trial evidence."},
+        "ev-2": {"id": "ev-2", "type": "sentence", "text": "One hundred twenty participants."},
+    })
+
+
+def _synth_api(synthesis_responses):
+    """extract_chunk mock: chunks 1/2 always valid; chunk 3 (synthesis) pops
+    from ``synthesis_responses`` in order (the last entry repeats)."""
+    remaining = list(synthesis_responses)
+
+    def _side_effect(chunk_num, *args, **kwargs):
+        if chunk_num == 1:
+            return json.dumps({"extractions": [{"i": 3, "v": "RCT", "loc": ["ev-1"], "c": "h"}]})
+        if chunk_num == 2:
+            return json.dumps({"extractions": [{"i": 4, "v": "120", "loc": ["ev-2"], "c": "m"}]})
+        if chunk_num == 3:
+            return remaining.pop(0) if len(remaining) > 1 else remaining[0]
+        raise AssertionError(f"unexpected chunk {chunk_num}")
+
+    mock_api = MagicMock()
+    mock_api.extract_chunk = AsyncMock(side_effect=_side_effect)
+    mock_api.warm_pdf_cache = AsyncMock()
+    return mock_api
+
+
+def _run_synth_case(tmp_path, mock_api, *, max_repair_attempts=None):
+    """Run process_pdf with a real manifest dict; save_manifest is stubbed so
+    the repo's manifest file is never touched."""
+    openai_config = _base_openai_config(num_chunks=3)
+    if max_repair_attempts is not None:
+        openai_config["max_repair_attempts"] = max_repair_attempts
+    manifest: dict = {}
+    qc_context = _make_qc_context("paper_synth_repair")
+
+    with patch.object(_pdf_processor, "OUTPUT_DIR", tmp_path), \
+         patch.dict(sys.modules, {"agents.openai.api_client": mock_api}), \
+         patch.object(_pdf_processor, "validate_qc_context_input"), \
+         patch.object(_pdf_processor, "save_manifest"), \
+         patch.object(_pdf_processor, "build_or_load_evidence_bundle", return_value=_synth_bundle()):
+
+        async def _run():
+            return await _pdf_processor.process_pdf(
+                qc_context=qc_context,
+                chunk_fields=_SYNTH_CHUNK_FIELDS,
+                field_lookup=_SYNTH_FIELD_LOOKUP,
+                api_semaphore=asyncio.Semaphore(5),
+                manifest=manifest,
+                manifest_lock=asyncio.Lock(),
+                openai_config=openai_config,
+            )
+
+        result = asyncio.run(_run())
+    return result, manifest
+
+
+_VALID_SYNTH = json.dumps({"extractions": [{"i": 5, "v": "Repaired verdict", "loc": [], "c": "h"}]})
+
+
+def test_process_pdf_synthesis_malformed_then_valid_is_repaired_and_merged(tmp_path):
+    """Requirements 5.1, 5.2: a synthesis response that fails parsing is
+    repaired through the same RepairRetryLoop as extraction chunks, and the
+    repaired response is what lands in the output. The initial synthesis call
+    carries stage="synthesis" and the compact prior context; the repair call
+    carries a repair_prompt, stage="validation_repair", and the SAME prior
+    context (design.md "SynthesisRepair": prior context on every call)."""
+    mock_api = _synth_api(["this is not json {", _VALID_SYNTH])
+
+    result, manifest = _run_synth_case(tmp_path, mock_api)
+
+    calls = mock_api.extract_chunk.call_args_list
+    assert len(calls) == 4, [c.args[0] for c in calls]
+    # Synthesis remains the third model call (existing helper tests rely on it).
+    initial = calls[2]
+    assert initial.args[0] == 3
+    assert initial.kwargs["stage"] == "synthesis"
+    assert "repair_prompt" not in initial.kwargs
+    prior_context = initial.kwargs["prior_context"]
+    assert {e["field_index"] for e in prior_context} == {3, 4}
+
+    repair = calls[3]
+    assert repair.args[0] == 3
+    assert repair.kwargs["stage"] == "validation_repair"
+    assert repair.kwargs["repair_prompt"]
+    assert repair.kwargs["repair_attempt"] == 1
+    assert repair.kwargs["prior_context"] == prior_context
+
+    assert result is not None
+    by_index = {f["field_index"]: f for f in result}
+    assert by_index[5]["extracted_value"] == "Repaired verdict"
+    assert by_index[3]["extracted_value"] == "RCT"
+    assert manifest["paper_synth_repair"]["status"] == "complete"
+
+
+def test_process_pdf_synthesis_repair_limit_comes_from_config(tmp_path):
+    """Requirement 5.4: ``max_repair_attempts`` from the loaded config reaches
+    the loop -- with 3 configured, a persistently malformed synthesis response
+    gets exactly three repair attempts, and exhaustion lands in the existing
+    ``failed_chunk_{n}`` manifest entry with the error string (shape unchanged
+    until task 10.3)."""
+    mock_api = _synth_api(["still not json"])
+
+    result, manifest = _run_synth_case(tmp_path, mock_api, max_repair_attempts=3)
+
+    assert result is None
+    synth_calls = [c for c in mock_api.extract_chunk.call_args_list if c.args[0] == 3]
+    assert len(synth_calls) == 4  # 1 initial + 3 repairs
+    assert [c.kwargs.get("repair_attempt") for c in synth_calls] == [None, 1, 2, 3]
+    assert all(c.kwargs["stage"] == "validation_repair" for c in synth_calls[1:])
+    assert manifest["paper_synth_repair"] == {
+        "status": "failed_chunk_3",
+        "error": "Repair exhausted: chunk 3, error_type=parse, attempts=3",
+    }
+
+
+def test_process_pdf_synthesis_repair_limit_defaults_to_two(tmp_path):
+    """Requirement 5.4: without the key in openai_config the loop falls back
+    to the documented default of 2 (matching ``retry.max_repair_attempts``)."""
+    mock_api = _synth_api(["still not json"])
+
+    result, manifest = _run_synth_case(tmp_path, mock_api)
+
+    assert result is None
+    synth_calls = [c for c in mock_api.extract_chunk.call_args_list if c.args[0] == 3]
+    assert len(synth_calls) == 3  # 1 initial + 2 repairs
+    assert manifest["paper_synth_repair"]["status"] == "failed_chunk_3"
+    assert manifest["paper_synth_repair"]["error"].endswith("attempts=2")
+
+
+def test_process_pdf_synthesis_budget_checked_once_per_call_no_double_mitigation(tmp_path):
+    """design.md "SynthesisRepair" risk note: the repair loop performs the
+    synthesis budget check itself (with the prior-context JSON and the
+    protected ids), so the old standalone check must be gone -- exactly one
+    stage="synthesis" check per paper, and one "validation_repair" check per
+    repair attempt for the synthesis chunk."""
+    mock_api = _synth_api(["not json", _VALID_SYNTH])
+    real_check = _pdf_processor._check_and_mitigate_budget
+
+    with patch.object(_pdf_processor, "_check_and_mitigate_budget", wraps=real_check) as spy:
+        result, _ = _run_synth_case(tmp_path, mock_api)
+
+    assert result is not None
+    synth_calls = [c for c in spy.call_args_list if c.kwargs["chunk_num"] == 3]
+    synthesis_stage = [c for c in synth_calls if c.kwargs["stage"] == "synthesis"]
+    repair_stage = [c for c in synth_calls if c.kwargs["stage"] == "validation_repair"]
+    assert len(synthesis_stage) == 1
+    assert len(repair_stage) == 1
+    assert {c.kwargs["stage"] for c in synth_calls} == {"synthesis", "validation_repair"}
+
+    prior_context = mock_api.extract_chunk.call_args_list[2].kwargs["prior_context"]
+    assert synthesis_stage[0].kwargs["prior_context_text"] == json.dumps(prior_context)
+    assert synthesis_stage[0].kwargs["protected_evidence_ids"] == {"ev-1"}  # field 3 is "h"
+
+
+def test_process_pdf_shares_one_repair_loop_between_chunks_and_synthesis(tmp_path):
+    """design.md "SynthesisRepair": ``RepairRetryLoop`` is constructed once per
+    paper (with the configured limit) and the chunk stage receives that same
+    instance rather than building its own."""
+    mock_api = _synth_api([_VALID_SYNTH])
+    real_cls = _pdf_processor.RepairRetryLoop
+    instances: list = []
+
+    class _Spy(real_cls):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            instances.append(self)
+
+    with patch.object(_pdf_processor, "RepairRetryLoop", _Spy):
+        result, _ = _run_synth_case(tmp_path, mock_api, max_repair_attempts=3)
+
+    assert result is not None
+    assert len(instances) == 1
+    assert instances[0].max_repair_attempts == 3

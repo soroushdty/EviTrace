@@ -31,7 +31,7 @@ from .manifest import save_manifest
 # Same-package, lightweight modules (no heavy optional deps) -- safe to import
 # at module level, unlike agents.openai.* which is lazily imported throughout
 # this file to accommodate test-time sys.modules mocking (see RepairRetryLoop
-# and process_pdf below).
+# and _run_parallel_chunks below).
 from .deterministic_merge import deterministic_merge
 from . import token_budget
 
@@ -194,8 +194,9 @@ def _prune_evidence_json_preserving_protected(
     non-JSON/test-only fixture string, or a future format change -- this
     returns ``(evidence_text, False)`` unchanged so the caller can fall back
     to ``token_budget.apply_mitigation``'s generic flat-text pruning
-    instead. This is a deliberate, narrow-scope helper: it is used ONLY by
-    the synthesis call site in ``process_pdf`` (via
+    instead. This is a deliberate, narrow-scope helper: it is used ONLY for
+    the synthesis stage (``process_pdf`` computes the protected set and
+    ``RepairRetryLoop.extract_with_repair`` forwards it through
     ``_check_and_mitigate_budget``'s ``protected_evidence_ids`` parameter),
     never by the extraction-chunk/validation_repair call sites, which have
     no confidence data to protect at prune-time (see this module's
@@ -275,8 +276,10 @@ def _check_and_mitigate_budget(
     switches mitigation to a confidence-aware pruning path
     (``_prune_evidence_json_preserving_protected``) that never drops an
     Evidence_ID in this set, even under budget pressure. This is passed
-    ONLY by the synthesis call site in ``process_pdf``, the one place
-    where confidence-labeled data (from ``deterministic_merge`` output,
+    ONLY for the synthesis stage: ``process_pdf`` computes the set and
+    ``RepairRetryLoop.extract_with_repair(stage="synthesis", ...)``
+    forwards it to the initial call's check -- the one place where
+    confidence-labeled data (from ``deterministic_merge`` output,
     prefilled fields, and conflict-candidate records) genuinely exists at
     prune-time. The extraction-chunk and ``validation_repair`` call sites
     never pass this argument (default ``None``) and therefore fall through
@@ -1097,12 +1100,19 @@ async def _run_parallel_chunks(
     budgets: "dict[str, int] | None" = None,
     evidence_config: "dict | None" = None,
     collector: "Any | None" = None,
+    repair_loop: "RepairRetryLoop | None" = None,
 ) -> Optional[list]:
     """Run extraction chunks 1..(num_chunks-1) in parallel with validation-aware retries.
 
     Uses RepairRetryLoop to automatically repair malformed LLM responses.
     Returns a list of validated chunk results (list[dict] per chunk), or None
     if any chunk failed after repair exhaustion.
+
+    ``repair_loop`` is the per-paper ``RepairRetryLoop`` shared with the
+    synthesis stage (Requirement 5.4: one attempt limit for both stages).
+    ``process_pdf`` always passes it; when omitted (direct callers and the
+    existing unit tests) a loop is built here from the remaining keyword
+    arguments exactly as before.
 
     Also fires a synthesis-shaped warmup task concurrently if configured.
     The synthesis warmup extends the cached prefix past the extraction map
@@ -1161,13 +1171,14 @@ async def _run_parallel_chunks(
     # Phase 2 — Extraction chunks run in parallel with validation-aware
     # repair retries. RepairRetryLoop handles JSON parse errors and schema
     # validation failures by constructing targeted repair prompts.
-    repair_loop = RepairRetryLoop(
-        max_log_response_chars=max_log_response_chars,
-        debug_artifact_dir=debug_artifact_dir,
-        budgets=budgets,
-        evidence_config=evidence_config,
-        collector=collector,
-    )
+    if repair_loop is None:
+        repair_loop = RepairRetryLoop(
+            max_log_response_chars=max_log_response_chars,
+            debug_artifact_dir=debug_artifact_dir,
+            budgets=budgets,
+            evidence_config=evidence_config,
+            collector=collector,
+        )
 
     chunk_tasks = [
         repair_loop.extract_with_repair(
@@ -1228,8 +1239,6 @@ async def process_pdf(
     (Requirement 6.5); defaults to ``None``, in which case no telemetry is
     recorded -- identical to before telemetry existed.
     """
-    from agents.openai.api_client import extract_chunk  # noqa: PLC0415
-
     validate_qc_context_input(qc_context)
     pdf_name = qc_context.unified.document_id
     pdf_text = qc_context.unified.content["exact_text"]
@@ -1377,8 +1386,21 @@ async def process_pdf(
             pdf_name, len(pdf_text), len(paper_source), reduction * 100,
         )
 
+    # One validation-aware repair loop per paper (Requirements 5.1, 5.4):
+    # the extraction chunks and the synthesis stage share this instance, so
+    # both stages get the same operator-configured attempt limit
+    # (retry.max_repair_attempts via load_openai_config; default 2).
+    repair_loop = RepairRetryLoop(
+        max_repair_attempts=int(openai_config.get("max_repair_attempts", 2)),
+        max_log_response_chars=int(openai_config.get("max_log_response_chars", 500)),
+        debug_artifact_dir=openai_config.get("debug_artifact_dir"),
+        budgets=budgets,
+        evidence_config=evidence_config,
+        collector=collector,
+    )
+
     # Step 2: run parallel extraction chunks (with optional cache warmup).
-    # _run_parallel_chunks now uses RepairRetryLoop internally, so results
+    # _run_parallel_chunks runs every chunk through repair_loop, so results
     # are already validated compact extraction dicts (not raw strings).
     validated_results = await _run_parallel_chunks(
         chunk_sources, chunk_fields_for_llm, valid_location_ids, api_semaphore, pdf_name,
@@ -1389,6 +1411,7 @@ async def process_pdf(
         budgets=budgets,
         evidence_config=evidence_config,
         collector=collector,
+        repair_loop=repair_loop,
     )
     if validated_results is None:
         return None
@@ -1545,47 +1568,27 @@ async def process_pdf(
                 synthesis_chunk,
                 paper_source or json.dumps({"paper_id": pdf_name, "evidence": []}),
             )
-            synthesis_source = _check_and_mitigate_budget(
-                stage="synthesis",
-                system_text=RepairRetryLoop._get_system_prompt_text(),
-                evidence_text=synthesis_source,
-                field_definitions_text=json.dumps(
-                    sorted(effective_synthesis_fields, key=lambda f: f.get("field_index", 0))
-                ),
-                prior_context_text=json.dumps(compact_prior_context),
-                budgets=budgets,
-                evidence_config=evidence_config,
-                pdf_name=pdf_name,
-                chunk_num=synthesis_chunk,
-                protected_evidence_ids=protected_evidence_ids,
-            )
-
-            synthesis_raw = await extract_chunk(
+            # Synthesis runs through the same validation-aware repair
+            # loop as the extraction chunks (Requirements 5.1, 5.2,
+            # 5.4). The loop performs the stage="synthesis" budget check
+            # itself -- with the prior-context JSON counted and the
+            # protected ids forwarded -- logs the raw response, and
+            # validates; repair attempts run under "validation_repair"
+            # with the same prior context. No separate check or
+            # validation happens here, so nothing is mitigated twice.
+            final_compact = await repair_loop.extract_with_repair(
                 synthesis_chunk,
                 synthesis_source,
                 effective_synthesis_fields,
                 api_semaphore,
                 valid_location_ids=valid_location_ids,
+                expected_indices=sorted(
+                    f["field_index"] for f in effective_synthesis_fields
+                ),
+                pdf_name=pdf_name,
                 prior_context=compact_prior_context,
-                pdf_name=pdf_name,
-                collector=collector,
-            )
-            # Safe bounded logging of the synthesis response (Requirement 6)
-            log_model_response(
-                logger,
-                synthesis_raw,
-                pdf_name=pdf_name,
-                chunk_num=synthesis_chunk,
-                max_chars=int(openai_config.get("max_log_response_chars", 500)),
-                debug_artifact_dir=openai_config.get("debug_artifact_dir"),
-            )
-            synthesis_expected_idx = sorted(
-                f["field_index"] for f in effective_synthesis_fields
-            )
-            final_compact = validate_chunk_output(
-                synthesis_raw,
-                synthesis_expected_idx,
-                valid_location_ids=valid_location_ids,
+                stage="synthesis",
+                protected_evidence_ids=protected_evidence_ids,
             )
             logger.debug(
                 "%s synthesis validated: %d items",
