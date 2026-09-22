@@ -398,7 +398,12 @@ def _build_local_metrics_report(
     ]
     native_page_texts = _build_native_page_texts(branches, branch_index)
 
+    # Carry the branch identity so IAA/adjudication key on the extractor name
+    # (Requirement 9.3): postcondition result.source == branch.source,
+    # result.index == branch_index.
     report = ExtractionCoverageReport(
+        source=branch.source,
+        index=branch_index,
         config=config,
         blocks=blocks,
         sentence_records=sentence_records,

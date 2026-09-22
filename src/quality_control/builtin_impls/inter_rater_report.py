@@ -39,6 +39,8 @@ class InterRaterReport(InterRaterMetrics):
         """Default: pairwise pass/fail agreement (1.0 = agree, 0.0 = disagree)."""
         indexed = list(enumerate(reports))
         for (i, a), (j, b) in combinations(indexed, 2):
-            name_a = getattr(a, "extractor", str(i))
-            name_b = getattr(b, "extractor", str(j))
+            # Key by extractor name; fall back to the zero-based report position
+            # when the name is empty or absent (documented fallback identifier).
+            name_a = getattr(a, "extractor", "") or str(i)
+            name_b = getattr(b, "extractor", "") or str(j)
             self.pairwise[f"{name_a}_vs_{name_b}"] = 1.0 if a.status == b.status else 0.0

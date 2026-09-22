@@ -34,7 +34,9 @@ class AdjudicationDecision(AdjudicationRules):
         """Default: elect the extractor with the most passing branches."""
         pass_counts: dict[str, int] = {}
         for i, r in enumerate(reports):
-            name = getattr(r, "extractor", str(i))
+            # Key by extractor name; fall back to the zero-based report position
+            # when the name is empty or absent (documented fallback identifier).
+            name = getattr(r, "extractor", "") or str(i)
             pass_counts[name] = pass_counts.get(name, 0) + (1 if r.status == "pass" else 0)
         if not pass_counts:
             self.rationale = "no reports available"
