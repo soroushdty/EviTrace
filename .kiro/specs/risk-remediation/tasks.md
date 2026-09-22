@@ -40,7 +40,7 @@ Binding order from design.md "Implementation sequencing": extractor identity →
   - _Requirements: 2.1, 2.2, 2.3, 2.4_
   - _Boundary: BranchRoleSelector_
 
-- [ ] 3.2 Test branch-role selection
+- [x] 3.2 Test branch-role selection
   - Cases: adjudicated match; no match → first branch with the warning text captured; single branch → no secondary; `paddleocr` secondary populates structural blocks; rationale present in provenance
   - Done when tests fail on the hard-coded selection and pass after 3.1; existing direct `reconcile()` tests unchanged
   - _Requirements: 2.1, 2.2, 2.3, 2.4_
@@ -250,3 +250,4 @@ Binding order from design.md "Implementation sequencing": extractor identity →
 - 2.1: with distinct names, `AdjudicationDecision.adjudicate`'s pre-existing formula gives `confidence <= 1/N` (one report per name) and ties break by index order (index 0 wins when all pass; all-fail still elects index 0 at 0.0). No requirement governs `confidence`; no src consumer branches on it. **Open question for 3.1 / final validation**: what should adjudication confidence mean now? `test_builtin_impls_identity.py:71` pins `1/3` and must be relaxed if the formula changes. The 2.1 tests already cover every bullet of task 2.2 (reviewer reproduced their failure against pre-change code).
 - 2.2: satisfied by the tests delivered in 2.1 (`test_quality_control_identity.py`, `test_builtin_impls_identity.py`); controller re-verified the done condition in a worktree at 84ba4b1 (pre-2.1): 6 failed / 3 passed there, 9 passed on the current tree. No separate implementer dispatched.
 - 3.1: provenance keys are attached in `_pdf_reconciler_fn` after `reconcile()` returns (`_build_provenance_dict` takes fixed kwargs). The fallback warning is only reachable via the helper's unit test — since 2.1 the adjudicator always names a real branch end-to-end. Empty branch list also logs the fallback warning (harmless).
+- 3.2: `run_quality_control` has no adjudicator injection seam; end-to-end fallback test monkeypatches the module-level `AdjudicationDecision` name (late-bound in `_pdf_adjudicator_fn`). A non-GROBID primary is produced end-to-end by feeding GROBID a degraded TEI (real rater fails it 5/8 metrics at `max_triggered_fraction` 0.5) — margin is one metric; the test's precondition guard makes drift loud.
