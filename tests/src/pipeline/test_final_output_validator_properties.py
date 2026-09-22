@@ -214,9 +214,10 @@ def test_property_1_mixed_fields_fail_validation(valid_fields, invalid_field):
 @settings(max_examples=100)
 def test_property_1_output_file_written_iff_valid(fields):
     """For any valid field list, the output file SHALL exist on disk after
-    _save_pdf_output is called with validation gating. When validation fails,
-    no output file SHALL be written and manifest status SHALL be
-    "failed_schema_validation".
+    _save_pdf_output is called with validation gating, and the gate SHALL
+    report ``(True, None)``. When validation fails, no output file SHALL be
+    written and the gate SHALL return a ``schema_validation`` failure record
+    for the caller to persist as "failed_schema_validation".
 
     **Validates: Requirements 1.1**
     """
@@ -232,9 +233,10 @@ def test_property_1_output_file_written_iff_valid(fields):
 
         # Patch OUTPUT_DIR to use temp directory
         with patch("pipeline.pdf_processor.OUTPUT_DIR", output_dir):
-            _save_pdf_output(pdf_name, fields)
+            ok, failure = _save_pdf_output(pdf_name, fields)
 
-        # Valid fields → file should exist
+        # Valid fields → (True, None) and file should exist
+        assert (ok, failure) == (True, None)
         assert out_file.exists()
         written_data = json.loads(out_file.read_text(encoding="utf-8"))
         assert len(written_data) == len(fields)

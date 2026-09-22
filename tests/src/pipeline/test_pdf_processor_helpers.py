@@ -122,8 +122,9 @@ def test_save_pdf_output_round_trip(tmp_path):
     ]
 
     with patch.object(_pdf_processor, "OUTPUT_DIR", tmp_path):
-        _save_pdf_output(pdf_name, fields)
+        ok, failure = _save_pdf_output(pdf_name, fields)
 
+    assert (ok, failure) == (True, None)
     out_file = tmp_path / f"{pdf_name}.extracted.json"
     assert out_file.exists(), "Output JSON file was not created"
 
@@ -174,8 +175,9 @@ def test_save_pdf_output_round_trip_pbt(fields):
         tmp_path = Path(tmp_dir)
 
         with patch.object(_pdf_processor, "OUTPUT_DIR", tmp_path):
-            _save_pdf_output("pbt_paper", fields)
+            ok, failure = _save_pdf_output("pbt_paper", fields)
 
+        assert (ok, failure) == (True, None)
         out_file = tmp_path / "pbt_paper.extracted.json"
         assert out_file.exists(), "Output JSON file was not created"
 
@@ -303,6 +305,18 @@ def test_run_parallel_chunks_one_fails(tmp_path):
 
     assert result is None
     assert manifest[pdf_name]["status"] == "failed_chunks"
+    # Task 10.3 / design "FailureRecorder": a non-repair exception still
+    # yields one failure record per failed chunk (error_type = class name,
+    # attempts unknown -> 0) beside the compatibility int list.
+    assert manifest[pdf_name]["failed_chunks"] == [2]
+    assert manifest[pdf_name]["error"] == "API error on chunk 2"
+    assert manifest[pdf_name]["failures"] == [{
+        "stage": "extraction_chunk",
+        "chunk": 2,
+        "error_type": "RuntimeError",
+        "last_error": "API error on chunk 2",
+        "attempts": 0,
+    }]
 
 
 def test_process_pdf_cache_hit_skips_extract_chunk(tmp_path):
@@ -1111,29 +1125,45 @@ def _synth_api(synthesis_responses):
     return mock_api
 
 
-def _run_synth_case(tmp_path, mock_api, *, max_repair_attempts=None):
+def _run_synth_case(tmp_path, mock_api, *, max_repair_attempts=None,
+                    save_manifest=None, extra_patches=()):
     """Run process_pdf with a real manifest dict; save_manifest is stubbed so
-    the repo's manifest file is never touched."""
+    the repo's manifest file is never touched.
+
+    ``save_manifest`` may be a callable used as the stub's side effect (it
+    receives the manifest dict); ``extra_patches`` are entered after the
+    standard ones. The lock handed to process_pdf is created inside the
+    event loop and exposed on ``_run_synth_case.last_lock`` so a
+    ``save_manifest`` side effect can assert it is held.
+    """
     openai_config = _base_openai_config(num_chunks=3)
     if max_repair_attempts is not None:
         openai_config["max_repair_attempts"] = max_repair_attempts
     manifest: dict = {}
     qc_context = _make_qc_context("paper_synth_repair")
 
-    with patch.object(_pdf_processor, "OUTPUT_DIR", tmp_path), \
-         patch.dict(sys.modules, {"agents.openai.api_client": mock_api}), \
-         patch.object(_pdf_processor, "validate_qc_context_input"), \
-         patch.object(_pdf_processor, "save_manifest"), \
-         patch.object(_pdf_processor, "build_or_load_evidence_bundle", return_value=_synth_bundle()):
+    from contextlib import ExitStack
+
+    with ExitStack() as stack:
+        stack.enter_context(patch.object(_pdf_processor, "OUTPUT_DIR", tmp_path))
+        stack.enter_context(patch.dict(sys.modules, {"agents.openai.api_client": mock_api}))
+        stack.enter_context(patch.object(_pdf_processor, "validate_qc_context_input"))
+        stack.enter_context(patch.object(_pdf_processor, "save_manifest", side_effect=save_manifest))
+        stack.enter_context(patch.object(
+            _pdf_processor, "build_or_load_evidence_bundle", return_value=_synth_bundle(),
+        ))
+        for extra in extra_patches:
+            stack.enter_context(extra)
 
         async def _run():
+            _run_synth_case.last_lock = asyncio.Lock()
             return await _pdf_processor.process_pdf(
                 qc_context=qc_context,
                 chunk_fields=_SYNTH_CHUNK_FIELDS,
                 field_lookup=_SYNTH_FIELD_LOOKUP,
                 api_semaphore=asyncio.Semaphore(5),
                 manifest=manifest,
-                manifest_lock=asyncio.Lock(),
+                manifest_lock=_run_synth_case.last_lock,
                 openai_config=openai_config,
             )
 
@@ -1182,9 +1212,9 @@ def test_process_pdf_synthesis_malformed_then_valid_is_repaired_and_merged(tmp_p
 def test_process_pdf_synthesis_repair_limit_comes_from_config(tmp_path):
     """Requirement 5.4: ``max_repair_attempts`` from the loaded config reaches
     the loop -- with 3 configured, a persistently malformed synthesis response
-    gets exactly three repair attempts, and exhaustion lands in the existing
-    ``failed_chunk_{n}`` manifest entry with the error string (shape unchanged
-    until task 10.3)."""
+    gets exactly three repair attempts, and exhaustion lands in the
+    ``failed_chunk_{n}`` manifest entry carrying a synthesis failure record
+    (Requirement 5.3)."""
     mock_api = _synth_api(["still not json"])
 
     result, manifest = _run_synth_case(tmp_path, mock_api, max_repair_attempts=3)
@@ -1194,10 +1224,19 @@ def test_process_pdf_synthesis_repair_limit_comes_from_config(tmp_path):
     assert len(synth_calls) == 4  # 1 initial + 3 repairs
     assert [c.kwargs.get("repair_attempt") for c in synth_calls] == [None, 1, 2, 3]
     assert all(c.kwargs["stage"] == "validation_repair" for c in synth_calls[1:])
-    assert manifest["paper_synth_repair"] == {
-        "status": "failed_chunk_3",
-        "error": "Repair exhausted: chunk 3, error_type=parse, attempts=3",
-    }
+    # Task 10.3 / design "FailureRecorder": exhaustion lands in the single
+    # failure-record shape; ``error`` mirrors the record's ``last_error``.
+    entry = manifest["paper_synth_repair"]
+    assert set(entry) == {"status", "error", "failures"}
+    assert entry["status"] == "failed_chunk_3"
+    assert entry["failures"] == [{
+        "stage": "synthesis",
+        "chunk": 3,
+        "error_type": "parse",
+        "last_error": entry["error"],
+        "attempts": 3,
+    }]
+    assert entry["error"].startswith("JSON parse failed")
 
 
 def test_process_pdf_synthesis_repair_limit_defaults_to_two(tmp_path):
@@ -1211,7 +1250,8 @@ def test_process_pdf_synthesis_repair_limit_defaults_to_two(tmp_path):
     synth_calls = [c for c in mock_api.extract_chunk.call_args_list if c.args[0] == 3]
     assert len(synth_calls) == 3  # 1 initial + 2 repairs
     assert manifest["paper_synth_repair"]["status"] == "failed_chunk_3"
-    assert manifest["paper_synth_repair"]["error"].endswith("attempts=2")
+    assert manifest["paper_synth_repair"]["failures"][0]["stage"] == "synthesis"
+    assert manifest["paper_synth_repair"]["failures"][0]["attempts"] == 2
 
 
 def test_process_pdf_synthesis_budget_checked_once_per_call_no_double_mitigation(tmp_path):
@@ -1258,3 +1298,306 @@ def test_process_pdf_shares_one_repair_loop_between_chunks_and_synthesis(tmp_pat
     assert result is not None
     assert len(instances) == 1
     assert instances[0].max_repair_attempts == 3
+
+
+# ---------------------------------------------------------------------------
+# One manifest failure shape for chunks, synthesis, and the output write
+# (feature: risk-remediation, task 10.3; design.md "FailureRecorder",
+# "Logical Data Model")
+# Requirements: 1.3, 1.4, 5.3, 5.4
+# ---------------------------------------------------------------------------
+
+import inspect
+
+import pytest
+
+_FAILURE_RECORD_KEYS = {"stage", "chunk", "error_type", "last_error", "attempts"}
+
+
+def _record(stage, chunk, error_type="parse", last_error="boom", attempts=2):
+    return {
+        "stage": stage, "chunk": chunk, "error_type": error_type,
+        "last_error": last_error, "attempts": attempts,
+    }
+
+
+def test_record_failure_failed_chunks_shape_carries_records_and_compat_list():
+    """design "FailureRecorder": ``failed_chunks`` writes status, the last
+    record's error, the records, and the compatibility int list -- and
+    nothing else."""
+    manifest = {"paper": {"status": "pending"}}
+    failures = [
+        _record("extraction_chunk", 1, "parse", "first"),
+        _record("extraction_chunk", 2, "schema", "second", attempts=3),
+    ]
+
+    with patch.object(_pdf_processor, "save_manifest") as save:
+        _pdf_processor._record_failure(
+            manifest, "paper", status="failed_chunks", failures=failures,
+        )
+
+    entry = manifest["paper"]
+    assert set(entry) == {"status", "error", "failures", "failed_chunks"}
+    assert entry["status"] == "failed_chunks"
+    assert entry["error"] == "second"
+    assert entry["failures"] == failures
+    assert entry["failed_chunks"] == [1, 2]
+    save.assert_called_once_with(manifest)
+
+
+@pytest.mark.parametrize(
+    "status, stage, chunk",
+    [
+        ("failed_chunk_3", "synthesis", 3),
+        ("failed_schema_validation", "schema_validation", None),
+        ("failed_output_write", "output_write", None),
+    ],
+)
+def test_record_failure_non_chunks_statuses_have_exact_three_keys(status, stage, chunk):
+    """design "FailureRecorder": every other status writes exactly
+    ``status`` / ``error`` / ``failures`` -- no ``failed_chunks`` list."""
+    manifest = {}
+    record = _record(stage, chunk, "OSError", "disk full", attempts=1)
+
+    with patch.object(_pdf_processor, "save_manifest") as save:
+        _pdf_processor._record_failure(
+            manifest, "paper", status=status, failures=[record],
+        )
+
+    entry = manifest["paper"]
+    assert set(entry) == {"status", "error", "failures"}
+    assert entry["status"] == status
+    assert entry["error"] == "disk full"
+    assert entry["failures"] == [record]
+    assert set(entry["failures"][0]) == _FAILURE_RECORD_KEYS
+    save.assert_called_once_with(manifest)
+
+
+def _valid_fields():
+    return [{
+        "field_index": 3,
+        "domain_group": 2,
+        "field_name": "Study design",
+        "extracted_value": "RCT",
+        "evidence": "randomised controlled trial",
+        "location": ["ev-001"],
+        "location_metadata": [],
+        "confidence": "h",
+    }]
+
+
+def test_save_pdf_output_has_no_manifest_parameter():
+    """design "FailureRecorder": the ``manifest`` parameter is removed; the
+    gate is ``(pdf_name, fields, normalizer=None)``."""
+    params = list(inspect.signature(_save_pdf_output).parameters)
+    assert params == ["pdf_name", "fields", "normalizer"]
+
+
+def test_save_pdf_output_valid_returns_true_none_and_never_touches_manifest(tmp_path):
+    """Requirement 1.2 / design "FailureRecorder": success is ``(True, None)``
+    and the gate never persists the manifest."""
+    with patch.object(_pdf_processor, "OUTPUT_DIR", tmp_path), \
+         patch.object(_pdf_processor, "save_manifest") as save:
+        result = _save_pdf_output("paper_ok", _valid_fields())
+
+    assert result == (True, None)
+    assert (tmp_path / "paper_ok.extracted.json").exists()
+    save.assert_not_called()
+
+
+def test_save_pdf_output_invalid_returns_failure_record_and_never_touches_manifest(tmp_path, caplog):
+    """Requirements 1.3, 1.4 / design "FailureRecorder": a validation
+    failure returns ``(False, record)`` with ``stage="schema_validation"``,
+    ``last_error`` = the joined error strings naming the offending field,
+    ``attempts=1``; no file is written and the manifest is untouched."""
+    fields = _valid_fields()
+    fields[0]["confidence"] = "very high"  # not in the confidence enum
+    fields[0]["location_metadata"] = [{"id": "ev-999"}]  # not in location
+
+    with patch.object(_pdf_processor, "OUTPUT_DIR", tmp_path), \
+         patch.object(_pdf_processor, "save_manifest") as save, \
+         caplog.at_level(logging.WARNING, logger=_pdf_processor.logger.name):
+        ok, record = _save_pdf_output("paper_bad", fields)
+
+    assert ok is False
+    assert set(record) == _FAILURE_RECORD_KEYS
+    assert record["stage"] == "schema_validation"
+    assert record["chunk"] is None
+    assert record["attempts"] == 1
+    assert isinstance(record["error_type"], str) and record["error_type"]
+    # Both the schema error and the cross-reference error are joined in.
+    assert "field_index=3" in record["last_error"]
+    assert "ev-999" in record["last_error"]
+    assert not (tmp_path / "paper_bad.extracted.json").exists()
+    save.assert_not_called()
+    # Logging is kept: one WARNING per error plus the ERROR summary.
+    assert any(r.levelno == logging.ERROR and "paper_bad" in r.getMessage() for r in caplog.records)
+    assert sum(1 for r in caplog.records if r.levelno == logging.WARNING) >= 2
+
+
+def test_save_pdf_output_write_error_propagates_without_manifest_write(tmp_path):
+    """design "FailureRecorder": ``_atomic_write_json`` errors propagate
+    unchanged -- the gate does not catch I/O errors and does not touch the
+    manifest."""
+    with patch.object(_pdf_processor, "OUTPUT_DIR", tmp_path), \
+         patch.object(_pdf_processor, "save_manifest") as save, \
+         patch.object(_pdf_processor, "_atomic_write_json", side_effect=OSError("disk full")):
+        with pytest.raises(OSError, match="disk full"):
+            _save_pdf_output("paper_io", _valid_fields())
+
+    save.assert_not_called()
+
+
+def test_process_pdf_output_write_error_records_failed_output_write_and_reraises(tmp_path):
+    """Requirement 1.4 / design "FailureRecorder": a write error is recorded
+    as ``failed_output_write`` (stage ``output_write``) under the manifest
+    lock and then re-raised so the orchestrator still logs it."""
+    mock_api = _synth_api([_VALID_SYNTH])
+    held_at_save: list[bool] = []
+    # process_pdf re-raises, so _run_synth_case never returns the manifest;
+    # the save_manifest stub captures it instead.
+    captured: dict = {}
+
+    def _capture(manifest):
+        captured.update(manifest)
+        held_at_save.append(_run_synth_case.last_lock.locked())
+
+    with pytest.raises(OSError, match="disk full"):
+        _run_synth_case(
+            tmp_path, mock_api, save_manifest=_capture,
+            extra_patches=[patch.object(
+                _pdf_processor, "_atomic_write_json", side_effect=OSError("disk full"),
+            )],
+        )
+
+    entry = captured["paper_synth_repair"]
+    assert set(entry) == {"status", "error", "failures"}
+    assert entry["status"] == "failed_output_write"
+    assert entry["error"] == "disk full"
+    assert entry["failures"] == [{
+        "stage": "output_write",
+        "chunk": None,
+        "error_type": "OSError",
+        "last_error": "disk full",
+        "attempts": 1,
+    }]
+    assert held_at_save and all(held_at_save), "manifest persisted outside manifest_lock"
+    assert not (tmp_path / "paper_synth_repair.extracted.json").exists()
+
+
+def test_process_pdf_schema_validation_failure_records_failure_record_under_lock(tmp_path):
+    """Requirements 1.3, 1.4 / design "FailureRecorder": ``(False, record)``
+    from the gate becomes ``failed_schema_validation`` with that record,
+    persisted under the manifest lock; no output file is written."""
+    mock_api = _synth_api([_VALID_SYNTH])
+    held_at_save: list[bool] = []
+
+    def _spy(manifest):
+        held_at_save.append(_run_synth_case.last_lock.locked())
+
+    fake_validator = MagicMock()
+    fake_validator.validate.return_value = _pdf_processor.ValidationResult(
+        is_valid=False, errors=["field_index=5 | field_name='Synthesis notes' | bad value"],
+    )
+
+    result, manifest = _run_synth_case(
+        tmp_path, mock_api, save_manifest=_spy,
+        extra_patches=[patch.object(_pdf_processor, "_final_output_validator", fake_validator)],
+    )
+
+    assert result is None
+    entry = manifest["paper_synth_repair"]
+    assert set(entry) == {"status", "error", "failures"}
+    assert entry["status"] == "failed_schema_validation"
+    assert "field_index=5" in entry["error"]
+    assert len(entry["failures"]) == 1
+    record = entry["failures"][0]
+    assert set(record) == _FAILURE_RECORD_KEYS
+    assert record["stage"] == "schema_validation"
+    assert record["chunk"] is None
+    assert record["last_error"] == entry["error"]
+    assert record["attempts"] == 1
+    assert held_at_save and all(held_at_save), "manifest persisted outside manifest_lock"
+    assert not (tmp_path / "paper_synth_repair.extracted.json").exists()
+
+
+def test_run_parallel_chunks_repair_exhaustion_records_one_record_per_failed_chunk(tmp_path):
+    """Requirements 5.3, 5.4 / design "FailureRecorder": chunk exhaustion
+    writes ``failed_chunks`` with one ``extraction_chunk`` record per failed
+    chunk (built from ``RepairExhaustedError.metadata``) beside the
+    compatibility int list, under the manifest lock."""
+    chunk_fields = {
+        1: [{"field_index": 3, "field_name": "Study design", "definition": "..."}],
+        2: [{"field_index": 10, "field_name": "Sample size", "definition": "..."}],
+    }
+    chunk_sources = {1: "evidence text chunk 1", 2: "evidence text chunk 2"}
+    pdf_name = "paper_exhausted"
+    manifest = {pdf_name: {"status": "pending"}}
+    held_at_save: list[bool] = []
+    lock_box: dict = {}
+
+    def _side_effect(chunk_num, *args, **kwargs):
+        if chunk_num == 2:
+            return "never valid json {"
+        return json.dumps({"extractions": [{"i": 3, "v": "RCT", "loc": [], "c": "h"}]})
+
+    def _spy(_manifest):
+        held_at_save.append(lock_box["lock"].locked())
+
+    mock_api = MagicMock()
+    mock_api.extract_chunk = AsyncMock(side_effect=_side_effect)
+    mock_api.warm_pdf_cache = AsyncMock()
+
+    with patch.dict(sys.modules, {"agents.openai.api_client": mock_api}), \
+         patch.object(_pdf_processor, "save_manifest", side_effect=_spy):
+
+        async def _run():
+            lock_box["lock"] = asyncio.Lock()
+            return await _pdf_processor._run_parallel_chunks(
+                chunk_sources=chunk_sources,
+                chunk_fields=chunk_fields,
+                valid_location_ids={"ev-001"},
+                api_semaphore=asyncio.Semaphore(5),
+                pdf_name=pdf_name,
+                num_chunks=3,
+                enable_prewarm=False,
+                chunk_model="gpt-test",
+                synthesis_model="gpt-test",
+                prewarm_synthesis_diff=False,
+                manifest=manifest,
+                manifest_lock=lock_box["lock"],
+            )
+
+        result = asyncio.run(_run())
+
+    assert result is None
+    entry = manifest[pdf_name]
+    assert set(entry) == {"status", "error", "failures", "failed_chunks"}
+    assert entry["status"] == "failed_chunks"
+    assert entry["failed_chunks"] == [2]
+    assert len(entry["failures"]) == 1
+    record = entry["failures"][0]
+    assert set(record) == _FAILURE_RECORD_KEYS
+    assert record["stage"] == "extraction_chunk"
+    assert record["chunk"] == 2
+    assert record["error_type"] == "parse"
+    assert record["attempts"] == 2  # default max_repair_attempts
+    assert record["last_error"].startswith("JSON parse failed")
+    assert entry["error"] == record["last_error"]
+    assert held_at_save and all(held_at_save), "manifest persisted outside manifest_lock"
+
+
+def test_load_completed_result_ignores_failure_record_entries(tmp_path):
+    """design "FailureRecorder" implementation note: ``_load_completed_result``
+    reads only ``status``; the added ``error`` / ``failures`` keys never make
+    a failed entry look complete, even when a stale output file exists."""
+    pdf_name = "paper_failed_shape"
+    (tmp_path / f"{pdf_name}.extracted.json").write_text("[]", encoding="utf-8")
+    manifest = {pdf_name: {
+        "status": "failed_output_write",
+        "error": "disk full",
+        "failures": [_record("output_write", None, "OSError", "disk full", 1)],
+    }}
+
+    with patch.object(_pdf_processor, "OUTPUT_DIR", tmp_path):
+        assert _load_completed_result(pdf_name, manifest) is None

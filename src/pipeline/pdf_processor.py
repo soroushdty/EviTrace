@@ -916,6 +916,92 @@ class RepairExhaustedError(Exception):
 # Module-level singleton — loaded once, reused across all _save_pdf_output calls.
 _final_output_validator = FinalOutputValidator()
 
+# One manifest failure record (design "FailureRecorder" / "Logical Data
+# Model"). Every failure site -- extraction-chunk exhaustion, synthesis
+# exhaustion, final-output schema validation, and the output write -- emits
+# this same shape so an operator reads one structure regardless of stage.
+FailureRecord = dict[str, Any]
+_FAILURE_STAGES = ("extraction_chunk", "synthesis", "output_write", "schema_validation")
+
+
+def _make_failure_record(
+    *,
+    stage: str,
+    chunk: Optional[int],
+    error_type: str,
+    last_error: str,
+    attempts: int,
+) -> FailureRecord:
+    """Build one ``FailureRecord`` with exactly the five documented keys."""
+    if stage not in _FAILURE_STAGES:
+        raise ValueError(f"unknown failure stage {stage!r}; expected one of {_FAILURE_STAGES}")
+    return {
+        "stage": stage,
+        "chunk": chunk,
+        "error_type": error_type,
+        "last_error": last_error,
+        "attempts": int(attempts),
+    }
+
+
+def _failure_record_from_exception(
+    exc: BaseException, *, stage: str, chunk: Optional[int],
+) -> FailureRecord:
+    """Turn a model-stage exception into a ``FailureRecord``.
+
+    A ``RepairExhaustedError`` carries the loop's structured metadata, so the
+    record takes ``error_type`` (``parse``/``schema``), the underlying
+    ``last_error`` message and the attempt count from it. Any other exception
+    (API/transport/budget errors that bypass the repair loop) is recorded
+    with its class name as ``error_type`` and ``attempts=0`` because no
+    repair attempt was made.
+    """
+    if isinstance(exc, RepairExhaustedError):
+        md = exc.metadata
+        return _make_failure_record(
+            stage=stage,
+            chunk=md.get("chunk", chunk),
+            error_type=str(md.get("error_type") or ""),
+            last_error=str(md.get("last_error", "")),
+            attempts=int(md.get("attempts", 0) or 0),
+        )
+    return _make_failure_record(
+        stage=stage,
+        chunk=chunk,
+        error_type=type(exc).__name__,
+        last_error=str(exc),
+        attempts=0,
+    )
+
+
+def _record_failure(
+    manifest: dict,
+    pdf_name: str,
+    *,
+    status: str,
+    failures: list[FailureRecord],
+) -> None:
+    """Persist one paper's failure in the single manifest failure shape.
+
+    Writes ``manifest[pdf_name] = {"status", "error", "failures"}`` where
+    ``error`` mirrors the last record's ``last_error`` (kept for readers that
+    only look at a string), and -- for ``status == "failed_chunks"`` only --
+    the compatibility ``failed_chunks`` list of chunk numbers. The caller
+    must hold ``manifest_lock``; this helper is synchronous and calls
+    ``save_manifest`` itself so every failure write goes through one path.
+    """
+    if not failures:
+        raise ValueError("_record_failure requires at least one FailureRecord")
+    entry: dict[str, Any] = {
+        "status": status,
+        "error": failures[-1]["last_error"],
+        "failures": list(failures),
+    }
+    if status == "failed_chunks":
+        entry["failed_chunks"] = [f["chunk"] for f in failures]
+    manifest[pdf_name] = entry
+    save_manifest(manifest)
+
 
 def _check_location_metadata_cross_references(fields: list[dict]) -> list[str]:
     """Check that every location_metadata item's id exists in the field's location list or equals 'unresolved'.
@@ -968,22 +1054,26 @@ def _save_pdf_output(
     pdf_name: str,
     fields: list[dict],
     normalizer=None,
-    manifest: Optional[dict] = None,
-) -> bool:
+) -> tuple[bool, Optional[FailureRecord]]:
     """Save extracted fields to JSON, optionally sanitizing extracted_value with a normalizer.
 
     Validates the field list against the Final Output Schema before writing.
-    On validation failure: sets manifest status to "failed_schema_validation",
-    logs structured errors, and returns without writing the output file.
+    This gate never touches the manifest and never catches I/O errors
+    (design "FailureRecorder"): on validation failure it logs one WARNING
+    per error naming the offending field (Requirement 1.3) plus an ERROR
+    summary, writes nothing, and returns a ``schema_validation`` failure
+    record for the caller to persist; ``_atomic_write_json`` errors
+    propagate unchanged.
 
     Args:
         pdf_name: PDF identifier
         fields: List of extracted field dicts
         normalizer: Optional text normalizer to apply to extracted_value fields
-        manifest: Optional manifest dict to update on validation failure
 
     Returns:
-        True if the output was written successfully, False if validation failed.
+        ``(True, None)`` when the output was written; ``(False, record)``
+        when validation failed, where ``record`` has ``stage="schema_validation"``,
+        ``chunk=None``, ``last_error`` = the joined error strings, ``attempts=1``.
     """
     OUTPUT_DIR.mkdir(exist_ok=True)
     out = OUTPUT_DIR / f"{pdf_name}.extracted.json"
@@ -1005,19 +1095,22 @@ def _save_pdf_output(
     if all_errors:
         for err in all_errors:
             logger.warning("Schema validation error for %s: %s", pdf_name, err)
-        if manifest is not None:
-            manifest[pdf_name] = {"status": "failed_schema_validation"}
-            save_manifest(manifest)
         logger.error(
             "FAIL  %s -- schema validation failed with %d error(s); output not written",
             pdf_name,
             len(all_errors),
         )
-        return False
+        return False, _make_failure_record(
+            stage="schema_validation",
+            chunk=None,
+            error_type="schema",
+            last_error="; ".join(all_errors),
+            attempts=1,
+        )
 
     _atomic_write_json(out, fields)
     logger.info(f"Saved -> {out.name}")
-    return True
+    return True, None
 
 
 def _build_evidence_coverage_record(
@@ -1212,12 +1305,18 @@ async def _run_parallel_chunks(
             failed[chunk_num] = result
 
     if failed:
+        # One extraction_chunk record per failed chunk, in chunk order; the
+        # compatibility ``failed_chunks`` int list is derived from them.
         async with manifest_lock:
-            manifest[pdf_name] = {
-                "status": "failed_chunks",
-                "failed_chunks": list(failed.keys()),
-            }
-            save_manifest(manifest)
+            _record_failure(
+                manifest, pdf_name, status="failed_chunks",
+                failures=[
+                    _failure_record_from_exception(
+                        exc, stage="extraction_chunk", chunk=chunk_num,
+                    )
+                    for chunk_num, exc in failed.items()
+                ],
+            )
         return None
 
     return list(validated_results)
@@ -1608,9 +1707,15 @@ async def process_pdf(
             "%s synthesis exception details",
             pdf_name, exc_info=True,
         )
+        # Requirement 5.3: synthesis exhaustion (or any other synthesis-stage
+        # error) is recorded in the same failure shape as the chunk stage.
         async with manifest_lock:
-            manifest[pdf_name] = {"status": f"failed_chunk_{synthesis_chunk}", "error": str(exc)}
-            save_manifest(manifest)
+            _record_failure(
+                manifest, pdf_name, status=f"failed_chunk_{synthesis_chunk}",
+                failures=[_failure_record_from_exception(
+                    exc, stage="synthesis", chunk=synthesis_chunk,
+                )],
+            )
         return None
 
     # Step 5: merge, sort, save, and mark complete.
@@ -1624,17 +1729,41 @@ async def process_pdf(
         normalizer_name = openai_config.get("exported_value_normalizer", "AggressiveNormalizer")
         normalizer = _get_normalizer(normalizer_name)
 
-    write_ok = _save_pdf_output(pdf_name, all_fields, normalizer=normalizer, manifest=manifest)
-
-    if write_ok:
+    # The output gate never touches the manifest and never swallows I/O
+    # errors (design "FailureRecorder"): a validation failure comes back as
+    # a record to persist here, and a write error is recorded as
+    # ``failed_output_write`` and re-raised so the orchestrator still logs it
+    # as an unhandled error (Requirement 1.4: no silent skipped write).
+    try:
+        write_ok, write_failure = _save_pdf_output(pdf_name, all_fields, normalizer=normalizer)
+    except Exception as exc:
+        logger.error("FAIL  %s -- output write failed: %s", pdf_name, exc)
         async with manifest_lock:
-            entry: dict[str, Any] = {"status": "complete"}
-            if evidence_coverage is not None:
-                entry["evidence_coverage"] = evidence_coverage
-            manifest[pdf_name] = entry
-            save_manifest(manifest)
-        logger.info(f"DONE  {pdf_name} -- {len(all_fields)} fields extracted")
-        return all_fields
-    else:
-        # Validation failed — manifest already updated inside _save_pdf_output
+            _record_failure(
+                manifest, pdf_name, status="failed_output_write",
+                failures=[_make_failure_record(
+                    stage="output_write",
+                    chunk=None,
+                    error_type=type(exc).__name__,
+                    last_error=str(exc),
+                    attempts=1,
+                )],
+            )
+        raise
+
+    if not write_ok:
+        async with manifest_lock:
+            _record_failure(
+                manifest, pdf_name, status="failed_schema_validation",
+                failures=[write_failure],
+            )
         return None
+
+    async with manifest_lock:
+        entry: dict[str, Any] = {"status": "complete"}
+        if evidence_coverage is not None:
+            entry["evidence_coverage"] = evidence_coverage
+        manifest[pdf_name] = entry
+        save_manifest(manifest)
+    logger.info(f"DONE  {pdf_name} -- {len(all_fields)} fields extracted")
+    return all_fields

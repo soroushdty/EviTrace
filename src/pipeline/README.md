@@ -30,9 +30,10 @@ pipeline.run_pipeline(pdf_paths)
    │
    ├──► pipeline.evidence_index.build_or_load_evidence_bundle  # GROBID TEI → ranked evidence
    ├──► agents.openai.warm_pdf_cache                    # optional cache prewarm
-   ├──► agents.openai.extract_chunk (× N-1, parallel)  # chunked extraction
+   ├──► agents.openai.extract_chunk (× N-1, parallel)  # chunked extraction (via RepairRetryLoop)
    ├──► pipeline.validator.validate_chunk_output        # local index/schema checks
-   ├──► agents.openai.extract_chunk (synthesis chunk)   # final chunk with prior context
+   ├──► agents.openai.extract_chunk (synthesis chunk)   # final chunk with prior context (same RepairRetryLoop)
+   ├──► pipeline.pdf_processor._save_pdf_output         # final-output schema gate + atomic write
    │
    ├──► pipeline.manifest.save_manifest                 # status checkpoint
    └──► pipeline.extraction_report.generate_qc_report  # outputs/qc_report.csv
@@ -54,7 +55,9 @@ Outputs (per PDF):
   `{field_index, domain_group, field_name, extracted_value, evidence,
   location, location_metadata, confidence}` records.
 - An updated `manifest.json` entry (`complete`, `failed_qc_pipeline`,
-  `failed_chunks`, or `failed_chunk_<n>`).
+  `failed_chunks`, `failed_chunk_<n>`, `failed_schema_validation`, or
+  `failed_output_write`). Every failed entry written by `pdf_processor`
+  carries the same failure-record shape — see `manifest.py` below.
 - A line in the rolled-up `outputs/qc_report.csv` after all PDFs are
   processed.
 
@@ -120,10 +123,31 @@ Steps:
    validate each chunk's JSON.
 7. `reconstruct_fields(validated, field_lookup, evidence_map)` — expand
    compact `{i, v, loc, c}` records into full field dicts.
-8. Run synthesis chunk with prior context.
-9. Merge, sort, save JSON, mark manifest `complete`.
-10. `attach_table_figure_crops(fields, bundle, config)` — crop table/figure
-    regions for resolved `loc` IDs when configured.
+8. Run the synthesis chunk with prior context through the same
+   `RepairRetryLoop` as the extraction chunks (`stage="synthesis"`,
+   `max_repair_attempts` from `retry.max_repair_attempts`).
+9. Merge, sort, `attach_table_figure_crops(fields, bundle, config)` (crop
+   table/figure regions for resolved `loc` IDs when configured), then
+   `_save_pdf_output(pdf_name, fields, normalizer=None)
+   -> (bool, FailureRecord | None)`: validate against the final-output
+   schema and cross-check `location_metadata` ids; on success write the
+   JSON atomically and return `(True, None)`; on a validation failure log
+   one WARNING per error (naming the field) plus an ERROR summary, write
+   nothing, and return `(False, record)`. The gate never touches the
+   manifest and never catches I/O errors.
+10. Mark the manifest `complete` (with `evidence_coverage`), or record the
+    failure via `_record_failure(...)` under `manifest_lock`:
+    `failed_schema_validation` for `(False, record)`; `failed_output_write`
+    when the write raised — the exception is then re-raised so the
+    orchestrator logs it as an unhandled error (no silent skipped write).
+
+Failure recording (`_record_failure(manifest, pdf_name, *, status, failures)`)
+is the single path for every failure site — extraction-chunk exhaustion
+(`failed_chunks`), synthesis exhaustion or error (`failed_chunk_<n>`),
+schema validation (`failed_schema_validation`), and the output write
+(`failed_output_write`). `RepairExhaustedError.metadata` supplies
+`error_type` (`parse`/`schema`), `last_error`, and `attempts`; any other
+exception is recorded with its class name and `attempts: 0`.
 
 ### `evidence_index.py`
 
@@ -183,8 +207,36 @@ Tiny helpers around `manifest.json`:
 - `save_manifest(manifest) -> None` — writes pretty-printed JSON.
 
 The manifest is keyed by PDF stem and stores a `status` plus optional
-fields like `failed_chunks` or `error`. It is the only mechanism that
-makes the pipeline resumable after a crash.
+fields. It is the only mechanism that makes the pipeline resumable after
+a crash; resumption reads only `status` (and the identity/output-path
+keys), so the optional keys below never change a stale/complete verdict.
+
+- `complete` entries carry `evidence_coverage`
+  (`{ratio, selected_chars, substantive_chars, below_threshold}`).
+- Every failed entry written by `pdf_processor` has one shape:
+
+  ```json
+  {
+    "status": "failed_chunks | failed_chunk_<n> | failed_schema_validation | failed_output_write",
+    "error": "<last_error of the last record>",
+    "failures": [
+      {
+        "stage": "extraction_chunk | synthesis | schema_validation | output_write",
+        "chunk": 2,
+        "error_type": "parse | schema | <ExceptionClassName>",
+        "last_error": "JSON parse failed: ...",
+        "attempts": 2
+      }
+    ],
+    "failed_chunks": [2]
+  }
+  ```
+
+  `chunk` is `null` for the `schema_validation` and `output_write` stages;
+  the compatibility `failed_chunks` int list is present only for status
+  `failed_chunks` (one record per failed chunk, in chunk order).
+  `failed_qc_pipeline` is written by the orchestrator before extraction
+  starts and carries `status` and `error` only (no `failures` list).
 
 ### `extraction_report.py`
 
