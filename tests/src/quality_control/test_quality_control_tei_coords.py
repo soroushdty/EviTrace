@@ -115,7 +115,7 @@ def test_malformed_table_cases_yield_zero(case):
         "",
         "   ",
         ";",
-        "7;211.98,325.41,344.69,400.00",  # legacy grammar
+        "7;211.98,325.41,344.69,400.00",  # legacy grammar; legacy-grammar-negative-case
         "7,211.98,325.41,344.69",  # four numbers
         "7,211.98,325.41,344.69,11.28,99",  # six numbers
         "7,a,b,c,d",

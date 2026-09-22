@@ -100,8 +100,8 @@ COORD_CASES: tuple[CoordCase, ...] = (
         3,
     ),
     # Legacy hand-built fixture format (page;x0,y0,x1,y1) -- never emitted by GROBID.
-    CoordCase("legacy_semicolon_format", "7;211.98,325.41", None),
-    CoordCase("legacy_semicolon_full", "7;211.98,325.41,344.69,400.00", None),
+    CoordCase("legacy_semicolon_format", "7;211.98,325.41", None),  # legacy-grammar-negative-case
+    CoordCase("legacy_semicolon_full", "7;211.98,325.41,344.69,400.00", None),  # legacy-grammar-negative-case
     CoordCase("alpha", "abc", None),
     CoordCase("too_few_numbers", "1,2,3", None),
     CoordCase("empty", "", None),

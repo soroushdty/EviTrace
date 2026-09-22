@@ -77,7 +77,7 @@ def test_parse_coords_unions_boxes_on_first_page_only():
 
 def test_parse_coords_legacy_fixture_grammar_is_rejected():
     # The old hand-built "page;x0,y0,x1,y1" strings must no longer parse (11.6).
-    assert _parse_coords("1;10,20,30,40") == {"page": None, "coords": None}
+    assert _parse_coords("1;10,20,30,40") == {"page": None, "coords": None}  # legacy-grammar-negative-case
 
 
 # ---------------------------------------------------------------------------
@@ -171,7 +171,7 @@ def test_malformed_paragraph_coords_yield_unknown_page_and_indexing_continues():
       <div>
         <head>Methods</head>
         <p coords="garbage"><s>Malformed paragraph.</s></p>
-        <p coords="1;10,20,30,40"><s>Legacy grammar paragraph.</s></p>
+        <p coords="1;10,20,30,40"><s>Legacy grammar paragraph.</s></p><!-- legacy-grammar-negative-case -->
         <p coords="3,10,20,30,40"><s>Good paragraph.</s></p>
       </div>
 """
