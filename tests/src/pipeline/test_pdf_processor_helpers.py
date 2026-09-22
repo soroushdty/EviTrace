@@ -736,3 +736,238 @@ def test_gather_field_candidates_collects_matching_entries_across_chunks():
     ]
     candidates = _pdf_processor._gather_field_candidates(3, [1, 2], validated_results)
     assert [c["v"] for c in candidates] == ["A", "B"]
+
+
+# ---------------------------------------------------------------------------
+# process_pdf: per-paper evidence coverage record in the manifest
+# (feature: risk-remediation, task 9.2; design.md "EvidenceCoverage", D8)
+# Requirements: 10.4
+# ---------------------------------------------------------------------------
+
+import logging
+
+_COVERAGE_KEYS = {"ratio", "selected_chars", "substantive_chars", "below_threshold"}
+
+
+def _coverage_item(item_id, text, *, section="Methods", score=10):
+    return {
+        "id": item_id,
+        "type": "sentence",
+        "section_path": section,
+        "page": 1,
+        "coords": None,
+        "score": score,
+        "text": text,
+        "annotations": {},
+    }
+
+
+def _coverage_bundle(items):
+    """Duck-typed bundle whose ``evidence_items`` drive the real ranker."""
+    return types.SimpleNamespace(
+        paper_id="paper_cov",
+        evidence_items=items,
+        evidence_map={item["id"]: item for item in items},
+        prefilled_fields={},
+    )
+
+
+def _coverage_fields():
+    """Two chunks of LLM fields (chunk 3 = synthesis owns none)."""
+    chunk_fields = {
+        1: [{"field_index": 3, "domain_group": "2. X", "field_name": "Study design",
+             "definition": "randomised trial design", "reviewer_question": ""}],
+        2: [{"field_index": 4, "domain_group": "2. X", "field_name": "Sample size",
+             "definition": "participants enrolled", "reviewer_question": ""}],
+    }
+    field_lookup = {
+        3: {"domain_group": 2, "field_name": "Study design"},
+        4: {"domain_group": 2, "field_name": "Sample size"},
+    }
+    return chunk_fields, field_lookup
+
+
+def _coverage_api():
+    def _side_effect(chunk_num, *args, **kwargs):
+        if chunk_num == 1:
+            return json.dumps({"extractions": [{"i": 3, "v": "RCT", "loc": ["ev-a"], "c": "h"}]})
+        if chunk_num == 2:
+            return json.dumps({"extractions": [{"i": 4, "v": "120", "loc": ["ev-b"], "c": "m"}]})
+        raise AssertionError(f"extract_chunk should not be called for chunk {chunk_num}")
+
+    mock_api = MagicMock()
+    mock_api.extract_chunk = AsyncMock(side_effect=_side_effect)
+    mock_api.warm_pdf_cache = AsyncMock()
+    return mock_api
+
+
+def _run_coverage_case(tmp_path, *, max_chars, threshold, caplog=None):
+    """Three substantive items (50 + 50 + 52 chars) plus one 29-char Metadata item.
+
+    ``substantive_chars`` is therefore 152 regardless of caps (the Metadata
+    item is excluded from the denominator but, scoring 0, is ranked last and
+    only ever selected when the cap leaves room for it); ``max_chars`` decides
+    how many of the three substantive items the ranker can afford. Field
+    keywords (randomised/trial/design/participants/enrolled) lift ev-a and
+    ev-b above ev-c so the selection order is ev-a, ev-b, ev-c, ev-m.
+    """
+    items = [
+        _coverage_item("ev-a", "Randomised trial design with participants enrolled".ljust(50, "."), score=10),
+        _coverage_item("ev-b", "Participants enrolled in the randomised trial".ljust(50, "."), score=10),
+        _coverage_item("ev-c", "Unrelated filler sentence that scores lower overall".ljust(52, "."), score=1),
+        _coverage_item("ev-m", "Title of the paper (metadata)", section="Metadata", score=0),
+    ]
+    assert [len(i["text"]) for i in items] == [50, 50, 52, 29]
+    bundle = _coverage_bundle(items)
+    chunk_fields, field_lookup = _coverage_fields()
+    openai_config = _base_openai_config(num_chunks=3)
+    openai_config["max_evidence_items_per_chunk"] = 150
+    openai_config["max_evidence_chars_per_chunk"] = max_chars
+    openai_config["min_evidence_coverage_ratio"] = threshold
+    mock_api = _coverage_api()
+    manifest: dict = {}
+    qc_context = _make_qc_context("paper_cov")
+
+    with patch.object(_pdf_processor, "OUTPUT_DIR", tmp_path), \
+         patch.dict(sys.modules, {"agents.openai.api_client": mock_api}), \
+         patch.object(_pdf_processor, "validate_qc_context_input"), \
+         patch.object(_pdf_processor, "build_or_load_evidence_bundle", return_value=bundle):
+
+        async def _run():
+            return await _pdf_processor.process_pdf(
+                qc_context=qc_context,
+                chunk_fields=chunk_fields,
+                field_lookup=field_lookup,
+                api_semaphore=asyncio.Semaphore(5),
+                manifest=manifest,
+                manifest_lock=asyncio.Lock(),
+                openai_config=openai_config,
+            )
+
+        if caplog is not None:
+            with caplog.at_level(logging.INFO, logger=_pdf_processor.logger.name):
+                result = asyncio.run(_run())
+        else:
+            result = asyncio.run(_run())
+
+    return result, manifest, mock_api, bundle, openai_config, chunk_fields
+
+
+def test_process_pdf_completion_records_full_evidence_coverage(tmp_path, caplog):
+    """Requirement 10.4 / design "EvidenceCoverage": a completed paper's
+    manifest entry carries ``evidence_coverage`` with the measured values.
+    A 152-char cap admits exactly the three substantive items (the 29-char
+    Metadata item would overflow and is skipped): 152/152."""
+    result, manifest, *_ = _run_coverage_case(
+        tmp_path, max_chars=152, threshold=0.6, caplog=caplog
+    )
+
+    assert result is not None
+    entry = manifest["paper_cov"]
+    assert entry["status"] == "complete"
+    assert set(entry["evidence_coverage"].keys()) == _COVERAGE_KEYS
+    cov = entry["evidence_coverage"]
+    assert cov["substantive_chars"] == 152          # 50 + 50 + 52; Metadata excluded
+    assert cov["selected_chars"] == 152
+    assert cov["ratio"] == 1.0
+    assert cov["below_threshold"] is False
+    assert isinstance(cov["selected_chars"], int)
+    assert isinstance(cov["substantive_chars"], int)
+    assert isinstance(cov["ratio"], float)
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING and "coverage" in r.getMessage().lower()]
+    assert warnings == []
+    infos = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO and "Evidence coverage" in r.getMessage()]
+    assert infos, "an INFO line reporting the coverage ratio is expected"
+    assert "paper_cov" in infos[0]
+
+
+def test_process_pdf_below_threshold_warns_and_flags(tmp_path, caplog):
+    """Requirement 10.4: when the ratio falls below
+    ``min_evidence_coverage_ratio`` the paper is flagged and a WARNING naming
+    the paper, the ratio and the threshold is emitted. A 100-char cap admits
+    the two top-scored 50-char items only: 100/152 = 0.6579 < 0.7."""
+    result, manifest, *_ = _run_coverage_case(
+        tmp_path, max_chars=100, threshold=0.7, caplog=caplog
+    )
+
+    assert result is not None
+    cov = manifest["paper_cov"]["evidence_coverage"]
+    assert cov["substantive_chars"] == 152
+    assert cov["selected_chars"] == 100
+    assert cov["ratio"] == round(100 / 152, 4)
+    assert cov["below_threshold"] is True
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING and "coverage" in r.getMessage().lower()]
+    assert len(warnings) == 1
+    message = warnings[0].getMessage()
+    assert "paper_cov" in message
+    assert "0.6579" in message
+    assert "0.7" in message
+
+
+def test_process_pdf_above_threshold_no_warning(tmp_path, caplog):
+    """Same 100/152 selection but with the default 0.6 threshold: no
+    WARNING and ``below_threshold`` is False."""
+    result, manifest, *_ = _run_coverage_case(
+        tmp_path, max_chars=100, threshold=0.6, caplog=caplog
+    )
+
+    assert result is not None
+    cov = manifest["paper_cov"]["evidence_coverage"]
+    assert cov["ratio"] == round(100 / 152, 4)
+    assert cov["below_threshold"] is False
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING and "coverage" in r.getMessage().lower()]
+    assert warnings == []
+
+
+def test_process_pdf_evidence_package_bytes_unchanged_by_coverage_measurement(tmp_path):
+    """Measuring coverage must not alter the shared paper package: the source
+    string handed to every ``extract_chunk`` call is byte-identical to what
+    ``build_paper_evidence_package`` produces for the same inputs (prompt
+    cache stability)."""
+    _, _, mock_api, bundle, openai_config, chunk_fields = _run_coverage_case(
+        tmp_path, max_chars=100, threshold=0.6
+    )
+    evidence_index = importlib.import_module("pipeline.evidence_index")
+    all_llm_fields = [f for fields in chunk_fields.values() for f in fields]
+    expected = evidence_index.build_paper_evidence_package(
+        bundle,
+        all_llm_fields,
+        max_items=openai_config["max_evidence_items_per_chunk"],
+        max_chars=openai_config["max_evidence_chars_per_chunk"],
+    )
+    assert mock_api.extract_chunk.call_count == 2
+    for call in mock_api.extract_chunk.call_args_list:
+        assert call.args[1] == expected
+    assert '"evidence_count":2' in expected.replace(" ", "")
+
+
+def test_completed_entry_with_evidence_coverage_is_still_read_as_complete(tmp_path):
+    """Design "Migration Strategy": ``_load_completed_result`` reads only
+    ``status`` and ``is_stale`` reads only identity fields -- the added
+    ``evidence_coverage`` key changes neither verdict."""
+    pdf_name = "paper_cov_cached"
+    fields = [{"field_index": 1, "extracted_value": "Smith", "confidence": "h"}]
+    (tmp_path / f"{pdf_name}.extracted.json").write_text(json.dumps(fields), encoding="utf-8")
+    entry = {
+        "status": "complete",
+        "evidence_coverage": {
+            "ratio": 0.5, "selected_chars": 5, "substantive_chars": 10, "below_threshold": True,
+        },
+    }
+    with patch.object(_pdf_processor, "OUTPUT_DIR", tmp_path):
+        assert _load_completed_result(pdf_name, {pdf_name: entry}) == fields
+
+    manifest_mod = importlib.import_module("pipeline.manifest")
+    identity = manifest_mod.ManifestIdentity(
+        pdf_content_hash="a" * 64,
+        config_hash="c" * 64,
+        extraction_map_hash="b" * 64,
+        model_id="gpt-test",
+        schema_version="1",
+        output_path=f"{pdf_name}.extracted.json",
+    )
+    with_identity = {**entry, **identity.to_dict()}
+    assert manifest_mod.is_stale(with_identity, identity) is False
+    assert manifest_mod.is_stale({**with_identity, "evidence_coverage": None}, identity) is False

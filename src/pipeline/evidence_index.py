@@ -1256,9 +1256,11 @@ def build_paper_evidence_package(
     OpenAI's prompt cache on every call after the first.
 
     Selection (ranking, caps, ordering) is delegated to
-    :func:`select_paper_evidence`; this function only serialises the result.
-    Callers that need the coverage statistics call ``select_paper_evidence``
-    directly and serialise with the same envelope.
+    :func:`select_paper_evidence`; this function only serialises the result
+    via :func:`serialise_evidence_package`. Callers that need the coverage
+    statistics call ``select_paper_evidence`` directly and serialise with
+    ``serialise_evidence_package`` so the bytes stay identical to this
+    function's output without ranking twice.
 
     Determinism
     -----------
@@ -1271,6 +1273,18 @@ def build_paper_evidence_package(
     selected, _stats = select_paper_evidence(
         bundle, all_fields, max_items=max_items, max_chars=max_chars
     )
+    return serialise_evidence_package(bundle, selected)
+
+
+def serialise_evidence_package(bundle: EvidenceBundle, selected: list[dict[str, Any]]) -> str:
+    """Serialise an already-selected item list into the paper package envelope.
+
+    This is the single serialisation used by :func:`build_paper_evidence_package`;
+    ``selected`` must be the list returned by :func:`select_paper_evidence`
+    (already in stable ``id`` order). Splitting it out lets ``pdf_processor``
+    measure coverage from the selection stats and still hand every chunk the
+    exact bytes the wrapper would have produced.
+    """
     package = {
         "paper_id": bundle.paper_id,
         "evidence_count": len(selected),

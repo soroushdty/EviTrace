@@ -9,10 +9,12 @@ from typing import Any, Optional
 
 from quality_control import QCBundle
 from .evidence_index import (
+    EvidenceSelectionStats,
     attach_table_figure_crops,
     build_chunk_evidence_package,
     build_or_load_evidence_bundle,
-    build_paper_evidence_package,
+    select_paper_evidence,
+    serialise_evidence_package,
 )
 from quality_control.validate_context import validate_qc_context_input
 from .validator import (
@@ -981,6 +983,44 @@ def _save_pdf_output(
     return True
 
 
+def _build_evidence_coverage_record(
+    pdf_name: str,
+    stats: EvidenceSelectionStats,
+    min_coverage_ratio: float,
+) -> dict[str, Any]:
+    """Turn one paper's selection stats into the manifest ``evidence_coverage`` record.
+
+    Requirement 10.4 / design "EvidenceCoverage": the record carries the
+    coverage ratio (rounded to 4 dp), the selected and substantive character
+    counts, and a ``below_threshold`` flag against ``min_evidence_coverage_ratio``.
+    An INFO line always reports the numbers; a WARNING naming the paper, the
+    ratio and the threshold is emitted when the paper is under-covered so an
+    operator can find it in the logs as well as in the manifest.
+    """
+    ratio = round(stats.coverage_ratio, 4)
+    below = stats.coverage_ratio < min_coverage_ratio
+    logger.info(
+        "Evidence coverage for %s: ratio=%.4f (selected=%d / substantive=%d chars, "
+        "%d of %d items), threshold=%s",
+        pdf_name, stats.coverage_ratio, stats.selected_chars, stats.substantive_chars,
+        stats.selected_items, stats.total_items, min_coverage_ratio,
+    )
+    if below:
+        logger.warning(
+            "Evidence coverage below threshold for %s: ratio=%.4f < %s "
+            "(selected=%d / substantive=%d chars); fields may be missed because "
+            "relevant evidence was pruned",
+            pdf_name, stats.coverage_ratio, min_coverage_ratio,
+            stats.selected_chars, stats.substantive_chars,
+        )
+    return {
+        "ratio": ratio,
+        "selected_chars": int(stats.selected_chars),
+        "substantive_chars": int(stats.substantive_chars),
+        "below_threshold": bool(below),
+    }
+
+
 def _load_completed_result(pdf_name: str, manifest: dict) -> Optional[list[dict]]:
     """Return cached extraction result if this PDF is already marked complete.
 
@@ -1180,6 +1220,7 @@ async def process_pdf(
     prewarm_synthesis_diff = openai_config.get("prewarm_synthesis_if_model_diff", True)
     max_evidence_items = int(openai_config.get("max_evidence_items_per_chunk", 150))
     max_evidence_chars = int(openai_config.get("max_evidence_chars_per_chunk", 30000))
+    min_coverage_ratio = float(openai_config.get("min_evidence_coverage_ratio", 0.6))
     logger.debug(
         "%s config: chunk_model=%s, synthesis_model=%s, num_chunks=%d, "
         "enable_prewarm=%s, prewarm_synthesis_diff=%s, "
@@ -1261,12 +1302,24 @@ async def process_pdf(
         all_llm_fields.extend(filtered)
 
     paper_source = ""
+    # Per-paper evidence coverage record (Requirement 10.4, design D8):
+    # measured once, where selection happens, and written into the manifest
+    # entry on completion. None when no LLM fields needed evidence at all.
+    evidence_coverage: Optional[dict[str, Any]] = None
     if all_llm_fields:
-        paper_source = build_paper_evidence_package(
+        # select_paper_evidence + serialise_evidence_package is exactly what
+        # build_paper_evidence_package does; splitting the call keeps the
+        # bytes identical while exposing the selection stats without a
+        # second ranking pass.
+        selected_items, selection_stats = select_paper_evidence(
             bundle,
             all_llm_fields,
             max_items=max_evidence_items,
             max_chars=max_evidence_chars,
+        )
+        paper_source = serialise_evidence_package(bundle, selected_items)
+        evidence_coverage = _build_evidence_coverage_record(
+            pdf_name, selection_stats, min_coverage_ratio
         )
         logger.info(
             "Paper evidence package for %s: %d chars, %d fields across %d chunks",
@@ -1538,7 +1591,10 @@ async def process_pdf(
 
     if write_ok:
         async with manifest_lock:
-            manifest[pdf_name] = {"status": "complete"}
+            entry: dict[str, Any] = {"status": "complete"}
+            if evidence_coverage is not None:
+                entry["evidence_coverage"] = evidence_coverage
+            manifest[pdf_name] = entry
             save_manifest(manifest)
         logger.info(f"DONE  {pdf_name} -- {len(all_fields)} fields extracted")
         return all_fields
