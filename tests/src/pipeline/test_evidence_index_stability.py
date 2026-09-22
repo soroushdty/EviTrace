@@ -113,7 +113,7 @@ def _qc_context_with_tei(tmp_path: Path) -> QCBundle:
       <div>
         <head>Methods</head>
         <p><s coords="1,10,20,20,20">We used MIMIC-III data for cohort selection.</s></p>
-        <table coords="1,10,60,20,20"><row><cell>MIMIC-III cohort size</cell></row></table>
+        <figure type="table" coords="1,10,60,20,20"><table><row><cell>MIMIC-III cohort size</cell></row></table></figure>
       </div>
     </body>
   </text>

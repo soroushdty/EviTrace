@@ -136,8 +136,10 @@ def _make_tei(n_sentences: int, n_tables: int, n_figures: int) -> str:
         f'<s coords="1,10,{20 + i},20,20">Sentence number {i}.</s>'
         for i in range(n_sentences)
     )
+    # GROBID wraps every table as <figure type="table"> (never a bare <table>).
     tables = "".join(
-        f'<table coords="1,10,{20 + i},20,20"><row><cell>Table {i} cell</cell></row></table>'
+        f'<figure type="table" coords="1,10,{20 + i},20,20">'
+        f'<table><row><cell>Table {i} cell</cell></row></table></figure>'
         for i in range(n_tables)
     )
     figures = "".join(

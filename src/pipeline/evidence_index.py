@@ -232,6 +232,48 @@ def _tei_xpath(elem: ET.Element) -> str:
     return f".//{elem.tag.split('}')[-1]}"
 
 
+def _section_heading(div: ET.Element) -> str:
+    """Section label for one body ``<div>``: its ``<head>`` text, or the neutral
+    ``"body"`` label when the div has no (non-empty) heading. Decided per div;
+    never inherited from a preceding div (Requirement 7.4)."""
+    head = div.find(f"./{_NS}head")
+    if head is None:
+        return "body"
+    return _safe_text("".join(head.itertext())) or "body"
+
+
+def _figure_section_map(body: ET.Element) -> dict[str, str]:
+    """Map figure/table ``xml:id`` -> heading of the first body ``<div>`` (document
+    order) that cites it via ``<ref type="figure"|"table" target="#id">``.
+
+    GROBID emits every ``<figure>`` as a ``<body>`` sibling after the last
+    section, so in-text citations are the only containment signal available
+    (Requirements 7.1, 7.2). A citing div without a heading contributes the
+    neutral ``"body"`` label; refs without a ``#``-target are ignored.
+    """
+    section_by_id: dict[str, str] = {}
+    for div in body.iter(f"{_NS}div"):
+        heading = _section_heading(div)
+        for ref in div.iter(f"{_NS}ref"):
+            if ref.attrib.get("type") not in ("figure", "table"):
+                continue
+            target = ref.attrib.get("target") or ""
+            if not target.startswith("#") or len(target) < 2:
+                continue
+            section_by_id.setdefault(target[1:], heading)
+    return section_by_id
+
+
+def _table_rows_text(fig: ET.Element) -> list[str]:
+    rows: list[str] = []
+    for row in fig.findall(f".//{_NS}row"):
+        cells = [_safe_text("".join(cell.itertext())) for cell in row.findall(f".//{_NS}cell")]
+        row_text = " | ".join([cell for cell in cells if cell])
+        if row_text:
+            rows.append(row_text)
+    return rows
+
+
 def _extract_year_from_text(text: str) -> str:
     match = re.search(r"(19|20)\d{2}", text or "")
     return match.group(0) if match else ""
@@ -465,17 +507,16 @@ def _build_items_from_tei(tei_xml: str, paper_id: str, source_pdf: str) -> tuple
         "year_confidence": year_resolution.confidence,
     }
 
-    section_path = "body"
     body = root.find(f".//{_NS}body")
     # child -> parent, so a <s> can inherit its enclosing <p>'s coords (11.3).
     parent_map: dict[ET.Element, ET.Element] = {
         child: parent for parent in root.iter() for child in parent
     }
     if body is not None:
+        section_by_id = _figure_section_map(body)
         for div in body.findall(f".//{_NS}div"):
-            head = div.find(f"./{_NS}head")
-            if head is not None:
-                section_path = _safe_text("".join(head.itertext())) or section_path
+            # Decided per div, never inherited from the previous one (7.4).
+            section_path = _section_heading(div)
             for sent in div.findall(f".//{_NS}s"):
                 text = _safe_text("".join(sent.itertext()))
                 if not text:
@@ -522,53 +563,39 @@ def _build_items_from_tei(tei_xml: str, paper_id: str, source_pdf: str) -> tuple
                     }
                 )
 
-        for fig in body.findall(f".//{_NS}figure"):
-            caption = fig.find(f".//{_NS}figDesc")
-            text = _safe_text("".join(caption.itertext())) if caption is not None else ""
-            if not text:
-                continue
-            fid = f"F{figure_counter:06d}"
-            figure_counter += 1
-            loc = _parse_coords(fig.attrib.get("coords", ""))
+        # One item per <figure>, attributed by the citation map (7.5).
+        for fig in body.iter(f"{_NS}figure"):
+            caption = fig.find(f"./{_NS}figDesc")
+            caption_text = _safe_text("".join(caption.itertext())) if caption is not None else ""
+            xml_id = fig.attrib.get("{http://www.w3.org/XML/1998/namespace}id")
+            section = section_by_id.get(xml_id, "body") if xml_id else "body"
+            loc = _parse_coords(fig.attrib.get("coords"))
+            if fig.attrib.get("type") == "table":
+                # Caption first, then one line per row (design: caption + rows).
+                text = "\n".join(part for part in [caption_text, *_table_rows_text(fig)] if part)
+                if not text:
+                    continue
+                item_id = f"T{table_counter:06d}"
+                table_counter += 1
+                item_type, bonus = "table", 10
+            else:
+                text = caption_text
+                if not text:
+                    continue
+                item_id = f"F{figure_counter:06d}"
+                figure_counter += 1
+                item_type, bonus = "figure_caption", 5
             items.append(
                 {
-                    "id": fid,
-                    "type": "figure_caption",
-                    "section_path": section_path,
+                    "id": item_id,
+                    "type": item_type,
+                    "section_path": section,
                     "page": loc["page"],
                     "coords": loc["coords"],
                     "xpath": _tei_xpath(fig),
                     "text": text,
                     "source_pdf": source_pdf,
-                    "score": _section_score(section_path) + 5,
-                    "annotations": {},
-                }
-            )
-
-        for table in body.findall(f".//{_NS}table"):
-            rows: list[str] = []
-            for row in table.findall(f".//{_NS}row"):
-                cells = [_safe_text("".join(cell.itertext())) for cell in row.findall(f".//{_NS}cell")]
-                row_text = " | ".join([cell for cell in cells if cell])
-                if row_text:
-                    rows.append(row_text)
-            text = "\n".join(rows)
-            if not text:
-                continue
-            tid = f"T{table_counter:06d}"
-            table_counter += 1
-            loc = _parse_coords(table.attrib.get("coords", ""))
-            items.append(
-                {
-                    "id": tid,
-                    "type": "table",
-                    "section_path": section_path,
-                    "page": loc["page"],
-                    "coords": loc["coords"],
-                    "xpath": _tei_xpath(table),
-                    "text": text,
-                    "source_pdf": source_pdf,
-                    "score": _section_score(section_path) + 10,
+                    "score": _section_score(section) + bonus,
                     "annotations": {},
                 }
             )
