@@ -221,7 +221,7 @@ Binding order from design.md "Implementation sequencing": extractor identity →
   - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6_
 
 - [ ] 12. Integration and validation
-- [ ] 12.1 End-to-end provenance through the QC bundle
+- [x] 12.1 End-to-end provenance through the QC bundle
   - With mocked backends, build the QC bundle for a mixed PDF twice (miss then hit) and assert: every annotation's OCR marking equals its sentence's marking; structural blocks are non-empty; provenance names the branches used; branches and routing are identical across the two runs
   - Done when the integration test passes
   - _Requirements: 4.8, 6.4, 2.4_
@@ -275,3 +275,4 @@ Binding order from design.md "Implementation sequencing": extractor identity →
 - 11.1: differential run (21 scenarios) vs HEAD: identical branches/routing/backend calls. **Latency note for 11.2**: the builder is now called after the `ThreadPoolExecutor` block exits, so on fully-scanned PDFs OCR no longer overlaps the cancelled-but-running GROBID future (wall time grobid + OCR instead of max) — move the `_build_branches_for_classifications` call inside the `with` block when wiring the hit path. Function logs use `pdf_path.stem` (design signature has no pdf_name): identical via orchestrator; the standalone CLI passes `paper.pdf` so its log text drops the extension.
 - 11.2: sidecar `{digest}.pages.json` is NOT written when classification was guessed (fitz missing) on either path, so a later run with fitz recomputes. `triggered_stages` round-trips as `list[int]` (design typo `list[str]` corrected). Hit-path recompute (one-time migration per document) runs pdfplumber then scan detection sequentially. 6.5 fallback derives page indices from pdfplumber blocks (matches removed legacy behaviour). `configs/config.yaml` `tei_cache_dir` comment / steering do not yet mention the sidecar — 12.4 docs/changelog. Property tests that mock the executor pin `scan_future.result()` returning a plain list.
 - 11.3: satisfied by `test_page_classification_cache.py` (11.2, 19 tests; the four hit-path scenarios plus sidecar unit tests); RED reproduced at HEAD by the 11.2 reviewer. No separate implementer dispatched.
+- 12.1: the real chain (routing → QC → reconcile → project → JSON-LD) passes end to end with no integration defect; only the four backends, `classify_page`, `fitz` and sentence tokenization are mocked. Nine mutations across both agents turned it red. Notes: `"adjudicator": {"strategy": "placeholder"}` in the fixture is inert (`_pdf_adjudicator_fn` always uses the built-in); `primary_extractor == "grobid"` rests on the `max()` tie-break, so the load-bearing 2.4 assertions are the branch-source/rationale ones; disabling sidecar reuse shows up as a fixture error rather than a targeted assertion.
