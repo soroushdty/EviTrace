@@ -620,7 +620,12 @@ def build_qc_bundle(
             "W3C annotation projection produced %d records for %s",
             len(annotation_records), pdf_name,
         )
-        jsonld = generate_w3c_jsonld(annotation_records)
+        # Paper-scoped document source: it becomes the annotation target
+        # source and the document component of every (deterministic)
+        # annotation id, so identical text in two papers never collides.
+        jsonld = generate_w3c_jsonld(
+            annotation_records, base_uri=f"urn:evitrace:document:{pdf_name}"
+        )
         if not isinstance(ctx.unified.content, dict):
             ctx.unified.content = {}
         ctx.unified.content["annotations"] = jsonld

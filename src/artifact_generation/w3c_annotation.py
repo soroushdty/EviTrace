@@ -225,6 +225,21 @@ def _select_region(
 
 W3C_ANNO_CONTEXT = "http://www.w3.org/ns/anno.jsonld"
 
+# Fixed namespace for name-based annotation ids (design: AnnotationIdentity).
+_ANNO_NAMESPACE = uuid.uuid5(uuid.NAMESPACE_URL, "urn:evitrace:anno")
+
+
+def _annotation_id(document_source: str, page_index: int, occurrence: int, text: str) -> str:
+    """Deterministic ``urn:evitrace:anno:<uuid5>`` id for one sentence.
+
+    Derived only from stable content and position -- the paper-scoped
+    ``document_source``, the page, the occurrence counter (distinguishes
+    duplicate sentence text) and the sentence text itself. No wall-clock,
+    file-system path or random input (requirement 3.4).
+    """
+    name = f"{document_source}\x1f{page_index}\x1f{occurrence}\x1f{text}"
+    return f"urn:evitrace:anno:{uuid.uuid5(_ANNO_NAMESPACE, name)}"
+
 
 def generate_w3c_jsonld(
     records: list[AnnotationRecord],
@@ -241,20 +256,25 @@ def generate_w3c_jsonld(
     records:
         Annotation records produced by :func:`project`.
     base_uri:
-        Optional document URI used as the annotation target source.
-        Defaults to ``"urn:evitrace:document"`` when empty.
+        Optional document URI used as the annotation target source **and**
+        as the document component of every annotation id, so the same
+        sentence in two papers gets two ids. Defaults to
+        ``"urn:evitrace:document"`` when empty. The pipeline always passes
+        a paper-scoped value (``urn:evitrace:document:<pdf_name>``).
 
     Returns
     -------
     list[dict]
-        One W3C JSON-LD annotation dict per record.
+        One W3C JSON-LD annotation dict per record. Annotation ids are
+        name-based (:func:`_annotation_id`): serializing equal records with
+        the same ``base_uri`` twice yields byte-identical ids.
         Returns ``[]`` when ``records`` is empty — never raises.
     """
     result: list[dict] = []
     document_source = base_uri if base_uri else "urn:evitrace:document"
 
     for rec in records:
-        anno_id = f"urn:evitrace:anno:{uuid.uuid4()}"
+        anno_id = _annotation_id(document_source, rec.page_index, rec.occurrence, rec.sentence_text)
 
         selectors: list[dict] = []
         if rec.selector_type == "TextPositionSelector":

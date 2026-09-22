@@ -11,7 +11,10 @@ Covers:
   - generate_w3c_jsonld([]) returns [] without raising
   - Born-digital serialization: all five required JSON-LD keys, TextPositionSelector present
   - Scanned serialization: FragmentSelector present, "ocr_derived": True in body
-  - Each "id" field matches "urn:evitrace:anno:" prefix
+  - Each "id" field matches "urn:evitrace:anno:<uuid5>"
+  - AnnotationIdentity (risk-remediation 6.2, requirements 3.1-3.4): ids are
+    name-based, reproducible, paper-scoped via base_uri, and distinct per
+    page / text / occurrence.
   - RegionSelector (risk-remediation 6.1, requirements 4.5 / 4.7): selectors
     come from each sentence's own alignment entry; project() never reads the
     structural layer; missing OCR regions warn and continue.
@@ -136,6 +139,12 @@ def _entry(text: str, page: int, *, start: int, end: int, ocr: bool = False,
 
 def _sentence(text: str, page: int, *, ocr: bool = False) -> dict:
     return {"text": text, "page_index": page, "ocr_derived": ocr, "source": "test"}
+
+
+# Name-based (RFC 4122 version 5) UUID inside the EviTrace annotation URN.
+_UUID5_URN = (
+    r"^urn:evitrace:anno:[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -563,24 +572,23 @@ class TestGenerateW3cJsonld:
         assert frag["value"] == "page=1&xywh=10,20,100,30"
 
     def test_id_matches_urn_prefix(self):
-        """Every annotation id must match the pattern urn:evitrace:anno:<uuid4>."""
+        """3.4: every annotation id is urn:evitrace:anno:<name-based uuid5>,
+        not a random uuid4 (version nibble ``5``)."""
         from artifact_generation.w3c_annotation import generate_w3c_jsonld, project
 
         records = project(_born_digital_unified())
         anno = generate_w3c_jsonld(records)[0]
 
-        pattern = r"^urn:evitrace:anno:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
-        assert re.match(pattern, anno["id"]), f"ID does not match pattern: {anno['id']}"
+        assert re.match(_UUID5_URN, anno["id"]), f"ID does not match pattern: {anno['id']}"
 
     def test_scanned_id_matches_urn_prefix(self):
-        """Scanned annotation id must also match the urn:evitrace:anno: pattern."""
+        """3.4: scanned annotation ids follow the same name-based uuid5 URN shape."""
         from artifact_generation.w3c_annotation import generate_w3c_jsonld, project
 
         records = project(_scanned_unified())
         anno = generate_w3c_jsonld(records)[0]
 
-        pattern = r"^urn:evitrace:anno:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
-        assert re.match(pattern, anno["id"]), f"ID does not match pattern: {anno['id']}"
+        assert re.match(_UUID5_URN, anno["id"]), f"ID does not match pattern: {anno['id']}"
 
     def test_type_field_is_annotation(self):
         """JSON-LD 'type' field must be 'Annotation'."""
@@ -621,3 +629,124 @@ class TestGenerateW3cJsonld:
         selectors = anno["target"]["selector"]
         selector_types = [s["type"] for s in selectors]
         assert "TextQuoteSelector" in selector_types
+
+
+# ---------------------------------------------------------------------------
+# risk-remediation 6.2 — AnnotationIdentity (requirements 3.1, 3.2, 3.3, 3.4)
+# ---------------------------------------------------------------------------
+
+def _two_sentence_unified(document_id: str = "doc-ids") -> UnifiedRecord:
+    """Two distinct native sentences on different pages, with per-sentence entries."""
+    return UnifiedRecord(
+        document_id=document_id,
+        semantic=SemanticLayer(sentences=[
+            _sentence("Alpha sentence.", 0),
+            _sentence("Beta sentence.", 1),
+        ]),
+        structural=_ForbiddenLayer(),
+        alignment=DocumentAlignment(sentence_to_char_range=[
+            _entry("Alpha sentence.", 0, start=0, end=15),
+            _entry("Beta sentence.", 1, start=16, end=30),
+        ]),
+    )
+
+
+class TestAnnotationIdentity:
+    BASE = "urn:evitrace:document:paper-a"
+
+    def test_same_records_annotated_twice_yield_identical_ids(self):
+        """3.1: same source record + base identifier → byte-identical ids."""
+        from artifact_generation.w3c_annotation import generate_w3c_jsonld, project
+
+        records = project(_two_sentence_unified())
+        first = [a["id"] for a in generate_w3c_jsonld(records, base_uri=self.BASE)]
+        second = [a["id"] for a in generate_w3c_jsonld(records, base_uri=self.BASE)]
+
+        assert first == second
+        assert len(set(first)) == 2
+
+    def test_reprojected_record_yields_identical_ids(self):
+        """3.1: a fresh projection of an equal record (separate run) gives the same ids."""
+        from artifact_generation.w3c_annotation import generate_w3c_jsonld, project
+
+        first = [a["id"] for a in generate_w3c_jsonld(project(_two_sentence_unified()), base_uri=self.BASE)]
+        second = [a["id"] for a in generate_w3c_jsonld(project(_two_sentence_unified()), base_uri=self.BASE)]
+
+        assert first == second
+
+    def test_same_sentence_in_two_papers_gets_different_ids(self):
+        """3.2 / paper scoping: identical text and position under a different
+        base_uri (another paper) → different ids."""
+        from artifact_generation.w3c_annotation import generate_w3c_jsonld, project
+
+        records = project(_two_sentence_unified())
+        paper_a = [a["id"] for a in generate_w3c_jsonld(records, base_uri="urn:evitrace:document:paper-a")]
+        paper_b = [a["id"] for a in generate_w3c_jsonld(records, base_uri="urn:evitrace:document:paper-b")]
+
+        assert paper_a[0] != paper_b[0]
+        assert paper_a[1] != paper_b[1]
+
+    def test_duplicate_sentence_in_one_paper_gets_distinct_ids(self):
+        """3.3: the same sentence text twice in one document (occurrence 0 and 1)
+        → each occurrence has its own id."""
+        from artifact_generation.w3c_annotation import generate_w3c_jsonld, project
+
+        unified = UnifiedRecord(
+            document_id="doc-dup",
+            semantic=SemanticLayer(sentences=[
+                _sentence("Repeated line.", 2),
+                _sentence("Repeated line.", 2),
+            ]),
+            structural=_ForbiddenLayer(),
+            alignment=DocumentAlignment(sentence_to_char_range=[
+                _entry("Repeated line.", 2, start=0, end=14, occurrence=0),
+                _entry("Repeated line.", 2, start=15, end=29, occurrence=1),
+            ]),
+        )
+        ids = [a["id"] for a in generate_w3c_jsonld(project(unified), base_uri=self.BASE)]
+
+        assert ids[0] != ids[1]
+        # and the ids are themselves stable across a second serialization
+        assert ids == [a["id"] for a in generate_w3c_jsonld(project(unified), base_uri=self.BASE)]
+
+    def test_different_page_or_text_gives_different_id(self):
+        """3.2: ids differ when the page differs, and when the text differs."""
+        from artifact_generation.w3c_annotation import AnnotationRecord, generate_w3c_jsonld
+
+        quote = {"exact": "Same text.", "prefix": "", "suffix": ""}
+        page0 = AnnotationRecord("Same text.", 0, "TextQuoteSelector", {}, quote)
+        page1 = AnnotationRecord("Same text.", 1, "TextQuoteSelector", {}, quote)
+        other = AnnotationRecord("Other text.", 0, "TextQuoteSelector", {}, quote)
+
+        ids = [a["id"] for a in generate_w3c_jsonld([page0, page1, other], base_uri=self.BASE)]
+
+        assert len(set(ids)) == 3
+
+    def test_default_document_source_is_still_deterministic(self):
+        """3.1 with no base_uri: the default document source is a constant, so
+        ids stay reproducible (and differ from the paper-scoped ones)."""
+        from artifact_generation.w3c_annotation import generate_w3c_jsonld, project
+
+        records = project(_two_sentence_unified())
+        default_a = [a["id"] for a in generate_w3c_jsonld(records)]
+        default_b = [a["id"] for a in generate_w3c_jsonld(records)]
+        scoped = [a["id"] for a in generate_w3c_jsonld(records, base_uri=self.BASE)]
+
+        assert default_a == default_b
+        assert default_a != scoped
+
+    def test_id_is_uuid5_of_fixed_namespace_and_content_only(self):
+        """3.4: the id is exactly uuid5(namespace, source/page/occurrence/text) —
+        recomputable from stable content alone (no time, path or randomness)."""
+        import uuid
+
+        from artifact_generation.w3c_annotation import AnnotationRecord, generate_w3c_jsonld
+
+        quote = {"exact": "Known text.", "prefix": "", "suffix": ""}
+        rec = AnnotationRecord("Known text.", 4, "TextQuoteSelector", {}, quote, occurrence=2)
+        anno = generate_w3c_jsonld([rec], base_uri=self.BASE)[0]
+
+        namespace = uuid.uuid5(uuid.NAMESPACE_URL, "urn:evitrace:anno")
+        expected = uuid.uuid5(namespace, f"{self.BASE}\x1f4\x1f2\x1fKnown text.")
+        assert anno["id"] == f"urn:evitrace:anno:{expected}"
+        assert anno["target"]["source"] == self.BASE

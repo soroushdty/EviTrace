@@ -605,3 +605,52 @@ def test_tag_blocks_stamps_keys_and_preserves_inputs():
     assert native[0]["ocr_derived"] is False
 
     assert _tag_blocks([], "pdfplumber", False) == []
+
+
+# ---------------------------------------------------------------------------
+# risk-remediation 6.2 — the single annotation call site scopes ids to the paper
+# ---------------------------------------------------------------------------
+
+
+def test_annotation_call_site_passes_paper_scoped_base_uri():
+    """3.1–3.4 (AnnotationIdentity): build_qc_bundle hands generate_w3c_jsonld a
+    ``base_uri`` of ``urn:evitrace:document:<pdf_name>`` so identical text in
+    different papers gets different annotation ids."""
+    qc_config = _make_qc_config(ocr=True)
+    classifications = [_make_classification(0, is_native=True)]
+    plumber_blocks = [_make_block(0)]
+
+    mock_tp, mock_qc_bundle = _setup_common_mocks()
+    mock_fitz, _ = _mock_fitz_for_pages(1)
+    mock_jsonld = MagicMock(return_value=[])
+    projected = [object()]
+
+    with patch("pipeline.extraction_pipeline.extract_with_paddleocr", MagicMock(return_value=[])), \
+         patch("pipeline.extraction_pipeline.extract_with_pymupdf", MagicMock(return_value=([], []))), \
+         patch("pipeline.extraction_pipeline.extract_with_pdfplumber", MagicMock(return_value=plumber_blocks)), \
+         patch("pipeline.extraction_pipeline.extract_with_grobid", MagicMock(return_value=("<TEI>mock</TEI>", []))), \
+         patch("pipeline.extraction_pipeline.scan_detector") as mock_scan_mod, \
+         patch("pipeline.extraction_pipeline.run_quality_control", return_value=mock_qc_bundle), \
+         patch("pipeline.extraction_pipeline._get_text_processor", return_value=mock_tp), \
+         patch("pipeline.extraction_pipeline._get_lexical_matcher", return_value=MagicMock()), \
+         patch("pipeline.extraction_pipeline._get_semantic_matcher", return_value=MagicMock()), \
+         patch("pipeline.extraction_pipeline.w3c_project", return_value=projected), \
+         patch("pipeline.extraction_pipeline.generate_w3c_jsonld", mock_jsonld), \
+         patch.dict(sys.modules, {"fitz": mock_fitz}):
+
+        mock_scan_mod.classify_page.side_effect = classifications
+
+        from pipeline.extraction_pipeline import build_qc_bundle
+
+        build_qc_bundle(
+            pdf_path=Path("/fake/some_dir/paper_xyz.pdf"),
+            pdf_name="paper_xyz",
+            qc_config=qc_config,
+        )
+
+    mock_jsonld.assert_called_once()
+    args, kwargs = mock_jsonld.call_args
+    assert args[0] is projected
+    assert kwargs.get("base_uri") == "urn:evitrace:document:paper_xyz"
+    # The pipeline stores exactly what the serializer returned.
+    assert mock_qc_bundle.unified.content["annotations"] == []

@@ -93,7 +93,7 @@ Binding order from design.md "Implementation sequencing": extractor identity →
   - _Boundary: RegionSelector_
   - _Depends: 5.3_
 
-- [ ] 6.2 Derive deterministic annotation identifiers and scope them to the paper
+- [x] 6.2 Derive deterministic annotation identifiers and scope them to the paper
   - Replace random identifiers with name-based UUIDs computed from document source, page, occurrence, and sentence text under a fixed namespace
   - Pass a paper-scoped document source from the extraction pipeline's single annotation call site so identical text in different papers gets different identifiers
   - Done when annotating the same record twice yields byte-identical identifiers, two papers with the same sentence differ, and duplicate sentences in one paper differ
@@ -257,3 +257,4 @@ Binding order from design.md "Implementation sequencing": extractor identity →
 - 5.3: alignment entries are positionally aligned with `semantic.sentences`; a miss is `-1/-1` + the existing reconciler flag. **Interim state until 6.1**: `w3c_annotation.project()` still text-keys entries and can emit `-1` offsets on a miss (pre-change it emitted 0,0 for the same cases); no test drives `project()` over real reconcile output. `_resolve_source_blocks` recognises paragraph sources by `id()` — a key-based check would be more robust if paragraph dicts are ever copied.
 - 5.4: satisfied by `test_reconciler_sentence_producer.py` (5.1, 17 tests) and `test_reconciler_sentence_location.py` (5.3, 13 tests); every bullet maps to a named test and both files' RED was reproduced independently by the 5.1/5.3 reviewers. No separate implementer dispatched.
 - 6.1: review round 1 rejected (alignment-fallback path double-logged per OCR sentence; tests filtered warnings by substring) — fixed by short-circuiting `_select_region` on `entry is None` and asserting total WARNING count. `project()` now also reads the scalar `unified.document_id` for `AnnotationRecord.document_id` — CLAUDE.md / product.md wording "reads only semantic and alignment" needs a one-line steering sync at 12.4. Native JSON-LD bodies now always carry `ocr_derived` (previously absent). `alignment is None` now yields quote-only records, not `[]`.
+- 6.2: annotation ids are now uuid5 — every existing `outputs/*.json` annotation id changes on re-run (intended; CHANGELOG at 12.4). Pre-existing: `pdf_name` is the file stem via the orchestrator but `.name` via the standalone extractor, so `base_uri`/ids differ across entry points for the same paper — note for 12.4.
