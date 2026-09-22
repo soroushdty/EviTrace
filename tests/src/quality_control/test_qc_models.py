@@ -594,3 +594,128 @@ def test_verification_result_no_forbidden_attributes():
     assert "semantic_qc" not in field_names
     assert "exact_match" not in field_names
     assert "semantic_match" not in field_names
+
+
+# ---------------------------------------------------------------------------
+# QC extension-contract ABCs (risk-remediation Requirement 8)
+# ---------------------------------------------------------------------------
+
+def test_qc_abcs_use_abcmeta():
+    """The three extension-point base classes must be real ABCs (ABCMeta)."""
+    import abc
+    from quality_control.models import (
+        AdjudicationRules,
+        InterRaterMetrics,
+        QualityMetrics,
+    )
+
+    for cls in (QualityMetrics, InterRaterMetrics, AdjudicationRules):
+        assert isinstance(cls, abc.ABCMeta), cls.__name__
+        assert cls.__abstractmethods__, cls.__name__
+
+
+def test_quality_metrics_direct_instantiation_raises():
+    """QualityMetrics is abstract: direct instantiation must raise TypeError."""
+    from quality_control.models import QualityMetrics
+
+    with pytest.raises(TypeError, match="passes_check"):
+        QualityMetrics()
+
+
+def test_inter_rater_metrics_direct_instantiation_raises():
+    """InterRaterMetrics is abstract: direct instantiation must raise TypeError."""
+    from quality_control.models import InterRaterMetrics
+
+    with pytest.raises(TypeError, match="compute"):
+        InterRaterMetrics()
+
+
+def test_adjudication_rules_direct_instantiation_raises():
+    """AdjudicationRules is abstract: direct instantiation must raise TypeError."""
+    from quality_control.models import AdjudicationRules
+
+    with pytest.raises(TypeError, match="adjudicate"):
+        AdjudicationRules()
+
+
+def test_qc_abc_incomplete_subclass_raises():
+    """A subclass that omits the abstract method must also fail to instantiate."""
+    from dataclasses import dataclass
+
+    from quality_control.models import (
+        AdjudicationRules,
+        InterRaterMetrics,
+        QualityMetrics,
+    )
+
+    @dataclass
+    class IncompleteMetrics(QualityMetrics):
+        extra: int = 0
+
+    @dataclass
+    class IncompleteIAA(InterRaterMetrics):
+        extra: int = 0
+
+    @dataclass
+    class IncompleteRules(AdjudicationRules):
+        extra: int = 0
+
+    with pytest.raises(TypeError, match="passes_check"):
+        IncompleteMetrics()
+    with pytest.raises(TypeError, match="compute"):
+        IncompleteIAA()
+    with pytest.raises(TypeError, match="adjudicate"):
+        IncompleteRules()
+
+
+def test_qc_abc_complete_subclass_instantiates():
+    """A subclass implementing the abstract method instantiates with base fields intact."""
+    from dataclasses import dataclass
+
+    from quality_control.models import (
+        AdjudicationRules,
+        InterRaterMetrics,
+        QualityMetrics,
+    )
+
+    @dataclass
+    class Metrics(QualityMetrics):
+        def passes_check(self, source=None) -> bool:  # noqa: ARG002
+            return True
+
+    @dataclass
+    class IAA(InterRaterMetrics):
+        def compute(self, reports) -> None:  # noqa: ARG002
+            return None
+
+    @dataclass
+    class Rules(AdjudicationRules):
+        def adjudicate(self, reports, metrics) -> None:  # noqa: ARG002
+            return None
+
+    assert Metrics(status="pass").status == "pass"
+    assert Metrics().passes_check() is True
+    IAA().compute([])
+    rules = Rules(primary_extractor="grobid", confidence=0.5, rationale="r")
+    assert rules.primary_agent == "grobid"
+    assert rules.confidence == 0.5
+
+
+def test_builtin_qc_implementations_still_instantiate():
+    """The shipped concrete implementations must be unaffected by ABC enforcement."""
+    from quality_control.builtin_impls import (
+        AdjudicationDecision,
+        InterRaterReport,
+        QualityReport,
+    )
+    from quality_control.local_metrics import ExtractionCoverageReport
+    from quality_control.models import (
+        AdjudicationRules,
+        InterRaterMetrics,
+        QualityMetrics,
+    )
+
+    assert isinstance(QualityReport(), QualityMetrics)
+    assert isinstance(InterRaterReport(), InterRaterMetrics)
+    assert isinstance(AdjudicationDecision(), AdjudicationRules)
+    assert isinstance(ExtractionCoverageReport(), QualityMetrics)

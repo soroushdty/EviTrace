@@ -60,7 +60,7 @@ QCBundle
 
 from __future__ import annotations
 
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -111,7 +111,7 @@ class Candidate:
 # ---------------------------------------------------------------------------
 
 @dataclass
-class QualityMetrics:
+class QualityMetrics(ABC):
     """Abstract base class for quality metrics.
 
     Users subclass this with custom metrics.  The only constraint is that all
@@ -135,7 +135,7 @@ class QualityMetrics:
 
 
 @dataclass
-class InterRaterMetrics:
+class InterRaterMetrics(ABC):
     """Abstract base class for inter-rater agreement metrics.
 
     Users subclass this with custom metric fields and implement ``compute``,
@@ -153,7 +153,7 @@ class InterRaterMetrics:
 
 
 @dataclass
-class AdjudicationRules:
+class AdjudicationRules(ABC):
     """Abstract base class for adjudication logic.
 
     Users subclass this with custom decision fields and implement

@@ -8,6 +8,7 @@ not coupled to PDF-specific libraries or extractor names.
 import inspect
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -31,6 +32,34 @@ from quality_control.models import (
 from pdf_extractor.extraction.scan_detector import classify_page, PageScanClassification
 from text_processing.base import TextProcessor
 from text_processing.composite import DefaultTextProcessor
+
+
+# ---------------------------------------------------------------------------
+# Minimal test-local concrete implementations of the QC ABCs.
+#
+# ``QualityMetrics``, ``InterRaterMetrics`` and ``AdjudicationRules`` are
+# abstract and cannot be instantiated directly.  These stubs implement the
+# abstract methods trivially so the pipeline tests below can stay independent
+# of the domain-specific defaults in ``quality_control.builtin_impls``.
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _StubQualityMetrics(QualityMetrics):
+    def passes_check(self, source=None) -> bool:  # noqa: ARG002
+        return self.status == "pass"
+
+
+@dataclass
+class _StubInterRaterMetrics(InterRaterMetrics):
+    def compute(self, reports) -> None:  # noqa: ARG002
+        return None
+
+
+@dataclass
+class _StubAdjudicationRules(AdjudicationRules):
+    def adjudicate(self, reports, metrics) -> None:  # noqa: ARG002
+        return None
 
 
 @pytest.fixture(autouse=True)
@@ -67,16 +96,16 @@ class TestRunPipelineDomainIsolation:
 
         # Create mock callables returning dummy model instances
         def mock_rater_fn(branch, branches, index, config):
-            report = QualityMetrics()
+            report = _StubQualityMetrics()
             report.status = "pass"
             return report
 
         def mock_iaa_fn(reports, config):
-            iaa_metrics = InterRaterMetrics()
+            iaa_metrics = _StubInterRaterMetrics()
             return iaa_metrics
 
         def mock_adjudicator_fn(reports, iaa_metrics, config):
-            decision = AdjudicationRules()
+            decision = _StubAdjudicationRules()
             decision.primary_extractor = "mock_agent"
             decision.confidence = 1.0
             return decision
@@ -117,15 +146,15 @@ class TestRunPipelineDomainIsolation:
         )
 
         def mock_rater_fn(branch, branches, index, config):
-            report = QualityMetrics()
+            report = _StubQualityMetrics()
             report.status = "pass"
             return report
 
         def mock_iaa_fn(reports, config):
-            return InterRaterMetrics()
+            return _StubInterRaterMetrics()
 
         def mock_adjudicator_fn(reports, iaa_metrics, config):
-            decision = AdjudicationRules()
+            decision = _StubAdjudicationRules()
             decision.primary_extractor = "generic_agent"
             return decision
 
@@ -457,15 +486,15 @@ class TestFullPipelineDomainAgnosticism:
         ]
 
         def generic_rater_fn(branch, branches, index, config):
-            report = QualityMetrics()
+            report = _StubQualityMetrics()
             report.status = "pass"
             return report
 
         def generic_iaa_fn(reports, config):
-            return InterRaterMetrics()
+            return _StubInterRaterMetrics()
 
         def generic_adjudicator_fn(reports, iaa_metrics, config):
-            decision = AdjudicationRules()
+            decision = _StubAdjudicationRules()
             decision.primary_extractor = "agent_a"
             return decision
 

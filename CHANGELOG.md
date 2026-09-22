@@ -5,6 +5,27 @@ and should never be deleted. Add a brief entry whenever a spec is implemented,
 steering docs change, README files change, or any other significant code change
 occurs.
 
+## [2026-09] — Enforce the QC extension-contract ABCs (`risk-remediation` Requirement 8)
+
+`QualityMetrics`, `InterRaterMetrics` and `AdjudicationRules` in
+`src/quality_control/models.py` were documented as abstract and used `@abstractmethod`,
+but did not inherit from `abc.ABC`, so Python never enforced the contract: the bases and
+any incomplete subclass could be instantiated. **Behaviour change:** all three now inherit
+`ABC`; instantiating one directly, or a subclass that omits `passes_check` / `compute` /
+`adjudicate`, raises `TypeError` naming the missing method. Fields, defaults, properties
+and method signatures are unchanged, and the shipped implementations (`QualityReport`,
+`InterRaterReport`, `AdjudicationDecision`, `ExtractionCoverageReport`) are unaffected.
+
+- `tests/src/quality_control/test_domain_agnosticism.py`: the all-mock pipeline tests
+  instantiated the bases directly; they now use minimal test-local stub subclasses (not the
+  `builtin_impls` defaults, to keep the domain-agnosticism test independent of them).
+- `tests/src/quality_control/test_qc_models.py`: added regression tests for ABCMeta
+  enforcement, direct-instantiation `TypeError`, incomplete-subclass `TypeError`,
+  complete-subclass success, and built-in implementation preservation.
+- Implemented directly rather than via a new bugfix spec: it is covered by the existing
+  `risk-remediation` Requirement 8 (still at `requirements-generated`), and the code change
+  is three class headers. `TextProcessor`/`SentenceSegment` deliberately untouched.
+
 ## [2026-07] — Add roadmap steering doc; decompose idea docs into specs
 
 Turned the three loose idea documents in `.kiro/specs/feature/` into a dependency-ordered
