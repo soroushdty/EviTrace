@@ -69,7 +69,7 @@ Binding order from design.md "Implementation sequencing": extractor identity →
   - _Requirements: 4.2, 4.9_
   - _Boundary: SentenceProducer_
 
-- [ ] 5.3 Emit one location entry per sentence with page, offsets, occurrence, and region
+- [x] 5.3 Emit one location entry per sentence with page, offsets, occurrence, and region
   - Compute offsets per sentence with a monotonic cursor so repeated text gets distinct, increasing ranges; a miss records −1 offsets and a reconciliation flag, never a silent zero range
   - Carry the real page index, the OCR flag, the zero-based occurrence count for identical text, and the source block's bounding box when it has one
   - Keep the entries positionally aligned with the sentence list (same length, same order)
@@ -254,3 +254,4 @@ Binding order from design.md "Implementation sequencing": extractor identity →
 - 4.1: `_tag_blocks` returns shallow copies (routing tests share `_make_block` dicts across mocked extractors). `_extract_branch_payload`'s legacy non-TEI fallbacks (`quality_control.py:336,349`) still emit untagged blocks — unreachable from pipeline payloads; 5.1 must read origin keys with `.get` defaults. `scanned_pymupdf_blocks` is only logged, never a branch.
 - 5.1: `reconcile()` keeps `sentence_sources` (paragraph dict with `block_index` for native sentences; the secondary block dict with `block_bbox` for OCR sentences) as a local for 5.3. `content["segments"]`/`["pages"]` are still primary-only while `exact_text` includes used OCR blocks — confirm acceptable at 5.3/12.4 (all known consumers read `exact_text`). Pre-existing env gap: config selects `nltk_punkt` but nltk is not installed in the venv (`requirements.txt:34` commented) — route to 12.4. Native-only output is byte-identical except that empty tokenizer outputs are skipped.
 - 5.2: quality_control.py calls `reconciler.reconcile(...)` via module attribute (line ~653) — tests that patch reconcile must target `quality_control.reconciler.reconcile`. Pre-existing: `_extract_tei_payload` concatenates adjacent `<p>` texts without a separator.
+- 5.3: alignment entries are positionally aligned with `semantic.sentences`; a miss is `-1/-1` + the existing reconciler flag. **Interim state until 6.1**: `w3c_annotation.project()` still text-keys entries and can emit `-1` offsets on a miss (pre-change it emitted 0,0 for the same cases); no test drives `project()` over real reconcile output. `_resolve_source_blocks` recognises paragraph sources by `id()` — a key-based check would be more robust if paragraph dicts are ever copied.

@@ -261,39 +261,97 @@ def _build_sentences(
     return sentences, sources
 
 
+def _resolve_source_blocks(
+    sentence_sources: list[dict | None],
+    paragraphs: list[dict],
+    primary_blocks: list[dict],
+) -> list[dict | None]:
+    """Resolve each sentence's source record to the block that carries its
+    ``block_bbox``.
+
+    ``_build_sentences`` returns, per sentence, either one of *paragraphs*
+    (native sentence; the paragraph dict carries ``block_index`` into
+    *primary_blocks*, and the bbox lives on that block) or the secondary OCR
+    block itself (which carries ``block_bbox`` directly). Paragraph dicts,
+    recognised by identity, are mapped to their primary block; everything
+    else passes through unchanged.
+    """
+    paragraph_ids = {id(p) for p in paragraphs}
+    resolved: list[dict | None] = []
+    for source in sentence_sources:
+        if source is not None and id(source) in paragraph_ids:
+            block_index = source.get("block_index", -1)
+            resolved.append(
+                primary_blocks[block_index]
+                if 0 <= block_index < len(primary_blocks)
+                else None
+            )
+        else:
+            resolved.append(source)
+    return resolved
+
+
 def _compute_sentence_to_char_range(
-    sentences: list[str],
+    sentences: list[dict],
     full_text: str,
+    source_blocks: list[dict | None],
     reconciliation_flags: list,
 ) -> list[dict]:
-    """Map each sentence to its character range in full_text.
+    """Emit one location entry per sentence, positionally aligned with
+    *sentences* (same length, same order).
 
-    Sentences not found in full_text are omitted from the result and a
-    ``"one_engine_only"`` flag entry is appended to reconciliation_flags.
+    Entry shape::
+
+        {"sentence": str, "start": int, "end": int, "page_index": int,
+         "ocr_derived": bool, "bbox": [x0, y0, x1, y1] | None, "occurrence": int}
+
+    - Offsets are found with a monotonic cursor (``full_text.find(text,
+      cursor)``), so repeated text yields distinct, increasing ranges.
+    - A miss records ``start = end = -1`` and appends a ``"one_engine_only"``
+      ``AlignmentRecord(source="reconciler")`` to *reconciliation_flags*;
+      it never yields a silent ``0, 0`` and does not advance the cursor.
+    - ``occurrence`` is the zero-based count of prior sentences with
+      identical text in the document.
+    - ``bbox`` is a copy of the source block's ``block_bbox`` when present
+      (PaddleOCR blocks have one; GROBID blocks have ``None``).
     """
-    result: list[dict] = []
-    for sentence in sentences:
-        if not sentence:
-            continue
-        start = full_text.find(sentence)
+    entries: list[dict] = []
+    cursor = 0
+    seen: dict[str, int] = {}
+    for idx, sentence in enumerate(sentences):
+        text = sentence.get("text", "")
+        occurrence = seen.get(text, 0)
+        seen[text] = occurrence + 1
+
+        source = source_blocks[idx] if idx < len(source_blocks) else None
+        raw_bbox = source.get("block_bbox") if source else None
+        bbox = list(raw_bbox) if raw_bbox is not None else None
+
+        start = full_text.find(text, cursor) if text else -1
         if start == -1:
+            end = -1
             reconciliation_flags.append(
                 AlignmentRecord(
                     source="reconciler",
                     agreement="one_engine_only",
-                    preferred_reading=sentence,
+                    preferred_reading=text,
                     confidence=0.0,
                 )
             )
         else:
-            end = start + len(sentence)
-            result.append({
-                "sentence": sentence,
-                "start": start,
-                "end": end,
-                "page_index": 0,  # approximate; full page attribution requires block search
-            })
-    return result
+            end = start + len(text)
+            cursor = end
+
+        entries.append({
+            "sentence": text,
+            "start": start,
+            "end": end,
+            "page_index": sentence.get("page_index", 0),
+            "ocr_derived": bool(sentence.get("ocr_derived", False)),
+            "bbox": bbox,
+            "occurrence": occurrence,
+        })
+    return entries
 
 
 def _route_paragraph_blocks(
@@ -575,9 +633,15 @@ def reconcile(
     # Document text rule: primary blocks plus the OCR blocks that produced
     # sentences, in page order; ``content["exact_text"]`` uses the same text.
     full_text = _build_document_text(primary_blocks, used_ocr_blocks)
-    all_sentences = [p["text"] for p in semantic.paragraphs if p.get("text")]
+    # One location entry per sentence, positionally aligned with
+    # ``semantic.sentences`` (design: SentenceLocation). Native sentences
+    # resolve their bbox through the primary block their paragraph came
+    # from; OCR sentences carry the secondary block directly.
     sentence_to_char_range = _compute_sentence_to_char_range(
-        all_sentences, full_text, reconciliation_flags
+        semantic.sentences,
+        full_text,
+        _resolve_source_blocks(sentence_sources, semantic.paragraphs, primary_blocks),
+        reconciliation_flags,
     )
 
     # ------------------------------------------------------------------
