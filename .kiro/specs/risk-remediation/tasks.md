@@ -46,7 +46,7 @@ Binding order from design.md "Implementation sequencing": extractor identity →
   - _Requirements: 2.1, 2.2, 2.3, 2.4_
 
 - [ ] 4. Block provenance from the extraction pipeline
-- [ ] 4.1 Tag every extracted block with its producing extractor and OCR flag
+- [x] 4.1 Tag every extracted block with its producing extractor and OCR flag
   - Document the optional origin keys on the block schema; add a single tagging step applied when native, scanned, all-native, and cache-hit block lists are built; keep the set of OCR-producing extractor names as one constant in the extraction pipeline
   - Set the same two keys (source `grobid`, not-OCR) on the blocks the quality-control TEI block builder emits — a deliberate one-line edit across the QC boundary so every block, whatever its producer, carries explicit origin keys
   - Extend the merged-order routing test to assert each merged block's source and OCR flag match the page it came from
@@ -251,3 +251,4 @@ Binding order from design.md "Implementation sequencing": extractor identity →
 - 2.2: satisfied by the tests delivered in 2.1 (`test_quality_control_identity.py`, `test_builtin_impls_identity.py`); controller re-verified the done condition in a worktree at 84ba4b1 (pre-2.1): 6 failed / 3 passed there, 9 passed on the current tree. No separate implementer dispatched.
 - 3.1: provenance keys are attached in `_pdf_reconciler_fn` after `reconcile()` returns (`_build_provenance_dict` takes fixed kwargs). The fallback warning is only reachable via the helper's unit test — since 2.1 the adjudicator always names a real branch end-to-end. Empty branch list also logs the fallback warning (harmless).
 - 3.2: `run_quality_control` has no adjudicator injection seam; end-to-end fallback test monkeypatches the module-level `AdjudicationDecision` name (late-bound in `_pdf_adjudicator_fn`). A non-GROBID primary is produced end-to-end by feeding GROBID a degraded TEI (real rater fails it 5/8 metrics at `max_triggered_fraction` 0.5) — margin is one metric; the test's precondition guard makes drift loud.
+- 4.1: `_tag_blocks` returns shallow copies (routing tests share `_make_block` dicts across mocked extractors). `_extract_branch_payload`'s legacy non-TEI fallbacks (`quality_control.py:336,349`) still emit untagged blocks — unreachable from pipeline payloads; 5.1 must read origin keys with `.get` defaults. `scanned_pymupdf_blocks` is only logged, never a branch.

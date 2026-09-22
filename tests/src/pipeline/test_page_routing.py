@@ -7,8 +7,10 @@ Verifies that:
 - All-scanned PDFs with ocr=false log WARNING and produce no extraction branch.
 - PageRoutingResult metadata is attached to QCBundle via ctx.unified.content["page_routing"].
 - Merged results preserve original page order.
+- Every block handed to QC carries ``source`` / ``ocr_derived`` provenance
+  matching the page it came from (risk-remediation 4.1).
 
-Requirements: 3.1, 3.2, 3.3, 3.4
+Requirements: 3.1, 3.2, 3.3, 3.4; risk-remediation 4.1
 """
 from __future__ import annotations
 
@@ -457,3 +459,149 @@ def test_merged_results_preserve_page_order():
     scanned_page_blocks = [b for b in structural_branch.payload if b["page_index"] in (1, 2)]
     for b in scanned_page_blocks:
         assert "paddle" in b["text"], f"Scanned page block should come from PaddleOCR: {b}"
+
+    # risk-remediation 4.1: per-block provenance survives the merge.
+    assert len(structural_branch.payload) == 4
+    for b in structural_branch.payload:
+        assert "source" in b, f"merged block lacks 'source': {b}"
+        assert "ocr_derived" in b, f"merged block lacks 'ocr_derived': {b}"
+        if b["page_index"] in (0, 3):
+            assert b["source"] == "pdfplumber", b
+            assert b["ocr_derived"] is False, b
+        else:
+            assert b["source"] == "paddleocr", b
+            assert b["ocr_derived"] is True, b
+
+
+# ---------------------------------------------------------------------------
+# Test: block provenance on the all-native and cache-hit pdfplumber lists
+# ---------------------------------------------------------------------------
+
+
+def _capture_structural_payload(qc_config: dict, classifications, plumber_blocks, *,
+                                cached_tei: str | None = None) -> list[dict]:
+    """Run build_qc_bundle with mocked backends and return the structural payload."""
+    mock_tp, mock_qc_bundle = _setup_common_mocks()
+    mock_fitz, _ = _mock_fitz_for_pages(len(classifications))
+    captured_branches: list = []
+
+    def mock_run_qc(branches, *args, **kwargs):
+        captured_branches.extend(branches)
+        return mock_qc_bundle
+
+    with patch("pipeline.extraction_pipeline._grobid_cache_read", return_value=(cached_tei, "deadbeef" * 8)), \
+         patch("pipeline.extraction_pipeline.extract_with_paddleocr", MagicMock(return_value=[])), \
+         patch("pipeline.extraction_pipeline.extract_with_pymupdf", MagicMock(return_value=([], []))), \
+         patch("pipeline.extraction_pipeline.extract_with_pdfplumber", MagicMock(return_value=plumber_blocks)), \
+         patch("pipeline.extraction_pipeline.extract_with_grobid", MagicMock(return_value=("<TEI/>", []))), \
+         patch("pipeline.extraction_pipeline.scan_detector") as mock_scan_mod, \
+         patch("pipeline.extraction_pipeline.run_quality_control", side_effect=mock_run_qc), \
+         patch("pipeline.extraction_pipeline._get_text_processor", return_value=mock_tp), \
+         patch("pipeline.extraction_pipeline._get_lexical_matcher", return_value=MagicMock()), \
+         patch("pipeline.extraction_pipeline._get_semantic_matcher", return_value=MagicMock()), \
+         patch("pipeline.extraction_pipeline.w3c_project", return_value=[]), \
+         patch("pipeline.extraction_pipeline.generate_w3c_jsonld", return_value={}), \
+         patch.dict(sys.modules, {"fitz": mock_fitz}):
+
+        mock_scan_mod.classify_page.side_effect = classifications
+
+        from pipeline.extraction_pipeline import build_qc_bundle
+
+        build_qc_bundle(
+            pdf_path=Path("/fake/test.pdf"),
+            pdf_name="test_paper",
+            qc_config=qc_config,
+        )
+
+    structural = [b.payload for b in captured_branches if isinstance(b.payload, list)]
+    assert len(structural) == 1, f"expected exactly one structural branch, got {len(structural)}"
+    return structural[0]
+
+
+def test_all_native_blocks_are_tagged_pdfplumber_not_ocr():
+    """All-native path: every pdfplumber block carries source=pdfplumber, ocr_derived=False.
+
+    Requirements: risk-remediation 4.1
+    """
+    classifications = [_make_classification(0, True), _make_classification(1, True)]
+    plumber_blocks = [_make_block(0, "p0"), _make_block(1, "p1")]
+
+    payload = _capture_structural_payload(_make_qc_config(ocr=True), classifications, plumber_blocks)
+
+    assert [b["text"] for b in payload] == ["p0", "p1"]
+    for b in payload:
+        assert b["source"] == "pdfplumber", b
+        assert b["ocr_derived"] is False, b
+
+
+def test_cache_hit_blocks_are_tagged_pdfplumber_not_ocr():
+    """GROBID TEI cache hit: the pdfplumber list is tagged like the all-native path.
+
+    Requirements: risk-remediation 4.1
+    """
+    plumber_blocks = [_make_block(0, "p0"), _make_block(1, "p1")]
+
+    payload = _capture_structural_payload(
+        _make_qc_config(ocr=True), [], plumber_blocks, cached_tei="<TEI>cached</TEI>",
+    )
+
+    assert [b["text"] for b in payload] == ["p0", "p1"]
+    for b in payload:
+        assert b["source"] == "pdfplumber", b
+        assert b["ocr_derived"] is False, b
+
+
+# ---------------------------------------------------------------------------
+# Test: _tag_blocks helper and OCR_SOURCES constant
+# ---------------------------------------------------------------------------
+
+
+def test_ocr_sources_names_only_paddleocr():
+    """OCR_SOURCES is the single registry of OCR-producing extractor names.
+
+    Requirements: risk-remediation 4.1
+    """
+    from pipeline.extraction_pipeline import OCR_SOURCES
+
+    assert isinstance(OCR_SOURCES, frozenset)
+    assert OCR_SOURCES == frozenset({"paddleocr"})
+    assert "pdfplumber" not in OCR_SOURCES
+    assert "grobid" not in OCR_SOURCES
+
+
+def test_tag_blocks_stamps_keys_and_preserves_inputs():
+    """_tag_blocks sets both keys, keeps every existing key (incl. PaddleOCR
+    extras), and does not mutate the caller's block dicts.
+
+    Requirements: risk-remediation 4.1
+    """
+    from pipeline.extraction_pipeline import _tag_blocks
+
+    original = {
+        "text": "ocr text",
+        "page_index": 2,
+        "block_bbox": (1.0, 2.0, 3.0, 4.0),
+        "spans": [],
+        "rasterization_dpi": 150,
+        "ocr_confidence": 0.91,
+    }
+    snapshot = dict(original)
+
+    tagged = _tag_blocks([original], "paddleocr", True)
+
+    assert len(tagged) == 1
+    t = tagged[0]
+    assert t["source"] == "paddleocr"
+    assert t["ocr_derived"] is True
+    # All original keys/values survive.
+    for k, v in snapshot.items():
+        assert t[k] == v
+    # Caller's dict untouched.
+    assert original == snapshot
+    assert "source" not in original
+
+    native = _tag_blocks([_make_block(0, "n")], "pdfplumber", False)
+    assert native[0]["source"] == "pdfplumber"
+    assert native[0]["ocr_derived"] is False
+
+    assert _tag_blocks([], "pdfplumber", False) == []

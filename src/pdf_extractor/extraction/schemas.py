@@ -25,11 +25,37 @@ class SpanDict(TypedDict):
     bbox: tuple
 
 
-class BlockDict(TypedDict):
+class _BlockDictRequired(TypedDict):
     text: str
     page_index: int
     block_bbox: tuple | None
     spans: list  # list[SpanDict]
+
+
+class BlockDict(_BlockDictRequired, total=False):
+    """Canonical text block emitted by every extraction backend.
+
+    Required keys (checked by :func:`validate_blocks`): ``text``,
+    ``page_index``, ``block_bbox``, ``spans``.
+
+    Optional provenance keys (not checked by :func:`validate_blocks`, which
+    is unchanged and tolerates their absence):
+
+    * ``source`` — the name of the extractor that produced the block
+      (``"pdfplumber"``, ``"paddleocr"``, ``"grobid"``, ...).  Stamped by the
+      extraction pipeline's block-tagging step, or by the quality-control TEI
+      block builder for GROBID-derived blocks.
+    * ``ocr_derived`` — ``True`` when the block text came from an OCR
+      extractor (the pipeline derives this from ``source``); ``False`` for
+      native text.  Downstream consumers read this boolean directly instead of
+      re-deriving it from the extractor name.
+
+    Blocks from older callers that lack these keys remain valid; consumers
+    read them with ``.get`` defaults.
+    """
+
+    source: str
+    ocr_derived: bool
 
 
 class FontMetaDict(TypedDict):

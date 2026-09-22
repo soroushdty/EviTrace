@@ -207,7 +207,7 @@ def _extract_tei_payload(tei_xml: str) -> tuple[str, dict[int, str], list[dict]]
         root = _ET.fromstring(tei_xml)
     except _ET.ParseError:
         return tei_xml, {0: tei_xml} if tei_xml.strip() else {}, (
-            [{"text": tei_xml, "page_index": 0, "block_bbox": None, "spans": []}]
+            [{"text": tei_xml, "page_index": 0, "block_bbox": None, "spans": [], "source": "grobid", "ocr_derived": False}]
             if tei_xml.strip() else []
         )
 
@@ -236,7 +236,7 @@ def _extract_tei_payload(tei_xml: str) -> tuple[str, dict[int, str], list[dict]]
         if not t:
             continue
         page = _page_from_coords(p.attrib.get("coords", ""))
-        blocks.append({"text": t, "page_index": page, "block_bbox": None, "spans": []})
+        blocks.append({"text": t, "page_index": page, "block_bbox": None, "spans": [], "source": "grobid", "ocr_derived": False})
         page_texts.setdefault(page, []).append(t)
         text_parts.append(t)
 
@@ -260,7 +260,7 @@ def _extract_tei_payload(tei_xml: str) -> tuple[str, dict[int, str], list[dict]]
                     continue
                 coord = s.attrib.get("coords", "")
                 page = _page_from_coords(coord) if coord else sent_page.get(id(s), 0)
-                blocks.append({"text": t, "page_index": page, "block_bbox": None, "spans": []})
+                blocks.append({"text": t, "page_index": page, "block_bbox": None, "spans": [], "source": "grobid", "ocr_derived": False})
                 page_texts.setdefault(page, []).append(t)
                 text_parts.append(t)
         else:
@@ -269,7 +269,7 @@ def _extract_tei_payload(tei_xml: str) -> tuple[str, dict[int, str], list[dict]]
                 if not t:
                     continue
                 page = _page_from_coords(p.attrib.get("coords", ""))
-                blocks.append({"text": t, "page_index": page, "block_bbox": None, "spans": []})
+                blocks.append({"text": t, "page_index": page, "block_bbox": None, "spans": [], "source": "grobid", "ocr_derived": False})
                 page_texts.setdefault(page, []).append(t)
                 text_parts.append(t)
 
@@ -282,7 +282,7 @@ def _extract_tei_payload(tei_xml: str) -> tuple[str, dict[int, str], list[dict]]
             if not t:
                 continue
             page = _page_from_coords(fig.attrib.get("coords", ""))
-            blocks.append({"text": t, "page_index": page, "block_bbox": None, "spans": []})
+            blocks.append({"text": t, "page_index": page, "block_bbox": None, "spans": [], "source": "grobid", "ocr_derived": False})
             page_texts.setdefault(page, []).append(t)
             text_parts.append(t)
 
@@ -291,7 +291,7 @@ def _extract_tei_payload(tei_xml: str) -> tuple[str, dict[int, str], list[dict]]
             if not t:
                 continue
             page = _page_from_coords(head.attrib.get("coords", ""))
-            blocks.append({"text": t, "page_index": page, "block_bbox": None, "spans": []})
+            blocks.append({"text": t, "page_index": page, "block_bbox": None, "spans": [], "source": "grobid", "ocr_derived": False})
             page_texts.setdefault(page, []).append(t)
             text_parts.append(t)
 
@@ -299,7 +299,7 @@ def _extract_tei_payload(tei_xml: str) -> tuple[str, dict[int, str], list[dict]]
         # Tiny / malformed TEI: fall back to stripped document text.
         txt = _text(root)
         if txt:
-            blocks.append({"text": txt, "page_index": 0, "block_bbox": None, "spans": []})
+            blocks.append({"text": txt, "page_index": 0, "block_bbox": None, "spans": [], "source": "grobid", "ocr_derived": False})
             page_texts.setdefault(0, []).append(txt)
             text_parts.append(txt)
 

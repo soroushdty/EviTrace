@@ -43,6 +43,30 @@ logger = logging.getLogger("pdf_extractor")
 
 
 # ---------------------------------------------------------------------------
+# Block provenance
+# ---------------------------------------------------------------------------
+
+#: Extractor names whose blocks are OCR-derived.  This is the single place
+#: that knows which sources are OCR; ``quality_control`` never consults it and
+#: only reads the ``ocr_derived`` boolean stamped on each block.
+OCR_SOURCES: frozenset[str] = frozenset({"paddleocr"})
+
+
+def _tag_blocks(blocks: list, source: str, ocr_derived: bool) -> list[dict]:
+    """Return copies of *blocks* stamped with ``source`` and ``ocr_derived``.
+
+    Every block handed to quality control passes through here exactly once,
+    so downstream consumers (reconciler, annotation generator) can rely on
+    both keys being present and can read ``ocr_derived`` as a plain boolean
+    instead of re-deriving it from the extractor name.  Shallow copies are
+    returned so the extractor's own lists are never mutated; all existing
+    keys (including PaddleOCR extras such as ``rasterization_dpi`` and
+    ``ocr_confidence``) are preserved.
+    """
+    return [{**b, "source": source, "ocr_derived": ocr_derived} for b in blocks]
+
+
+# ---------------------------------------------------------------------------
 # Per-page routing result
 # ---------------------------------------------------------------------------
 
@@ -288,7 +312,10 @@ def build_qc_bundle(
         # Cache hit: skip scan_detector AND the GROBID HTTP call.
         logger.info("GROBID cache hit for %s (%s); skipping API + scan_detector", pdf_name, pdf_digest[:12])
         tei_xml = cached_tei
-        plumber_blocks = extract_with_pdfplumber(str(pdf_path))
+        plumber_blocks = _tag_blocks(
+            extract_with_pdfplumber(str(pdf_path)),
+            "pdfplumber", "pdfplumber" in OCR_SOURCES,
+        )
         logger.debug("pdfplumber returned %d blocks (cache-hit path)", len(plumber_blocks))
         branches = [
             Candidate(source="grobid",     index=0, payload=tei_xml,        status=None),
@@ -400,7 +427,9 @@ def build_qc_bundle(
                     logger.debug("GROBID exception for %s", pdf_name, exc_info=True)
                     tei_xml = ""
 
-                plumber_blocks = plumber_future.result()
+                plumber_blocks = _tag_blocks(
+                    plumber_future.result(), "pdfplumber", "pdfplumber" in OCR_SOURCES,
+                )
                 logger.debug("pdfplumber returned %d blocks", len(plumber_blocks))
                 branches = [
                     Candidate(source="grobid",     index=0, payload=tei_xml,        status=None),
@@ -452,9 +481,10 @@ def build_qc_bundle(
 
                     plumber_blocks = plumber_future.result()
                     # Filter pdfplumber blocks to native page indices only
-                    native_blocks = [
-                        b for b in plumber_blocks if b["page_index"] in native_indices
-                    ]
+                    native_blocks = _tag_blocks(
+                        [b for b in plumber_blocks if b["page_index"] in native_indices],
+                        "pdfplumber", "pdfplumber" in OCR_SOURCES,
+                    )
                     logger.debug(
                         "pdfplumber: %d total blocks, %d native-page blocks",
                         len(plumber_blocks), len(native_blocks),
@@ -471,9 +501,10 @@ def build_qc_bundle(
                     paddle_blocks = extract_with_paddleocr(str(pdf_path), dpi=dpi_value)
                     pymupdf_blocks, _ = extract_with_pymupdf(str(pdf_path))
                     # Filter to scanned page indices only
-                    scanned_blocks = [
-                        b for b in paddle_blocks if b["page_index"] in scanned_indices
-                    ]
+                    scanned_blocks = _tag_blocks(
+                        [b for b in paddle_blocks if b["page_index"] in scanned_indices],
+                        "paddleocr", "paddleocr" in OCR_SOURCES,
+                    )
                     scanned_pymupdf_blocks = [
                         b for b in pymupdf_blocks if b["page_index"] in scanned_indices
                     ]
