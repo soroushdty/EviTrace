@@ -77,7 +77,7 @@ Binding order from design.md "Implementation sequencing": extractor identity →
   - _Requirements: 3.3, 4.3, 4.6_
   - _Boundary: SentenceLocation_
 
-- [ ] 5.4 Test sentence production and location in the reconciler suite
+- [x] 5.4 Test sentence production and location in the reconciler suite
   - Preservation: native-only document produces identical sentence texts and pages before and after
   - Bug conditions: mixed markings, all-scanned document, OCR text present in exact text, per-sentence offsets, duplicate occurrences, alignment length equals sentence count
   - Done when the reconciler suite passes with the new producer and location entries
@@ -255,3 +255,4 @@ Binding order from design.md "Implementation sequencing": extractor identity →
 - 5.1: `reconcile()` keeps `sentence_sources` (paragraph dict with `block_index` for native sentences; the secondary block dict with `block_bbox` for OCR sentences) as a local for 5.3. `content["segments"]`/`["pages"]` are still primary-only while `exact_text` includes used OCR blocks — confirm acceptable at 5.3/12.4 (all known consumers read `exact_text`). Pre-existing env gap: config selects `nltk_punkt` but nltk is not installed in the venv (`requirements.txt:34` commented) — route to 12.4. Native-only output is byte-identical except that empty tokenizer outputs are skipped.
 - 5.2: quality_control.py calls `reconciler.reconcile(...)` via module attribute (line ~653) — tests that patch reconcile must target `quality_control.reconciler.reconcile`. Pre-existing: `_extract_tei_payload` concatenates adjacent `<p>` texts without a separator.
 - 5.3: alignment entries are positionally aligned with `semantic.sentences`; a miss is `-1/-1` + the existing reconciler flag. **Interim state until 6.1**: `w3c_annotation.project()` still text-keys entries and can emit `-1` offsets on a miss (pre-change it emitted 0,0 for the same cases); no test drives `project()` over real reconcile output. `_resolve_source_blocks` recognises paragraph sources by `id()` — a key-based check would be more robust if paragraph dicts are ever copied.
+- 5.4: satisfied by `test_reconciler_sentence_producer.py` (5.1, 17 tests) and `test_reconciler_sentence_location.py` (5.3, 13 tests); every bullet maps to a named test and both files' RED was reproduced independently by the 5.1/5.3 reviewers. No separate implementer dispatched.
