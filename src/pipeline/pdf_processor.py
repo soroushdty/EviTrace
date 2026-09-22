@@ -510,10 +510,29 @@ class RepairRetryLoop:
         valid_location_ids: set[str],
         expected_indices: list[int],
         pdf_name: str,
+        prior_context: "list[dict] | None" = None,
+        stage: str = "extraction_chunk",
+        protected_evidence_ids: "set[str] | None" = None,
     ) -> list[dict]:
         """Try extraction, then repair on parse/validation failure.
 
         Returns the validated list of compact extraction dicts on success.
+
+        The three keyword-only inputs exist so the synthesis stage can run
+        through this same loop (Requirements 5.1, 5.2, 5.4) without losing
+        what only synthesis supplies; their defaults reproduce the
+        extraction-chunk behaviour exactly:
+
+        - ``prior_context``: read-only prior chunk results, passed to
+          ``extract_chunk`` on the initial call and every repair attempt,
+          and counted (as JSON) in the token-budget estimate.
+        - ``stage``: the Token_Budget key for the initial call and its
+          telemetry label; repair attempts always use
+          ``"validation_repair"``.
+        - ``protected_evidence_ids``: forwarded to the initial call's
+          ``_check_and_mitigate_budget`` so confidence-aware evidence
+          pruning keeps them (Req 9.4); the repair-prompt check has no
+          evidence to prune and does not receive them.
 
         Raises:
             RepairExhaustedError: When all repair attempts are exhausted.
@@ -531,18 +550,23 @@ class RepairRetryLoop:
         # Additive safety net: when self.budgets is None (default for every
         # caller that doesn't opt in), this is a complete no-op and `source`
         # is used unchanged, exactly as before budget enforcement existed.
+        # Prior context (synthesis only) is part of the prompt, so its JSON
+        # counts toward the budget estimate; "" reproduces the chunk path.
+        prior_context_text = json.dumps(prior_context) if prior_context is not None else ""
+
         if self.budgets is not None:
             system_text = self._get_system_prompt_text()
             source = _check_and_mitigate_budget(
-                stage="extraction_chunk",
+                stage=stage,
                 system_text=system_text,
                 evidence_text=source,
                 field_definitions_text=field_definitions_text,
-                prior_context_text="",
+                prior_context_text=prior_context_text,
                 budgets=self.budgets,
                 evidence_config=self.evidence_config,
                 pdf_name=pdf_name,
                 chunk_num=chunk_num,
+                protected_evidence_ids=protected_evidence_ids,
             )
 
         # --- Initial attempt ---
@@ -552,8 +576,10 @@ class RepairRetryLoop:
             fields,
             semaphore,
             valid_location_ids=valid_location_ids,
+            prior_context=prior_context,
             pdf_name=pdf_name,
             collector=self.collector,
+            stage=stage,
         )
 
         # Safe bounded logging of the raw model response (Requirement 6)
@@ -597,7 +623,10 @@ class RepairRetryLoop:
         # `source` happens to be, rather than relying solely on the fixed
         # _MAX_REPAIR_FRAGMENT_CHARS cap.
         original_prompt_chars = (
-            len(self._get_system_prompt_text()) + len(source) + len(field_definitions_text)
+            len(self._get_system_prompt_text())
+            + len(source)
+            + len(field_definitions_text)
+            + len(prior_context_text)
         )
 
         # --- Repair attempts ---
@@ -616,7 +645,11 @@ class RepairRetryLoop:
             # 7.1, 7.2; validation_repair Stage). Additive safety net -- the
             # repair prompt is already small and bounded (see
             # _build_repair_prompt's fragment truncation), so this is not
-            # expected to trigger mitigation in practice.
+            # expected to trigger mitigation in practice. The repair prompt
+            # carries no evidence package, so protected_evidence_ids is
+            # deliberately NOT forwarded here: the protected-aware pruning
+            # path cannot parse plain text and would reject outright
+            # instead of falling through to flat-text mitigation.
             if self.budgets is not None:
                 repair_prompt = _check_and_mitigate_budget(
                     stage="validation_repair",
@@ -636,6 +669,7 @@ class RepairRetryLoop:
                 fields,
                 semaphore,
                 valid_location_ids=valid_location_ids,
+                prior_context=prior_context,
                 pdf_name=pdf_name,
                 repair_prompt=repair_prompt,
                 collector=self.collector,

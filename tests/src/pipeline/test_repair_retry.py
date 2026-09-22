@@ -42,6 +42,7 @@ with patch.dict(
         token_budget,
     )
     from pipeline.validator import ValidationError
+    import pipeline.pdf_processor as _pdf_processor
 
 # NOTE: `token_budget` (and any other module reached only via `pipeline.*`)
 # MUST be imported here, inside this same patch.dict(sys.modules, ...) block,
@@ -690,3 +691,218 @@ class TestRepairBudgetEnforcement:
                 ))
 
         mock_extract.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# extract_with_repair: synthesis-only inputs (Requirements 5.1, 5.2, 5.4)
+# ---------------------------------------------------------------------------
+
+
+class TestSynthesisRepairInputs:
+    """The repair loop accepts the three synthesis-only inputs (prior context,
+    stage key, protected evidence identifiers) and forwards them on the
+    initial call and every repair attempt; defaults reproduce the
+    extraction-chunk behaviour exactly (design.md SynthesisRepair)."""
+
+    _VALID = json.dumps(
+        {"extractions": [{"i": 1, "v": "x", "loc": ["ev1"], "c": "h"}]}
+    )
+    _MALFORMED = '{"extractions": [{"i": 1, "v": "x"'
+
+    @staticmethod
+    def _budget_spy():
+        """Stand-in for _check_and_mitigate_budget that records kwargs and
+        returns the evidence text unchanged."""
+        return MagicMock(side_effect=lambda **kwargs: kwargs["evidence_text"])
+
+    def _run(self, loop, mock_extract, budget_spy=None, **extra):
+        patches = {"agents.openai.api_client": MagicMock(extract_chunk=mock_extract)}
+        with patch.dict(sys.modules, patches):
+            if budget_spy is None:
+                return asyncio.run(loop.extract_with_repair(
+                    chunk_num=1,
+                    source="test_source",
+                    fields=[{"field_index": 1}],
+                    semaphore=asyncio.Semaphore(5),
+                    valid_location_ids={"ev1"},
+                    expected_indices=[1],
+                    pdf_name="test_pdf",
+                    **extra,
+                ))
+            with patch.object(_pdf_processor, "_check_and_mitigate_budget", budget_spy):
+                return asyncio.run(loop.extract_with_repair(
+                    chunk_num=1,
+                    source="test_source",
+                    fields=[{"field_index": 1}],
+                    semaphore=asyncio.Semaphore(5),
+                    valid_location_ids={"ev1"},
+                    expected_indices=[1],
+                    pdf_name="test_pdf",
+                    **extra,
+                ))
+
+    def test_defaults_reproduce_chunk_behaviour(self):
+        """With none of the new inputs given, both the budget check and the
+        model calls see exactly what the extraction-chunk path sent before:
+        stage 'extraction_chunk', empty prior-context text, no protected ids,
+        prior_context None, and 'validation_repair' on the repair attempt."""
+        loop = RepairRetryLoop(
+            max_repair_attempts=1,
+            budgets={"extraction_chunk": 100_000, "validation_repair": 20_000},
+        )
+        mock_extract = AsyncMock(side_effect=[self._MALFORMED, self._VALID])
+        budget_spy = self._budget_spy()
+
+        result = self._run(loop, mock_extract, budget_spy)
+
+        assert [item["i"] for item in result] == [1]
+        assert budget_spy.call_count == 2
+        initial_budget = budget_spy.call_args_list[0].kwargs
+        assert initial_budget["stage"] == "extraction_chunk"
+        assert initial_budget["prior_context_text"] == ""
+        assert initial_budget["protected_evidence_ids"] is None
+        repair_budget = budget_spy.call_args_list[1].kwargs
+        assert repair_budget["stage"] == "validation_repair"
+        assert repair_budget["prior_context_text"] == ""
+        assert repair_budget.get("protected_evidence_ids") is None
+
+        assert mock_extract.call_count == 2
+        first_kwargs = mock_extract.call_args_list[0].kwargs
+        assert first_kwargs.get("prior_context") is None
+        # The label api_client derives today for a non-final chunk.
+        assert first_kwargs.get("stage") == "extraction_chunk"
+        assert first_kwargs.get("repair_prompt") is None
+        second_kwargs = mock_extract.call_args_list[1].kwargs
+        assert second_kwargs.get("prior_context") is None
+        assert second_kwargs.get("stage") == "validation_repair"
+
+    def test_synthesis_inputs_forwarded_on_initial_and_repair_calls(self):
+        """Requirements 5.1, 5.2: stage selects the initial budget key and
+        telemetry label; prior context is counted in the estimate and passed
+        to every model call; protected ids reach both budget checks; the
+        repaired response is the one returned."""
+        loop = RepairRetryLoop(
+            max_repair_attempts=1,
+            budgets={"synthesis": 100_000, "validation_repair": 20_000},
+        )
+        prior_context = [{"field_index": 3, "v": "RCT"}, {"field_index": 4, "v": "120"}]
+        protected = {"ev1", "ev9"}
+        mock_extract = AsyncMock(side_effect=[self._MALFORMED, self._VALID])
+        budget_spy = self._budget_spy()
+
+        result = self._run(
+            loop, mock_extract, budget_spy,
+            prior_context=prior_context, stage="synthesis",
+            protected_evidence_ids=protected,
+        )
+
+        assert [item["i"] for item in result] == [1]
+        assert budget_spy.call_count == 2
+        initial_budget = budget_spy.call_args_list[0].kwargs
+        assert initial_budget["stage"] == "synthesis"
+        assert initial_budget["prior_context_text"] == json.dumps(prior_context)
+        assert initial_budget["protected_evidence_ids"] == protected
+        # The repair-prompt check carries no evidence package: protected ids
+        # are not forwarded there (the protected pruning path cannot parse
+        # plain text and would reject instead of mitigating).
+        repair_budget = budget_spy.call_args_list[1].kwargs
+        assert repair_budget["stage"] == "validation_repair"
+        assert repair_budget["prior_context_text"] == ""
+        assert repair_budget.get("protected_evidence_ids") is None
+
+        assert mock_extract.call_count == 2
+        first_kwargs = mock_extract.call_args_list[0].kwargs
+        assert first_kwargs["prior_context"] == prior_context
+        assert first_kwargs["stage"] == "synthesis"
+        assert first_kwargs.get("repair_prompt") is None
+        second_kwargs = mock_extract.call_args_list[1].kwargs
+        assert second_kwargs["prior_context"] == prior_context
+        assert second_kwargs["stage"] == "validation_repair"
+        assert second_kwargs["repair_prompt"] is not None
+        assert second_kwargs["repair_attempt"] == 1
+
+    def test_prior_context_without_budgets_still_forwarded(self):
+        """budgets=None keeps the budget check a no-op even for synthesis,
+        while prior context still reaches the model call."""
+        loop = RepairRetryLoop(max_repair_attempts=1)
+        prior_context = [{"field_index": 3, "v": "RCT"}]
+        mock_extract = AsyncMock(return_value=self._VALID)
+        budget_spy = self._budget_spy()
+
+        self._run(
+            loop, mock_extract, budget_spy,
+            prior_context=prior_context, stage="synthesis",
+            protected_evidence_ids={"ev1"},
+        )
+
+        budget_spy.assert_not_called()
+        kwargs = mock_extract.call_args.kwargs
+        assert kwargs["prior_context"] == prior_context
+        assert kwargs["stage"] == "synthesis"
+        assert mock_extract.call_args.args[1] == "test_source"
+
+    def test_prior_context_json_counts_toward_budget(self):
+        """The prior-context JSON length is part of the estimate: at a budget
+        calibrated to fit the prompt without prior context, adding a large
+        prior context pushes it over and evidence is pruned (real helpers)."""
+        source = "\n\n".join(f"evidence item {i} " * 20 for i in range(30))
+        fields = [{"field_index": 1}]
+        field_definitions_text = json.dumps(fields)
+        system_text = RepairRetryLoop._get_system_prompt_text()
+        fits = token_budget.estimate_tokens(system_text + source + field_definitions_text)
+        prior_context = [{"field_index": 3, "v": "R" * 4000}]  # ~1000 tokens
+        budget = fits + 50  # fits without prior context, not with it
+
+        def _dispatch(prior):
+            loop = RepairRetryLoop(
+                max_repair_attempts=1,
+                budgets={"synthesis": budget},
+                evidence_config={
+                    "max_evidence_items_per_chunk": 1,
+                    "max_evidence_chars_per_chunk": 100,
+                },
+            )
+            mock_extract = AsyncMock(return_value=self._VALID)
+            with patch.dict(
+                sys.modules,
+                {"agents.openai.api_client": MagicMock(extract_chunk=mock_extract)},
+            ):
+                asyncio.run(loop.extract_with_repair(
+                    chunk_num=1,
+                    source=source,
+                    fields=fields,
+                    semaphore=asyncio.Semaphore(5),
+                    valid_location_ids={"ev1"},
+                    expected_indices=[1],
+                    pdf_name="test_pdf",
+                    prior_context=prior,
+                    stage="synthesis",
+                ))
+            return mock_extract.call_args.args[1]
+
+        assert _dispatch(None) == source
+        assert len(_dispatch(prior_context)) < len(source)
+
+    def test_synthesis_exhaustion_metadata_shape_unchanged(self):
+        """Requirement 5.4: exhaustion under stage='synthesis' raises the same
+        RepairExhaustedError with the same metadata keys as a chunk."""
+        loop = RepairRetryLoop(max_repair_attempts=2)
+        mock_extract = AsyncMock(return_value=self._MALFORMED)
+
+        with pytest.raises(RepairExhaustedError) as exc_info:
+            self._run(
+                loop, mock_extract,
+                prior_context=[{"field_index": 3, "v": "RCT"}], stage="synthesis",
+                protected_evidence_ids={"ev1"},
+            )
+
+        metadata = exc_info.value.metadata
+        assert set(metadata) == {"status", "chunk", "last_error", "error_type", "attempts"}
+        assert metadata["status"] == "failed_validation"
+        assert metadata["chunk"] == 1
+        assert metadata["error_type"] == "parse"
+        assert metadata["attempts"] == 2
+        # 1 initial + 2 repairs, prior context on every one of them.
+        assert mock_extract.call_count == 3
+        for call in mock_extract.call_args_list:
+            assert call.kwargs["prior_context"] == [{"field_index": 3, "v": "RCT"}]
