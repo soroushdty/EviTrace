@@ -359,3 +359,110 @@ def test_char_cap_reduces_coverage_rather_than_being_exceeded():
     assert tight.selected_chars <= 10_000
     assert tight.coverage_ratio < wide.coverage_ratio
     assert tight.substantive_chars == wide.substantive_chars
+
+
+# ---------------------------------------------------------------------------
+# Requirement 10.3 — the evidence-budget documentation must agree with what
+# the ranker actually does at the configured defaults (task 9.3).
+#
+# Every figure asserted below is recomputed from the real fixtures on each
+# run, so the three documentation sites cannot silently drift from the code.
+# ---------------------------------------------------------------------------
+
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_CONFIG_YAML = _REPO_ROOT / "configs" / "config.yaml"
+_CONFIG_README = _REPO_ROOT / "configs" / "README.md"
+_STEERING_CONFIG = _REPO_ROOT / ".kiro" / "steering" / "config.md"
+_DOC_SITES = {
+    "configs/config.yaml": _CONFIG_YAML,
+    "configs/README.md": _CONFIG_README,
+    ".kiro/steering/config.md": _STEERING_CONFIG,
+}
+_FIXTURES = ("biorxiv", "plosone", "arxiv")
+
+
+def _stats_at_defaults(name: str) -> EvidenceSelectionStats:
+    _, stats = select_paper_evidence(
+        _fixture_bundle(name), _canonical_fields(), max_items=DEFAULT_MAX_ITEMS, max_chars=DEFAULT_MAX_CHARS
+    )
+    return stats
+
+
+def _mean_len(items: list[dict[str, Any]]) -> float:
+    return sum(len(item["text"]) for item in items) / len(items)
+
+
+def test_item_cap_binds_on_biorxiv_but_char_cap_binds_on_plosone_and_arxiv():
+    """The prose claim "whichever cap binds first -- the item cap on papers
+    with short sentences, the 30 000-char cap otherwise" is a statement about
+    the ranker, so it is measured here rather than trusted.
+
+    A cap "binds" when it is the constraint that stopped selection: the item
+    cap when exactly ``max_items`` were taken with room left under the char
+    cap; the char cap when fewer than ``max_items`` were taken although
+    unselected items remained (the only thing that can then exclude an item
+    is the character budget).
+    """
+    biorxiv = _stats_at_defaults("biorxiv")
+    assert biorxiv.selected_items == DEFAULT_MAX_ITEMS, biorxiv
+    assert biorxiv.selected_chars < DEFAULT_MAX_CHARS, biorxiv
+
+    for name in ("plosone", "arxiv"):
+        stats = _stats_at_defaults(name)
+        assert stats.selected_items < DEFAULT_MAX_ITEMS, (name, stats)
+        assert stats.selected_items < stats.total_items, (name, stats)
+        assert stats.selected_chars <= DEFAULT_MAX_CHARS, (name, stats)
+
+
+@pytest.mark.parametrize("name", _FIXTURES)
+def test_ranker_selects_longer_than_average_items(name):
+    """Why the char cap can bind before 150 x mean-item-length would predict:
+    the keyword-overlap ranker prefers longer sentences, so the selected mean
+    exceeds the population mean on every real fixture."""
+    bundle = _fixture_bundle(name)
+    selected, _ = select_paper_evidence(
+        bundle, _canonical_fields(), max_items=DEFAULT_MAX_ITEMS, max_chars=DEFAULT_MAX_CHARS
+    )
+    substantive = [item for item in bundle.evidence_items if item.get("section_path") != "Metadata"]
+    assert _mean_len(selected) > _mean_len(substantive), name
+
+
+@pytest.mark.parametrize("name", _FIXTURES)
+def test_uncapped_ratio_marginally_exceeds_one_because_metadata_is_selected(name):
+    """The numerator/denominator asymmetry documented in configs/README.md:
+    ``selected_chars`` counts a selected Metadata item, ``substantive_chars``
+    excludes it by definition, so with no cap binding the ratio lands just
+    above 1.0. At the defaults the Metadata item is never selected on these
+    fixtures, so the capped ratio stays at or below 1.0."""
+    bundle = _fixture_bundle(name)
+    fields = _canonical_fields()
+    selected, uncapped = select_paper_evidence(bundle, fields, max_items=10**9, max_chars=10**9)
+    assert any(item["section"] == "Metadata" for item in selected)
+    assert 1.0 < uncapped.coverage_ratio < 1.01, (name, uncapped)
+
+    capped_selected, capped = select_paper_evidence(
+        bundle, fields, max_items=DEFAULT_MAX_ITEMS, max_chars=DEFAULT_MAX_CHARS
+    )
+    assert not any(item["section"] == "Metadata" for item in capped_selected)
+    assert 0.0 <= capped.coverage_ratio <= 1.0, (name, capped)
+
+
+def test_docs_state_the_measured_coverage_and_the_binding_rule():
+    """Requirement 10.3: the three documentation sites state the coverage at
+    defaults as measured on the reference fixtures (2 dp, bioRxiv / PLOS ONE
+    / arXiv order) and describe the binding cap as "whichever cap binds
+    first" rather than naming one cap unconditionally."""
+    ratios = " / ".join(f"{_stats_at_defaults(name).coverage_ratio:.2f}" for name in _FIXTURES)
+    for label, path in _DOC_SITES.items():
+        text = path.read_text(encoding="utf-8")
+        assert ratios in text, f"{label} must state the measured coverage at defaults: {ratios}"
+        assert "whichever cap binds first" in text, f"{label} must describe the binding cap conditionally"
+        assert "is the binding constraint" not in text, f"{label} still names one cap as always binding"
+        assert "item cap binds first" not in text, f"{label} still names one cap as always binding"
+
+
+def test_readme_documents_the_metadata_ratio_asymmetry():
+    """The 9.2 decision (task 9.3): the asymmetry is documented, not clamped."""
+    text = _CONFIG_README.read_text(encoding="utf-8")
+    assert "exceed 1.0" in text
+    assert "denominator excludes it" in text

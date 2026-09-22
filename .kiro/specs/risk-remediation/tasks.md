@@ -163,7 +163,7 @@ Binding order from design.md "Implementation sequencing": extractor identity →
   - _Requirements: 10.4_
   - _Boundary: EvidenceCoverage_
 
-- [ ] 9.3 Align evidence-budget test constants and add coverage tests
+- [x] 9.3 Align evidence-budget test constants and add coverage tests
   - Update the token-efficiency regression mirror constant and the concurrency test's hard-coded 250/60000 to the canonical 150/30000
   - Done when the pipeline suite passes at the new defaults and a test asserts the manifest coverage record shape
   - _Requirements: 10.1, 10.3, 10.4_
@@ -267,3 +267,4 @@ Binding order from design.md "Implementation sequencing": extractor identity →
 - 8.2: satisfied by `test_evidence_index_figure_attribution.py` (8.1, 30 tests); every bullet maps to a named test and RED was reproduced by the 8.1 reviewer. No separate implementer dispatched.
 - 9.1: measured coverage at 150/30000 with the 62 real fields: biorxiv **0.946** (184 items, 31,457 chars, item cap binds), plosone 0.699 (char cap binds), arxiv 0.311 (char cap binds). design.md's 82/62/30 % were `150 × mean item length / substantive chars` estimates; the ranker selects longer-than-average sentences. **10.3 accuracy gap for 9.3**: `configs/config.yaml:47-51`, `configs/README.md` and `.kiro/steering/config.md` say the 150-item cap is the binding constraint — true only for biorxiv; reword to "whichever of the two caps binds first (item cap on short-sentence papers, char cap otherwise)". `coverage_ratio` numerator counts a selected Metadata item while the denominator excludes it (never selected at defaults; document at 9.2).
 - 9.2: `evidence_coverage` is omitted from the manifest entry when no LLM field needed evidence (all prefilled). Numerator/denominator asymmetry: `selected_chars` may include a selected Metadata item while `substantive_chars` excludes it, so `ratio` can slightly exceed 1.0 when no cap binds (measured 1.0007–1.0031 on real fixtures uncapped) — 9.3 to decide clamp vs document in README. `below_threshold` uses the unrounded ratio; `ratio` stored at 4 dp. Pre-existing: `test_pdf_processor_helpers.py` cannot be collected in isolation (`agents.openai` MagicMock ordering) — passes in directory/full runs.
+- 9.3: token-efficiency mirror constants now read `configs/config.yaml` (precedent: test_openai_config_keys.py). Doc-consistency tests require "whichever cap binds first" and "0.95 / 0.70 / 0.31" on ONE line in config.yaml, configs/README.md and steering config.md — do not re-wrap those lines. README's "(only possible when neither cap binds)" is a slight overstatement (a keyword-dense title could outrank a very short sentence under the item cap). design.md Binding-cap sentence synced.

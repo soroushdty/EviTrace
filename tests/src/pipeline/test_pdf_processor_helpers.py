@@ -332,8 +332,8 @@ def test_process_pdf_cache_hit_skips_extract_chunk(tmp_path):
         "enable_cache_prewarm": False,
         "num_chunks": 3,
         "prewarm_synthesis_if_model_diff": False,
-        "max_evidence_items_per_chunk": 250,
-        "max_evidence_chars_per_chunk": 60000,
+        "max_evidence_items_per_chunk": 150,
+        "max_evidence_chars_per_chunk": 30000,
     }
 
     mock_api = MagicMock()
@@ -400,8 +400,8 @@ def _base_openai_config(num_chunks: int) -> dict:
         "enable_cache_prewarm": False,
         "num_chunks": num_chunks,
         "prewarm_synthesis_if_model_diff": False,
-        "max_evidence_items_per_chunk": 250,
-        "max_evidence_chars_per_chunk": 60000,
+        "max_evidence_items_per_chunk": 150,
+        "max_evidence_chars_per_chunk": 30000,
     }
 
 
@@ -971,3 +971,96 @@ def test_completed_entry_with_evidence_coverage_is_still_read_as_complete(tmp_pa
     with_identity = {**entry, **identity.to_dict()}
     assert manifest_mod.is_stale(with_identity, identity) is False
     assert manifest_mod.is_stale({**with_identity, "evidence_coverage": None}, identity) is False
+
+
+# ---------------------------------------------------------------------------
+# Task 9.3: the manifest ``evidence_coverage`` record shape (design.md
+# "EvidenceCoverage" / "Logical Data Model"; Requirement 10.4) and its
+# invisibility to manifest validity checks.
+# ---------------------------------------------------------------------------
+
+_COVERAGE_RECORD_TYPES = {
+    "ratio": float,
+    "selected_chars": int,
+    "substantive_chars": int,
+    "below_threshold": bool,
+}
+
+
+def _assert_coverage_record_shape(cov):
+    assert set(cov) == set(_COVERAGE_RECORD_TYPES)
+    for key, expected_type in _COVERAGE_RECORD_TYPES.items():
+        # ``type(...) is`` on purpose: bool is a subclass of int, so isinstance
+        # would let a bool through for the int fields (and vice versa).
+        assert type(cov[key]) is expected_type, (key, cov[key], type(cov[key]))
+    assert cov["ratio"] >= 0.0
+    assert cov["selected_chars"] >= 0
+    assert cov["substantive_chars"] >= 0
+
+
+def test_evidence_coverage_record_has_exactly_the_documented_shape(tmp_path):
+    """The manifest entry's ``evidence_coverage`` is exactly
+    ``{ratio: float, selected_chars: int, substantive_chars: int, below_threshold: bool}``.
+    Both a capped and an under-covered run are checked."""
+    _, full_manifest, *_ = _run_coverage_case(tmp_path, max_chars=152, threshold=0.6)
+    _assert_coverage_record_shape(full_manifest["paper_cov"]["evidence_coverage"])
+
+    _, short_manifest, *_ = _run_coverage_case(tmp_path, max_chars=100, threshold=0.7)
+    _assert_coverage_record_shape(short_manifest["paper_cov"]["evidence_coverage"])
+
+
+def test_build_evidence_coverage_record_shape_from_stats():
+    """Same shape contract at the unit level, including numpy-free plain
+    ints even when the stats carry bools/ints that could be coerced."""
+    evidence_index = importlib.import_module("pipeline.evidence_index")
+    stats = evidence_index.EvidenceSelectionStats(
+        total_items=5, substantive_chars=1000, selected_items=3, selected_chars=333,
+    )
+    record = _pdf_processor._build_evidence_coverage_record("paper_x", stats, 0.6)
+    _assert_coverage_record_shape(record)
+    assert record == {
+        "ratio": 0.333, "selected_chars": 333, "substantive_chars": 1000, "below_threshold": True,
+    }
+
+
+def test_evidence_coverage_ratio_may_marginally_exceed_one_when_metadata_selected(tmp_path):
+    """Documented (configs/README.md), not clamped: ``selected_chars`` counts a
+    selected Metadata item while ``substantive_chars`` excludes it by
+    definition. With a cap wide enough for all four fixture items the ratio is
+    (50+50+52+29)/152 > 1.0 and ``below_threshold`` is False."""
+    _, manifest, *_ = _run_coverage_case(tmp_path, max_chars=1000, threshold=0.6)
+    cov = manifest["paper_cov"]["evidence_coverage"]
+    _assert_coverage_record_shape(cov)
+    assert cov["substantive_chars"] == 152
+    assert cov["selected_chars"] == 181
+    assert cov["ratio"] == round(181 / 152, 4)
+    assert cov["ratio"] > 1.0
+    assert cov["below_threshold"] is False
+
+
+def test_is_output_valid_is_insensitive_to_evidence_coverage(tmp_path):
+    """``manifest._is_output_valid`` reads only ``output_path`` (resolved
+    against ``output_dir``) and the file's JSON validity; adding, nulling or
+    removing ``evidence_coverage`` never changes its verdict."""
+    manifest_mod = importlib.import_module("pipeline.manifest")
+    coverage = {"ratio": 0.5, "selected_chars": 5, "substantive_chars": 10, "below_threshold": True}
+
+    valid_name = "paper_valid.extracted.json"
+    (tmp_path / valid_name).write_text(json.dumps([{"field_index": 1}]), encoding="utf-8")
+    corrupt_name = "paper_corrupt.extracted.json"
+    (tmp_path / corrupt_name).write_text("{not json", encoding="utf-8")
+    missing_name = "paper_missing.extracted.json"
+
+    for output_path, expected in ((valid_name, True), (corrupt_name, False), (missing_name, False)):
+        base = {"status": "complete", "output_path": output_path}
+        variants = (
+            base,
+            {**base, "evidence_coverage": coverage},
+            {**base, "evidence_coverage": None},
+            {**base, "evidence_coverage": {}},
+        )
+        verdicts = {manifest_mod._is_output_valid(entry, output_dir=tmp_path) for entry in variants}
+        assert verdicts == {expected}, (output_path, verdicts)
+
+    # No output_path at all is invalid regardless of the coverage record.
+    assert manifest_mod._is_output_valid({"status": "complete", "evidence_coverage": coverage}, output_dir=tmp_path) is False

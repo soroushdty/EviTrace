@@ -97,19 +97,29 @@ for synthesis.
 chars per chunk. They are chosen so each chunk's evidence package
 covers at least `min_evidence_coverage_ratio` (60%) of a paper's
 substantive TEI text (sentences, captions and tables, excluding
-metadata) while the ranker still prunes. At typical scientific-sentence
-lengths the 150-item cap is the binding constraint: on the real GROBID
-TEI fixtures under `tests/fixtures/grobid_tei/` the mean evidence item
-is 172-194 chars, so 150 items is roughly 26-29k chars, just under the
-char cap. The value in `config.yaml`, the loader default in
+metadata) while the ranker still prunes. Selection stops at
+whichever cap binds first — the item cap on papers with short
+sentences, the 30 000-char cap otherwise; the ranker prefers
+longer-than-average sentences, so `150 × mean sentence length`
+under-predicts the selected size. Measured 2026-09-22 with the real
+ranker on the GROBID TEI fixtures under `tests/fixtures/grobid_tei/`,
+the item cap binds on bioRxiv and the char cap on PLOS ONE and arXiv;
+measured coverage at defaults on the reference fixtures:
+0.95 / 0.70 / 0.31 (bioRxiv / PLOS ONE / arXiv), re-checked by
+`tests/src/pipeline/test_evidence_coverage.py`.
+The value in `config.yaml`, the loader default in
 `utils/config_utils.load_openai_config`, and this README must agree;
 `tests/src/utils/test_openai_config_keys.py` enforces that.
 
 `min_evidence_coverage_ratio` is the share (0.0-1.0) of substantive
 text a chunk's package is expected to cover at the defaults above;
-packages that fall below it are recorded so under-covered papers can
-be identified. Per-stage `token_budgets` (below) still apply on top
-of these caps.
+packages that fall below it are recorded in the manifest entry's
+`evidence_coverage` record (`ratio`, `selected_chars`,
+`substantive_chars`, `below_threshold`) so under-covered papers can
+be identified. The ratio may marginally exceed 1.0 when the metadata
+title item is selected; the denominator excludes it by definition
+(only possible when neither cap binds). Per-stage `token_budgets`
+(below) still apply on top of these caps.
 
 ### `concurrency`
 

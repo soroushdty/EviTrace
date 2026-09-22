@@ -87,6 +87,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import yaml
 
 from pipeline import token_budget
 from pipeline.deterministic_merge import deterministic_merge
@@ -147,10 +148,14 @@ _DOMAIN_TO_CHUNK_5 = {
     13: 5,
 }
 
-# Real defaults from configs/config.yaml (openai.max_evidence_items_per_chunk,
-# openai.max_evidence_chars_per_chunk).
-_REAL_MAX_EVIDENCE_ITEMS = 150
-_REAL_MAX_EVIDENCE_CHARS = 10_000
+# Real defaults read from configs/config.yaml (extraction.max_evidence_items_per_chunk,
+# extraction.max_evidence_chars_per_chunk; canonical 150 / 30000) so this file cannot
+# drift from the configured values again (task 9.3; it previously mirrored a stale
+# 10_000). tests/src/utils/test_openai_config_keys.py pins the canonical numbers.
+_CONFIG_YAML_PATH = Path(__file__).resolve().parents[3] / "configs" / "config.yaml"
+_REAL_EXTRACTION_CONFIG = yaml.safe_load(_CONFIG_YAML_PATH.read_text(encoding="utf-8"))["extraction"]
+_REAL_MAX_EVIDENCE_ITEMS = int(_REAL_EXTRACTION_CONFIG["max_evidence_items_per_chunk"])
+_REAL_MAX_EVIDENCE_CHARS = int(_REAL_EXTRACTION_CONFIG["max_evidence_chars_per_chunk"])
 
 # Req 9.1's baseline threshold (Requirement 9.1: "do not exceed 5,000 tokens
 # (the configured baseline threshold default)").
@@ -433,8 +438,8 @@ def _base_openai_config(num_chunks: int) -> dict:
         "enable_cache_prewarm": False,
         "num_chunks": num_chunks,
         "prewarm_synthesis_if_model_diff": False,
-        "max_evidence_items_per_chunk": 250,
-        "max_evidence_chars_per_chunk": 60000,
+        "max_evidence_items_per_chunk": _REAL_MAX_EVIDENCE_ITEMS,
+        "max_evidence_chars_per_chunk": _REAL_MAX_EVIDENCE_CHARS,
     }
 
 

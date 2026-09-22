@@ -93,11 +93,17 @@ value in `configs/config.yaml`, the loader default in
 `tests/src/utils/test_openai_config_keys.py` enforces it. Rationale:
 each chunk's package should cover at least `min_evidence_coverage_ratio`
 (60%) of the paper's substantive TEI text (sentences + captions +
-tables, excluding metadata) while the ranker still prunes. At typical
-scientific-sentence lengths the 150-item cap binds first (mean evidence
-item 172-194 chars on the real TEI fixtures, so 150 items is about
-26-29k chars). `min_evidence_coverage_ratio` is the coverage share
-below which a chunk's package is recorded as under-covered.
+tables, excluding metadata) while the ranker still prunes. Selection
+stops at whichever cap binds first — the item cap on papers with short
+sentences, the 30 000-char cap otherwise (the ranker prefers
+longer-than-average sentences). Measured 2026-09-22 on the real TEI
+fixtures: item cap binds on bioRxiv, char cap on PLOS ONE and arXiv;
+measured coverage at defaults on the reference fixtures:
+0.95 / 0.70 / 0.31 (bioRxiv / PLOS ONE / arXiv), re-checked by
+`tests/src/pipeline/test_evidence_coverage.py`.
+`min_evidence_coverage_ratio` is the coverage share below which a
+chunk's package is recorded as under-covered in the manifest
+(`evidence_coverage` record).
 
 ### `concurrency`
 

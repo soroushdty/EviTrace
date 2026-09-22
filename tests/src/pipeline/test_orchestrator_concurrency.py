@@ -28,8 +28,8 @@ _FAKE_OPENAI_CONFIG = {
     "pdf_concurrency": 1,
     "prewarm_synthesis_if_model_diff": False,
     "domain_to_chunk": {1: 1, 2: 1, 3: 2, 4: 2, 5: 3},
-    "max_evidence_items_per_chunk": 250,
-    "max_evidence_chars_per_chunk": 60000,
+    "max_evidence_items_per_chunk": 150,
+    "max_evidence_chars_per_chunk": 30000,
     "evidence_cache_dir": "outputs/evidence_cache",
     "grobid_failure_behavior": "fallback",
 }

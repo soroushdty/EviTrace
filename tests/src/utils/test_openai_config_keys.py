@@ -190,3 +190,23 @@ class TestEvidenceBudgetConsistency:
         chars = {raw["max_evidence_chars_per_chunk"], loader["max_evidence_chars_per_chunk"], *readme_chars}
         assert items == {_CANONICAL_MAX_ITEMS}, f"evidence item budgets disagree: {items}"
         assert chars == {_CANONICAL_MAX_CHARS}, f"evidence char budgets disagree: {chars}"
+
+    def test_coverage_threshold_agrees_across_sources(self, tmp_path, clean_env):
+        """Task 9.3 (Requirement 10.3): ``min_evidence_coverage_ratio`` in
+        config.yaml, the loader default, configs/README.md and the steering
+        config doc all state the same threshold."""
+        raw = yaml.safe_load(_CONFIG_YAML.read_text(encoding="utf-8"))["extraction"]
+        loader = load_openai_config(_write_config(tmp_path, {"pdfs_path": "data/pdfs"}))
+        pattern = r"min_evidence_coverage_ratio:\s*([0-9]*\.?[0-9]+)"
+        readme_values = [float(m) for m in re.findall(pattern, _CONFIG_README.read_text(encoding="utf-8"))]
+        steering_values = [float(m) for m in re.findall(pattern, _STEERING_CONFIG.read_text(encoding="utf-8"))]
+        assert readme_values, "configs/README.md must document min_evidence_coverage_ratio"
+        assert steering_values, ".kiro/steering/config.md must document min_evidence_coverage_ratio"
+
+        thresholds = {
+            raw["min_evidence_coverage_ratio"],
+            loader["min_evidence_coverage_ratio"],
+            *readme_values,
+            *steering_values,
+        }
+        assert thresholds == {0.6}, f"coverage thresholds disagree: {thresholds}"
