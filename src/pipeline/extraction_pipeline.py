@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import functools
 import hashlib
+import json
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -234,6 +235,134 @@ def _grobid_cache_write(tei_xml: str, digest: str, cache_dir: Path | None) -> No
 
 
 # ---------------------------------------------------------------------------
+# Page-classification sidecar (PageClassificationCache)
+# ---------------------------------------------------------------------------
+# Beside every cached TEI lives ``{digest}.pages.json`` holding the per-page
+# scan classification computed on the first run. On a TEI cache hit the
+# sidecar is read back so scanned pages still route to OCR without opening a
+# single page for classification; it is keyed by PDF digest only, so it is
+# written whenever classifications were computed, whether or not GROBID
+# succeeded.
+
+_PAGE_CLASS_CACHE_VERSION = 1
+
+
+def _scan_detection_config_hash(qc_config: dict) -> str:
+    """SHA-256 of the ``quality_control.scan_detection`` subsection.
+
+    Stored in the sidecar so a threshold change invalidates persisted
+    classifications: ``sha256(json.dumps(section, sort_keys=True))``.
+    """
+    section = qc_config.get("quality_control", {}).get("scan_detection", {})
+    encoded = json.dumps(section, sort_keys=True).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _page_class_cache_path(digest: str, cache_dir: Path) -> Path:
+    return cache_dir / f"{digest}.pages.json"
+
+
+def _page_class_cache_read(
+    digest: str, cache_dir: Path | None, config_hash: str
+) -> list[PageScanClassification] | None:
+    """Return the persisted classifications for *digest*, or ``None``.
+
+    ``None`` (a sidecar miss) is returned when the cache is disabled, the
+    sidecar is absent or unreadable (I/O error, invalid JSON, malformed
+    payload), its ``version`` is not :data:`_PAGE_CLASS_CACHE_VERSION`, or
+    its ``scan_detection_config_hash`` differs from *config_hash*.  Every
+    miss is logged at INFO with the reason; the caller then recomputes.
+    """
+    if cache_dir is None or not digest:
+        return None
+    sidecar = _page_class_cache_path(digest, cache_dir)
+    if not sidecar.exists():
+        logger.info("Page-classification sidecar absent for %s; classifying pages", digest[:12])
+        return None
+    try:
+        payload = json.loads(sidecar.read_text(encoding="utf-8"))
+        version = payload["version"]
+        stored_hash = payload["scan_detection_config_hash"]
+        pages = payload["pages"]
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        logger.info(
+            "Page-classification sidecar unreadable for %s (%s: %s); classifying pages",
+            digest[:12], type(exc).__name__, exc,
+        )
+        return None
+    if version != _PAGE_CLASS_CACHE_VERSION:
+        logger.info(
+            "Page-classification sidecar version mismatch for %s (found %r, expected %r); classifying pages",
+            digest[:12], version, _PAGE_CLASS_CACHE_VERSION,
+        )
+        return None
+    if stored_hash != config_hash:
+        logger.info(
+            "Page-classification sidecar scan_detection config hash mismatch for %s; classifying pages",
+            digest[:12],
+        )
+        return None
+    try:
+        classifications = [
+            PageScanClassification(
+                page_index=int(p["page_index"]),
+                is_native=bool(p["is_native"]),
+                triggered_stages=[int(st) for st in p["triggered_stages"]],
+                stage_values={str(k): float(v) for k, v in p["stage_values"].items()},
+            )
+            for p in pages
+        ]
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+        logger.info(
+            "Page-classification sidecar unreadable for %s (malformed pages: %s); classifying pages",
+            digest[:12], exc,
+        )
+        return None
+    logger.info(
+        "Page-classification sidecar hit for %s: %d pages (%d scanned)",
+        digest[:12], len(classifications), sum(1 for c in classifications if not c.is_native),
+    )
+    return classifications
+
+
+def _page_class_cache_write(
+    classifications: list[PageScanClassification],
+    digest: str,
+    cache_dir: Path | None,
+    config_hash: str,
+) -> None:
+    """Persist *classifications* beside the TEI cache; never raises.
+
+    No-op when the cache is disabled (*cache_dir* is ``None``) or *digest*
+    is empty (the PDF could not be hashed). I/O failures are logged at
+    WARNING and otherwise ignored so a read-only cache directory cannot
+    fail the document.
+    """
+    if cache_dir is None or not digest:
+        return
+    payload = {
+        "version": _PAGE_CLASS_CACHE_VERSION,
+        "scan_detection_config_hash": config_hash,
+        "pages": [
+            {
+                "page_index": c.page_index,
+                "is_native": c.is_native,
+                "triggered_stages": list(c.triggered_stages),
+                "stage_values": dict(c.stage_values),
+            }
+            for c in classifications
+        ],
+    }
+    try:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        _page_class_cache_path(digest, cache_dir).write_text(
+            json.dumps(payload, sort_keys=True), encoding="utf-8"
+        )
+    except (OSError, TypeError, ValueError) as exc:
+        logger.warning("Page-classification sidecar write failed for %s: %s", digest[:12], exc)
+
+
+# ---------------------------------------------------------------------------
 # Classification -> branches (RoutingUnifier)
 # ---------------------------------------------------------------------------
 
@@ -254,9 +383,7 @@ def _build_branches_for_classifications(
     page-ordered merge, ``Candidate`` naming and the per-page
     :class:`PageRoutingResult` list.  It is the one call site both cache
     paths of :func:`build_qc_bundle` are meant to share so a document routes
-    identically whether its TEI was freshly parsed or read back from disk;
-    the cache-miss path calls it, the cache-hit path still builds its
-    all-native branches inline.
+    identically whether its TEI was freshly parsed or read back from disk.
 
     Parameters
     ----------
@@ -454,6 +581,15 @@ def build_qc_bundle(
       (secondary cross-validation).
     - Any page scanned + ``ocr=false`` → skip extraction, log WARNING, no branch.
 
+    TEI cache
+    ---------
+    With ``quality_control.grobid.tei_cache_dir`` set, the GROBID TEI is
+    cached by PDF SHA-256 and the per-page classification is persisted
+    beside it (``{digest}.pages.json``). A cache hit skips the GROBID call
+    and reads the sidecar instead of opening pages; both paths then route
+    through :func:`_build_branches_for_classifications`, so a hit on a
+    document with scanned pages runs OCR exactly like a miss.
+
     Parameters
     ----------
     pdf_path:
@@ -502,45 +638,75 @@ def build_qc_bundle(
     _cache_dir_str = str(grobid_cfg.get("tei_cache_dir", "") or "").strip()
     tei_cache_dir: Path | None = Path(_cache_dir_str).resolve() if _cache_dir_str else None
 
-    # Check the cache BEFORE running scan_detector. A cache hit implies the PDF
-    # is native (GROBID would have errored on a fully-scanned PDF the first time
-    # round), so we can short-circuit scan_detector entirely. This saves
-    # 1-5s per cache-hit PDF (scan_detector reads every page + runs clean_ocr).
+    # Check the TEI cache BEFORE running scan_detector: a hit skips the GROBID
+    # HTTP call, and the page-classification sidecar written beside the TEI
+    # lets the hit path route scanned pages to OCR without opening a page.
     cached_tei, pdf_digest = _grobid_cache_read(pdf_path, tei_cache_dir)
+    scan_config_hash = _scan_detection_config_hash(qc_config)
 
     tei_xml = ""
     branches: list[Candidate] = []
     page_classifications: list = []
     page_routing_results: list[PageRoutingResult] = []
 
+    def _classify_pages(fitz_module) -> list:
+        """Run scan_detector over every page; the only place pages are opened."""
+        d = fitz_module.open(str(pdf_path))
+        try:
+            return [
+                scan_detector.classify_page(page, tp, scan_cfg, page_index=i)
+                for i, page in enumerate(d)
+            ]
+        finally:
+            d.close()
+
     if cached_tei is not None:
-        # Cache hit: skip scan_detector AND the GROBID HTTP call.
-        logger.info("GROBID cache hit for %s (%s); skipping API + scan_detector", pdf_name, pdf_digest[:12])
+        # Cache hit: skip the GROBID HTTP call; classification comes from the
+        # sidecar (no page opened), else is recomputed once and persisted.
+        logger.info("GROBID cache hit for %s (%s); skipping API call", pdf_name, pdf_digest[:12])
         tei_xml = cached_tei
-        plumber_blocks = _tag_blocks(
-            extract_with_pdfplumber(str(pdf_path)),
-            "pdfplumber", "pdfplumber" in OCR_SOURCES,
-        )
+        plumber_blocks = extract_with_pdfplumber(str(pdf_path))
         logger.debug("pdfplumber returned %d blocks (cache-hit path)", len(plumber_blocks))
-        branches = [
-            Candidate(source="grobid",     index=0, payload=tei_xml,        status=None),
-            Candidate(source="pdfplumber", index=1, payload=plumber_blocks, status=None),
-        ]
-        # Cache hit implies all-native (GROBID would have failed on scanned).
-        # Build routing results for all pages based on pdfplumber block count.
-        _page_indices_from_plumber = sorted(set(b["page_index"] for b in plumber_blocks))
-        page_routing_results = [
-            PageRoutingResult(
-                page_index=pi,
-                selected_extractor="grobid+pdfplumber",
-                fallback_extractor=None,
-                routing_reason="all_native",
-                classification=PageScanClassification(
-                    page_index=pi, is_native=True,
-                ),
+
+        page_classifications = _page_class_cache_read(pdf_digest, tei_cache_dir, scan_config_hash)
+        if page_classifications is None:
+            try:
+                import fitz as _fitz  # noqa: PLC0415 — lazy; optional (AGPL) dependency
+            except ImportError:
+                _fitz = None
+            if _fitz is not None:
+                page_classifications = _classify_pages(_fitz)
+                _page_class_cache_write(
+                    page_classifications, pdf_digest, tei_cache_dir, scan_config_hash
+                )
+            else:
+                # 6.5: classification can be neither reused nor determined.
+                # Proceed with the conservative all-native default over the
+                # pages pdfplumber saw rather than aborting the document; the
+                # guess is deliberately not persisted.
+                logger.error(
+                    "Cannot determine page classification for %s on TEI cache hit: "
+                    "sidecar unusable and PyMuPDF (fitz) not installed. Proceeding "
+                    "with the all-native default; scanned pages (if any) will not "
+                    "be OCR'd. Install the 'ocr' extra or delete the cached TEI to "
+                    "force a full re-parse.",
+                    pdf_name,
+                )
+                page_classifications = [
+                    PageScanClassification(page_index=pi, is_native=True)
+                    for pi in sorted({b["page_index"] for b in plumber_blocks})
+                ]
+
+        n_scanned = sum(1 for c in page_classifications if not c.is_native)
+        if n_scanned:
+            logger.info(
+                "TEI cache hit for %s: %d/%d pages classified scanned; routing them to OCR",
+                pdf_name, n_scanned, len(page_classifications),
             )
-            for pi in _page_indices_from_plumber
-        ]
+        branches, page_routing_results = _build_branches_for_classifications(
+            pdf_path, tei_xml, plumber_blocks, page_classifications, qc_config,
+            from_cache=True,
+        )
     else:
         # Cache miss: run scan_detector concurrently with GROBID + pdfplumber.
         # scan_detector blocks GROBID dispatch in the old design even though it
@@ -563,6 +729,12 @@ def build_qc_bundle(
             parse_blocks=False,
         )
 
+        # Set to False by _run_scan_detector when PyMuPDF is missing and every
+        # page was labelled native by default — a guess that must not be
+        # persisted to the sidecar. (A holder rather than a return value so
+        # the scan future keeps yielding a plain classification list.)
+        classification_determined: list[bool] = [True]
+
         def _run_scan_detector() -> list:
             try:
                 import fitz as _fitz  # noqa: PLC0415 — lazy; optional (AGPL) dependency
@@ -581,18 +753,12 @@ def build_qc_bundle(
                 )
                 with pdfplumber.open(str(pdf_path)) as _pdf:
                     page_count = len(_pdf.pages)
+                classification_determined[0] = False
                 return [
                     scan_detector.PageScanClassification(page_index=i, is_native=True)
                     for i in range(page_count)
                 ]
-            d = _fitz.open(str(pdf_path))
-            try:
-                return [
-                    scan_detector.classify_page(page, tp, scan_cfg, page_index=i)
-                    for i, page in enumerate(d)
-                ]
-            finally:
-                d.close()
+            return _classify_pages(_fitz)
 
         with ThreadPoolExecutor(max_workers=3) as pool:
             grobid_future = pool.submit(extract_with_grobid, str(pdf_path), **grobid_kwargs)
@@ -604,6 +770,11 @@ def build_qc_bundle(
                 logger.debug(
                     "  scan page %d: native=%s, triggered_stages=%s, values=%s",
                     cls.page_index, cls.is_native, cls.triggered_stages, cls.stage_values,
+                )
+            if classification_determined[0]:
+                # Keyed by PDF digest, independent of whether GROBID succeeds.
+                _page_class_cache_write(
+                    page_classifications, pdf_digest, tei_cache_dir, scan_config_hash
                 )
 
             has_scanned = any(not c.is_native for c in page_classifications)
@@ -643,10 +814,14 @@ def build_qc_bundle(
                     tei_xml = ""
                 plumber_blocks = plumber_future.result()
 
-        branches, page_routing_results = _build_branches_for_classifications(
-            pdf_path, tei_xml, plumber_blocks, page_classifications, qc_config,
-            from_cache=False,
-        )
+            # Build branches (and run OCR, when needed) inside the executor
+            # block so OCR on an all-scanned document overlaps the cancelled
+            # but possibly still-running GROBID future instead of waiting
+            # for the pool to drain first.
+            branches, page_routing_results = _build_branches_for_classifications(
+                pdf_path, tei_xml, plumber_blocks, page_classifications, qc_config,
+                from_cache=False,
+            )
 
     # ------------------------------------------------------------------
     # Step 3 — QC pipeline

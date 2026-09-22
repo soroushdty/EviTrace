@@ -547,7 +547,7 @@ def _record_failure(manifest: dict, pdf_name: str, *, status: str, failures: lis
 
 ##### State Management
 - File: `tei_cache_dir / f"{digest}.pages.json"`; written whenever classifications are computed (miss path, or hit path recompute).
-- Payload: `{"version": 1, "scan_detection_config_hash": str, "pages": [{"page_index": int, "is_native": bool, "triggered_stages": list[str], "stage_values": dict}]}`.
+- Payload: `{"version": 1, "scan_detection_config_hash": str, "pages": [{"page_index": int, "is_native": bool, "triggered_stages": list[int], "stage_values": dict}]}`.
 - `scan_detection_config_hash = sha256(json.dumps(qc_config["quality_control"]["scan_detection"], sort_keys=True))`.
 - `_page_class_cache_read(digest, cache_dir, config_hash) -> list[PageScanClassification] | None` returns `None` on absence, JSON error, version mismatch, or hash mismatch (each logged at INFO with the reason).
 - `_page_class_cache_write(classifications, digest, cache_dir, config_hash) -> None`; no-op when `cache_dir` is `None`.
