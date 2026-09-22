@@ -37,7 +37,7 @@ Always run from the **repo root**. `testpaths = ["tests"]` means pytest only col
 
 Two `conftest.py` files ensure `sys.path` is correct:
 
-- `conftest.py` (repo root) — required; computes `Path(__file__).resolve().parent / "src"` and inserts it at `sys.path[0]` if not already present. This ensures `pdf_extractor.*`, `utils.*`, `quality_control.*`, `pipeline.*`, `agents.*`, and `text_processing.*` all resolve when pytest collects from the root.
+- `conftest.py` (repo root) — required; computes `Path(__file__).resolve().parent / "src"` and inserts it at `sys.path[0]` if not already present, and appends the repo root itself so `tests.helpers.*` (shared fixture loaders) import under `--import-mode=importlib`. This ensures `pdf_extractor.*`, `utils.*`, `quality_control.*`, `pipeline.*`, `agents.*`, and `text_processing.*` all resolve when pytest collects from the root.
 - `src/pdf_extractor/conftest.py` — computes `Path(__file__).resolve().parent.parent` (which resolves to `src/`) and inserts it at `sys.path[0]` as a fallback for collection starting inside `src/pdf_extractor/`.
 
 Both must exist. The root-level one takes precedence when running `python -m pytest` from the repo root.
@@ -218,7 +218,7 @@ Files at the root of `tests/` (not in a subdirectory) encode migration correctne
 - `test_migration_artifact_scrub_preservation.py` — encodes **existing correct behaviour** that must not regress; these must pass on both unfixed and fixed code.
 
 Rules:
-- Sub-checks use `pytest.fail()` with descriptive messages referencing the deviation number (e.g. `"Deviation 1.4"`).
+- Bug-condition sub-checks use `pytest.fail()` with descriptive messages naming the deviation or requirement (e.g. `"Deviation 1.4"`, `"BUG CONDITION (Requirement 9.2)"`). Preservation files use plain asserts with explanatory messages.
 - When writing a new bugfix spec, add a corresponding `test_migration_<feature>_bug_condition.py` and `test_migration_<feature>_preservation.py` pair at the `tests/` root.
 
 ---

@@ -337,6 +337,8 @@ Environment variables override config values for OpenAI-related keys:
 | `OPENAI_CACHE_WARMUP_MAX_TOKENS` | Max output tokens for the warmup call. |
 | `OPENAI_PREWARM_SYNTHESIS_IF_MODEL_DIFF` | Fire a synthesis-model warmup when models differ. |
 | `OPENAI_NUM_CHUNKS` | Override `extraction.num_chunks` from the YAML. |
+| `OPENAI_MAX_REPAIR_ATTEMPTS` | Override `retry.max_repair_attempts` (repair attempts per chunk and for synthesis). |
+| `OPENAI_MIN_EVIDENCE_COVERAGE_RATIO` | Override `extraction.min_evidence_coverage_ratio` (evidence-coverage warning threshold). |
 
 Override rule: **env > yaml > default**.
 

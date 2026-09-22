@@ -5,6 +5,83 @@ and should never be deleted. Add a brief entry whenever a spec is implemented,
 steering docs change, README files change, or any other significant code change
 occurs.
 
+## [2026-09] — Implement the `risk-remediation` spec (Requirements 1–11)
+
+Eleven defects in shipped behaviour, specced, designed and implemented task-by-task with an
+independent review per task. Full suite after the work: 1920 passed / 3 skipped (was 1470 / 2).
+Requirement 8 shipped separately, see the entry below.
+
+**Behaviour changes operators should know about**
+
+- **Annotation identifiers change.** `urn:evitrace:anno:<uuid4>` → `<uuid5>` derived from
+  (document source, page, occurrence, sentence text), scoped per paper via
+  `base_uri=urn:evitrace:document:<pdf_name>`. Ids are now stable across runs and distinct
+  across papers; every annotation in existing `outputs/*.json` gets a new id on re-run.
+- **Cached parses are no longer all-native.** A new sidecar `{sha256}.pages.json` beside the
+  cached TEI stores per-page scan classification; a cache hit now routes scanned pages to OCR
+  exactly like a first run, so re-running a mixed PDF no longer yields different QC branches.
+  Re-runs of mixed/scanned PDFs therefore cost OCR time again. The file is safe to delete.
+- **QC per-page metrics see real pages.** GROBID TEI blocks previously all landed on page 0
+  because the coords parser expected a format GROBID does not emit. Consequently
+  `extraction_coverage_ratio` for non-GROBID branches stops falsely triggering (~0.07 → ~1.0)
+  and `min_chars_per_page` now compares real pages — rater pass/fail, and hence adjudication,
+  can differ from before on the same document.
+- **Evidence indices cached on disk keep their old ids, sections and pages** until the
+  evidence cache directory is cleared (the cache key carries no parser version).
+- **`max_evidence_chars_per_chunk` default 10000 → 30000** (the yaml value now matches its own
+  comment and the loader default). New keys `retry.max_repair_attempts` (2) and
+  `extraction.min_evidence_coverage_ratio` (0.6), overridable via `OPENAI_MAX_REPAIR_ATTEMPTS`
+  and `OPENAI_MIN_EVIDENCE_COVERAGE_RATIO`.
+- **Manifest entries gain `failures` and `evidence_coverage`.** Chunk exhaustion, synthesis
+  exhaustion, schema validation and output-write errors now share one record shape
+  `{stage, chunk, error_type, last_error, attempts}`; the `failed_chunks` int list is kept for
+  compatibility and a new `failed_output_write` status exists. Completed papers record
+  `{ratio, selected_chars, substantive_chars, below_threshold}`.
+- **GROBID requests now actually ask for coordinates** (`teiCoordinates` was sent comma-joined,
+  which GROBID ignores), so production TEI carries `coords` and evidence items carry pages.
+
+**Per requirement**
+
+- **R1** — final-output validation already worked; added the missing negative-path coverage and
+  made a write error record `failed_output_write` instead of leaving no status.
+- **R2** — reconciliation follows the adjudication decision: primary is the adjudicated branch,
+  secondary the first remaining one, so the OCR-named branch is no longer dropped (its bboxes
+  used to vanish). Provenance records `primary_branch_source`, `secondary_branch_source`,
+  `branch_selection`.
+- **R3** — deterministic annotation ids (above).
+- **R4** — OCR provenance end to end: blocks carry `source`/`ocr_derived`; the reconciler is the
+  sole sentence producer and derives sentences from OCR blocks on scanned pages; each sentence
+  gets an aligned location entry (page, offsets, occurrence, bbox); annotations take their region
+  from the sentence's own block and warn when one is missing. `project()` no longer reads
+  `unified.structural`.
+- **R5** — the synthesis stage runs through the shared repair loop with its prior context,
+  stage budget and protected evidence ids; the attempt limit is configurable and shared with
+  the chunk stage.
+- **R6** — page classification persisted and reused (above).
+- **R7** — figures and tables are attributed to the first body section that cites them
+  (`<ref target="#id">`) instead of inheriting the last heading, with a neutral `body` fallback;
+  each figure/table yields exactly one evidence item (tables used to produce two).
+- **R9** — quality reports carry their branch's source, so agreement keys are named
+  (`grobid_vs_paddleocr`, previously a single `_vs_`) and adjudication names a real extractor.
+- **R10** — evidence selection is measured (`select_paper_evidence` → `EvidenceSelectionStats`)
+  and the per-paper coverage ratio is recorded with a warning below threshold; budgets and their
+  documentation reconciled across yaml, loader, README and steering.
+- **R11** (new during the spec) — TEI coordinates: request format fixed, one canonical parser
+  (`parse_tei_coords`) with mirrors in the evidence index and QC, sentence pages inherited from
+  the enclosing paragraph.
+
+**Tests and fixtures**
+
+- `tests/fixtures/grobid_tei/` — three real GROBID 0.8.2 outputs from open-access papers, with a
+  provenance README; every hand-built fixture mis-modelled GROBID's structure and coordinate format.
+- `tests/helpers/grobid_tei.py` — shared fixture loaders and a coordinate-string table.
+- `tests/test_migration_risk_remediation_{bug_condition,preservation}.py` — the migration pair:
+  16 sub-checks that fail on the pre-spec tree and pass now, and 14 that pass on both.
+- `tests/src/pipeline/test_provenance_end_to_end.py` — mixed-PDF run twice (miss then cache hit)
+  through the real QC, reconciliation and annotation chain.
+
+**Spec documents**: `.kiro/specs/risk-remediation/{requirements,design,tasks,research}.md`.
+
 ## [2026-09] — Enforce the QC extension-contract ABCs (`risk-remediation` Requirement 8)
 
 `QualityMetrics`, `InterRaterMetrics` and `AdjudicationRules` in
