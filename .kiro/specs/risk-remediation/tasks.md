@@ -148,7 +148,7 @@ Binding order from design.md "Implementation sequencing": extractor identity →
   - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5_
 
 - [ ] 9. Evidence coverage per paper
-- [ ] 9.1 Measure evidence selection coverage and expose it from the evidence index
+- [x] 9.1 Measure evidence selection coverage and expose it from the evidence index
   - Split selection from serialisation: a selection function returns the chosen items plus statistics (total items, substantive characters excluding the metadata section, selected items and characters, coverage ratio); the package builder wraps it with an unchanged signature
   - Leave the ranking loop and both caps unchanged
   - Done when the bioRxiv fixture at default configuration reports a coverage ratio of at least 0.6, and the existing property tests on item and character caps still pass
@@ -265,3 +265,4 @@ Binding order from design.md "Implementation sequencing": extractor identity →
 - 7.4: legacy-grammar guard scans `tests/**/*.py`; deliberate legacy negatives must carry the marker `legacy-grammar-negative-case` on the same line. Real fixture coords counts: biorxiv 68 / arxiv 233 / plosone 109 (floors ≥50 per fixture, ≥300 total). Whitespace cases kept local; `GROBID_COORDS_RE` stays strict.
 - 8.1: figure loop uses `body.iter(figure)` (any depth) — identical to `./figure` on real GROBID (no nesting) and needed for hand-built nested fixtures. Caption sentences inside `<figDesc><div>` now carry "body" (were the last heading) and are still emitted as sentence items beside the F/T item (pre-existing duplication). On-disk evidence caches (`{paper_id}_{pdf_hash}`, no parser version in the key) keep old ids/sections/pages until cleared — 12.4 changelog must say so. Real fixture F/T counts: arxiv 10+3, biorxiv 7+0, plosone 9+1.
 - 8.2: satisfied by `test_evidence_index_figure_attribution.py` (8.1, 30 tests); every bullet maps to a named test and RED was reproduced by the 8.1 reviewer. No separate implementer dispatched.
+- 9.1: measured coverage at 150/30000 with the 62 real fields: biorxiv **0.946** (184 items, 31,457 chars, item cap binds), plosone 0.699 (char cap binds), arxiv 0.311 (char cap binds). design.md's 82/62/30 % were `150 × mean item length / substantive chars` estimates; the ranker selects longer-than-average sentences. **10.3 accuracy gap for 9.3**: `configs/config.yaml:47-51`, `configs/README.md` and `.kiro/steering/config.md` say the 150-item cap is the binding constraint — true only for biorxiv; reword to "whichever of the two caps binds first (item cap on short-sentence papers, char cap otherwise)". `coverage_ratio` numerator counts a selected Metadata item while the denominator excludes it (never selected at defaults; document at 9.2).

@@ -135,6 +135,33 @@ class EvidenceBundle:
     index_path: Path
 
 
+# Section label of the title item minted from the TEI header; excluded from the
+# coverage denominator because it is not part of the paper's substantive text.
+_METADATA_SECTION = "Metadata"
+
+
+@dataclass(frozen=True)
+class EvidenceSelectionStats:
+    """How much of a paper's substantive text one selection covers (Requirement 10.1).
+
+    ``substantive_chars`` is the total text length of every TEI-derived evidence
+    item (sentences, figure captions, tables) *before* ranking or pruning,
+    excluding items attributed to the document metadata section.
+    ``selected_chars`` is measured in the same units over the chosen items.
+    """
+
+    total_items: int
+    substantive_chars: int
+    selected_items: int
+    selected_chars: int
+
+    @property
+    def coverage_ratio(self) -> float:
+        if self.substantive_chars <= 0:
+            return 0.0
+        return self.selected_chars / self.substantive_chars
+
+
 def _safe_text(text: str) -> str:
     return re.sub(r"\s+", " ", (text or "").strip())
 
@@ -632,7 +659,7 @@ def _build_items_from_tei(tei_xml: str, paper_id: str, source_pdf: str) -> tuple
                 {
                     "id": sid,
                     "type": "sentence",
-                    "section_path": "Metadata",
+                    "section_path": _METADATA_SECTION,
                     "page": 1,
                     "coords": None,
                     "xpath": _tei_xpath(title),
@@ -1115,35 +1142,49 @@ def build_chunk_evidence_package(
     return json.dumps(package, ensure_ascii=False)
 
 
-def build_paper_evidence_package(
+def select_paper_evidence(
     bundle: EvidenceBundle,
     all_fields: list[dict],
     *,
     max_items: int,
     max_chars: int,
-) -> str:
-    """Build a single paper-level evidence package shared by all extraction chunks.
+) -> tuple[list[dict[str, Any]], EvidenceSelectionStats]:
+    """Rank and prune a paper's evidence items and measure the coverage achieved.
 
-    This is the preferred builder. It produces **one** byte-identical evidence
-    string for every chunk of a given paper so that the shared PDF prefix
-    embedded in :func:`agents.openai.prompts._shared_paper_prefix` hits
-    OpenAI's prompt cache on every call after the first.
+    Returns the selected items (already in stable ``id`` order, serialisation
+    shape) together with :class:`EvidenceSelectionStats`. The ranking and the
+    two caps are exactly those of :func:`build_paper_evidence_package`, which is
+    now a serialising wrapper around this function (Requirement 10.5: pruning
+    is unchanged; 10.1: coverage is measured where selection happens).
 
     Ranking
     -------
     Items are scored using the union of keywords from every field across every
     chunk (plus the per-item section bonuses already stored on
-    :class:`EvidenceBundle`). This preserves relevance — any token that any
-    chunk cares about lifts an item's score — while keeping the score, the
+    :class:`EvidenceBundle`). This preserves relevance -- any token that any
+    chunk cares about lifts an item's score -- while keeping the score, the
     selected set, and the serialised bytes identical across chunks.
 
-    Determinism
-    -----------
-    After score-based selection, items are emitted in stable ``id`` order so
-    two invocations with identical inputs always produce identical output.
+    Selection
+    ---------
+    Highest score first (ties by ``id``); the item cap is a hard stop, an item
+    that would overflow the character budget is skipped and selection
+    continues. The character budget counts item text only.
     """
+    total_items = len(bundle.evidence_items)
+    substantive_chars = sum(
+        len(item.get("text", "") or "")
+        for item in bundle.evidence_items
+        if item.get("section_path") != _METADATA_SECTION
+    )
+
     if not all_fields:
-        return '{"paper_id":"","evidence":[]}'
+        return [], EvidenceSelectionStats(
+            total_items=total_items,
+            substantive_chars=substantive_chars,
+            selected_items=0,
+            selected_chars=0,
+        )
 
     keywords = " ".join(
         f"{field.get('field_name', '')} {field.get('definition', '')} {field.get('reviewer_question', '')}"
@@ -1185,12 +1226,51 @@ def build_paper_evidence_package(
     # byte-identical across chunks (this is what the prompt cache keys on).
     selected.sort(key=lambda x: str(x.get("id", "")))
 
-    logger.info(
-        "build_paper_evidence_package: paper=%s, total_fields=%d, ranked=%d, "
-        "selected=%d, chars=%d",
-        bundle.paper_id, len(all_fields), len(ranked), len(selected), char_budget,
+    stats = EvidenceSelectionStats(
+        total_items=total_items,
+        substantive_chars=substantive_chars,
+        selected_items=len(selected),
+        selected_chars=char_budget,
     )
+    logger.info(
+        "select_paper_evidence: paper=%s, total_fields=%d, ranked=%d, "
+        "selected=%d, chars=%d, substantive_chars=%d, coverage=%.3f",
+        bundle.paper_id, len(all_fields), len(ranked), stats.selected_items,
+        stats.selected_chars, stats.substantive_chars, stats.coverage_ratio,
+    )
+    return selected, stats
 
+
+def build_paper_evidence_package(
+    bundle: EvidenceBundle,
+    all_fields: list[dict],
+    *,
+    max_items: int,
+    max_chars: int,
+) -> str:
+    """Build a single paper-level evidence package shared by all extraction chunks.
+
+    This is the preferred builder. It produces **one** byte-identical evidence
+    string for every chunk of a given paper so that the shared PDF prefix
+    embedded in :func:`agents.openai.prompts._shared_paper_prefix` hits
+    OpenAI's prompt cache on every call after the first.
+
+    Selection (ranking, caps, ordering) is delegated to
+    :func:`select_paper_evidence`; this function only serialises the result.
+    Callers that need the coverage statistics call ``select_paper_evidence``
+    directly and serialise with the same envelope.
+
+    Determinism
+    -----------
+    Items are emitted in stable ``id`` order so two invocations with identical
+    inputs always produce identical output.
+    """
+    if not all_fields:
+        return '{"paper_id":"","evidence":[]}'
+
+    selected, _stats = select_paper_evidence(
+        bundle, all_fields, max_items=max_items, max_chars=max_chars
+    )
     package = {
         "paper_id": bundle.paper_id,
         "evidence_count": len(selected),
