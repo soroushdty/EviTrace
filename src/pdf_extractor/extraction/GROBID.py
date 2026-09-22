@@ -24,6 +24,7 @@ from __future__ import annotations
 import logging
 import time
 import xml.etree.ElementTree as ET
+from dataclasses import dataclass
 
 from . import schemas
 
@@ -162,55 +163,86 @@ def _call_grobid_api(
     raise RuntimeError("GROBID: exhausted retries without a response")
 
 
+@dataclass(frozen=True)
+class CoordBox:
+    """One GROBID coordinate box: ``page`` is 1-based as emitted in the TEI.
+
+    ``x``/``y`` are the top-left corner and ``w``/``h`` the extent, in PDF
+    points, exactly as GROBID writes them (``page,x,y,w,h``).
+    """
+
+    page: int
+    x: float
+    y: float
+    w: float
+    h: float
+
+
+def _parse_coord_box(segment: str) -> CoordBox | None:
+    """Parse one ``page,x,y,w,h`` segment; ``None`` if it is not exactly that."""
+    parts = [p.strip() for p in segment.split(",")]
+    if len(parts) != 5:
+        return None
+    page_str, *nums_str = parts
+    if not (page_str.isascii() and page_str.isdigit()):
+        return None
+    nums: list[float] = []
+    for token in nums_str:
+        try:
+            value = float(token)
+        except ValueError:
+            return None
+        if value != value or value in (float("inf"), float("-inf")):
+            return None
+        nums.append(value)
+    return CoordBox(int(page_str), *nums)
+
+
+def parse_tei_coords(coords: str | None) -> list[CoordBox]:
+    """Parse a GROBID TEI ``coords`` attribute into its boxes (canonical parser).
+
+    Grammar (GROBID 0.8.x): boxes separated by ``;``, each ``page,x,y,w,h``
+    with a 1-based page; whitespace around tokens and separators is tolerated.
+    Returns ``[]`` when the input is absent, empty, or when *any* box is
+    malformed (Requirement 11.5) -- never a partial list, and never raises.
+    """
+    if not isinstance(coords, str):
+        return []
+    text = coords.strip()
+    if not text:
+        return []
+    boxes: list[CoordBox] = []
+    for segment in text.split(";"):
+        box = _parse_coord_box(segment)
+        if box is None:
+            return []
+        boxes.append(box)
+    return boxes
+
+
 def _parse_coords(
     coords_str: str,
 ) -> tuple[int, tuple[float, float, float, float]] | None:
     """Parse a TEI ``coords`` attribute into a ``(page_index, bbox)`` pair.
 
-    GROBID format: ``"page;x0,y0,x1,y1"`` (1-indexed page).  Multiple
-    space-separated segments are allowed for elements that cross page
-    boundaries; this function uses the first segment's page and unions the
-    bounding boxes of all segments on that page.
+    Delegates to :func:`parse_tei_coords`; the page is the first box's page
+    converted to 0-based, and the bbox is the ``(x0, y0, x1, y1)`` union of
+    every box on that page (``x1 = x + w``, ``y1 = y + h``).
 
-    Returns ``None`` on any parse failure.
+    Returns ``None`` on absent or malformed input.
     """
-    if not coords_str or not coords_str.strip():
+    boxes = parse_tei_coords(coords_str)
+    if not boxes:
         return None
+    first_page = boxes[0].page
+    same_page = [b for b in boxes if b.page == first_page]
+    x0 = min(b.x for b in same_page)
+    y0 = min(b.y for b in same_page)
+    x1 = max(b.x + b.w for b in same_page)
+    y1 = max(b.y + b.h for b in same_page)
+    return first_page - 1, (x0, y0, x1, y1)
 
-    segments = coords_str.strip().split()
-    first_page_idx: int | None = None
-    x0_min = float("inf")
-    y0_min = float("inf")
-    x1_max = float("-inf")
-    y1_max = float("-inf")
 
-    for seg in segments:
-        parts = seg.split(";")
-        if len(parts) != 2:
-            return None
-        page_str, coords_part = parts
-        try:
-            page_idx = int(page_str) - 1  # 1-indexed → 0-indexed
-            nums = [float(v) for v in coords_part.split(",")]
-        except ValueError:
-            return None
-        if len(nums) != 4:
-            return None
-
-        if first_page_idx is None:
-            first_page_idx = page_idx
-
-        if page_idx == first_page_idx:
-            x0, y0, x1, y1 = nums
-            x0_min = min(x0_min, x0)
-            y0_min = min(y0_min, y0)
-            x1_max = max(x1_max, x1)
-            y1_max = max(y1_max, y1)
-
-    if first_page_idx is None or x0_min == float("inf"):
-        return None
-
-    return first_page_idx, (x0_min, y0_min, x1_max, y1_max)
 
 
 def _elem_text(elem: ET.Element) -> str:
@@ -442,7 +474,7 @@ def extract_with_grobid(
         If GROBID is unreachable, returns an error status, times out, the
         TEI XML cannot be parsed, or no text blocks can be extracted.
     """
-    form_data: dict[str, str] = {
+    form_data: dict[str, str | list[str]] = {
         "consolidateHeader": str(consolidate_header),
         "consolidateCitations": str(consolidate_citations),
         "generateIDs": "1" if generate_ids else "0",
@@ -456,7 +488,11 @@ def extract_with_grobid(
         # the QC pipeline falls back to parent-paragraph page when sentence
         # coords are absent. Omitting 'ref' (inline citations) avoids
         # coordinate work for elements we never query individually.
-        form_data["teiCoordinates"] = "p,figure,formula,head,biblStruct"
+        # GROBID expects one ``teiCoordinates`` form field per element type;
+        # a list value makes ``requests`` emit repeated multipart fields. A
+        # single comma-joined value is read as one unknown element name and
+        # yields no ``coords`` at all (Requirement 11.1).
+        form_data["teiCoordinates"] = ["p", "figure", "formula", "head", "biblStruct"]
 
     logger.info("GROBID extraction start: %s", pdf_path)
     tei_xml_str = _call_grobid_api(
