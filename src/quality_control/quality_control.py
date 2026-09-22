@@ -183,16 +183,55 @@ def _coerce_page_index(page_index: object) -> int:
         return 0
 
 
+def _page_from_tei_coords(coords: str | None) -> int:
+    """Return the 0-based page of the first box in a GROBID TEI ``coords`` value.
+
+    Mirror of the canonical parser in ``pdf_extractor.extraction.GROBID``
+    (``parse_tei_coords``), kept local because ``quality_control`` may not
+    import ``pdf_extractor``. Same grammar (GROBID 0.8.x): boxes separated by
+    ``;``, each ``page,x,y,w,h`` with a 1-based page; whitespace around tokens
+    and separators is tolerated. Returns ``0`` when the input is absent, empty,
+    or when *any* box is malformed (Requirement 11.5) -- never raises.
+    """
+    if not isinstance(coords, str):
+        return 0
+    text = coords.strip()
+    if not text:
+        return 0
+    first_page: int | None = None
+    for segment in text.split(";"):
+        parts = [p.strip() for p in segment.split(",")]
+        if len(parts) != 5:
+            return 0
+        page_str, *nums_str = parts
+        if not (page_str.isascii() and page_str.isdigit()):
+            return 0
+        for token in nums_str:
+            try:
+                value = float(token)
+            except ValueError:
+                return 0
+            if value != value or value in (float("inf"), float("-inf")):
+                return 0
+        if first_page is None:
+            first_page = int(page_str)
+    if first_page is None:
+        return 0
+    return max(0, first_page - 1)  # 1-indexed -> 0-indexed
+
+
 def _extract_tei_payload(tei_xml: str) -> tuple[str, dict[int, str], list[dict]]:
     """Parse a GROBID TEI XML string into (full_text, page_texts, blocks).
 
-    Uses the ``coords`` attribute on TEI elements (format ``"page;x0,y0,x1,y1"``;
-    1-indexed page) to route each sentence / paragraph to its real PDF page.
-    Elements without coords are routed to page 0, which is correct for
-    abstracts and front matter. This makes per-page QC metrics (min chars per
-    page, extraction coverage ratio) compare apples to apples against the
-    pdfplumber branch, instead of comparing pdfplumber's pages against the
-    whole TEI XML as one giant "page".
+    Uses the ``coords`` attribute on TEI elements (GROBID grammar: ``;``-separated
+    ``page,x,y,w,h`` boxes with a 1-indexed page; see
+    :func:`_page_from_tei_coords`) to route each sentence / paragraph to its
+    real PDF page. Sentences without their own coords inherit the page of
+    their enclosing ``<p>``. Elements without (or with malformed) coords are
+    routed to page 0, which is correct for abstracts and front matter. This
+    makes per-page QC metrics (min chars per page, extraction coverage ratio)
+    compare apples to apples against the pdfplumber branch, instead of
+    comparing pdfplumber's pages against the whole TEI XML as one giant "page".
 
     Falls back to treating the raw XML as plain text on parse failure so a
     malformed TEI never crashes the rater.
@@ -211,18 +250,6 @@ def _extract_tei_payload(tei_xml: str) -> tuple[str, dict[int, str], list[dict]]
             if tei_xml.strip() else []
         )
 
-    def _page_from_coords(coords: str) -> int:
-        if not coords:
-            return 0
-        first = coords.strip().split()[0]
-        parts = first.split(";")
-        if len(parts) != 2:
-            return 0
-        try:
-            return max(0, int(parts[0]) - 1)  # 1-indexed -> 0-indexed
-        except ValueError:
-            return 0
-
     def _text(elem: _ET.Element) -> str:
         return _re.sub(r"\s+", " ", "".join(elem.itertext()).strip())
 
@@ -235,7 +262,7 @@ def _extract_tei_payload(tei_xml: str) -> tuple[str, dict[int, str], list[dict]]
         t = _text(p)
         if not t:
             continue
-        page = _page_from_coords(p.attrib.get("coords", ""))
+        page = _page_from_tei_coords(p.attrib.get("coords", ""))
         blocks.append({"text": t, "page_index": page, "block_bbox": None, "spans": [], "source": "grobid", "ocr_derived": False})
         page_texts.setdefault(page, []).append(t)
         text_parts.append(t)
@@ -250,7 +277,7 @@ def _extract_tei_payload(tei_xml: str) -> tuple[str, dict[int, str], list[dict]]
             # still get the right page instead of defaulting to 0.
             sent_page: dict[int, int] = {}
             for p in body.findall(f".//{ns}p"):
-                p_page = _page_from_coords(p.attrib.get("coords", ""))
+                p_page = _page_from_tei_coords(p.attrib.get("coords", ""))
                 for s in p.findall(f"{ns}s"):
                     sent_page[id(s)] = p_page
 
@@ -259,7 +286,7 @@ def _extract_tei_payload(tei_xml: str) -> tuple[str, dict[int, str], list[dict]]
                 if not t:
                     continue
                 coord = s.attrib.get("coords", "")
-                page = _page_from_coords(coord) if coord else sent_page.get(id(s), 0)
+                page = _page_from_tei_coords(coord) if coord else sent_page.get(id(s), 0)
                 blocks.append({"text": t, "page_index": page, "block_bbox": None, "spans": [], "source": "grobid", "ocr_derived": False})
                 page_texts.setdefault(page, []).append(t)
                 text_parts.append(t)
@@ -268,7 +295,7 @@ def _extract_tei_payload(tei_xml: str) -> tuple[str, dict[int, str], list[dict]]
                 t = _text(p)
                 if not t:
                     continue
-                page = _page_from_coords(p.attrib.get("coords", ""))
+                page = _page_from_tei_coords(p.attrib.get("coords", ""))
                 blocks.append({"text": t, "page_index": page, "block_bbox": None, "spans": [], "source": "grobid", "ocr_derived": False})
                 page_texts.setdefault(page, []).append(t)
                 text_parts.append(t)
@@ -281,7 +308,7 @@ def _extract_tei_payload(tei_xml: str) -> tuple[str, dict[int, str], list[dict]]
             t = _text(cap)
             if not t:
                 continue
-            page = _page_from_coords(fig.attrib.get("coords", ""))
+            page = _page_from_tei_coords(fig.attrib.get("coords", ""))
             blocks.append({"text": t, "page_index": page, "block_bbox": None, "spans": [], "source": "grobid", "ocr_derived": False})
             page_texts.setdefault(page, []).append(t)
             text_parts.append(t)
@@ -290,7 +317,7 @@ def _extract_tei_payload(tei_xml: str) -> tuple[str, dict[int, str], list[dict]]
             t = _text(head)
             if not t:
                 continue
-            page = _page_from_coords(head.attrib.get("coords", ""))
+            page = _page_from_tei_coords(head.attrib.get("coords", ""))
             blocks.append({"text": t, "page_index": page, "block_bbox": None, "spans": [], "source": "grobid", "ocr_derived": False})
             page_texts.setdefault(page, []).append(t)
             text_parts.append(t)

@@ -120,7 +120,7 @@ Binding order from design.md "Implementation sequencing": extractor identity →
   - _Requirements: 11.2, 11.3, 11.5_
   - _Boundary: CoordsParser_
 
-- [ ] 7.3 Mirror the grammar in the quality-control TEI parser
+- [x] 7.3 Mirror the grammar in the quality-control TEI parser
   - Hoist the page-from-coordinates closure to a module-level function and rewrite it to the GROBID grammar (first box's page converted to 0-based, zero on absence or malformed input); the module may not import the extractor package
   - Done when GROBID-derived QC blocks from a real fixture land on their real pages instead of page zero
   - _Requirements: 11.2, 11.5_
@@ -261,3 +261,4 @@ Binding order from design.md "Implementation sequencing": extractor identity →
 - 6.3: delivered by 6.1 (region fixtures converted to alignment entries; `StructuralLayer()` only ever empty) and 6.2 (uuid shape tests → version-5 regex + `TestAnnotationIdentity`). Controller verified: 0 `blocks=[` fixtures, 0 uuid4 regexes, 38 tests pass.
 - 7.1: `parse_grobid_tei`/`_parse_tei_to_blocks` are never called by the production pipeline (`extract_with_grobid(parse_blocks=False)`), so real pages/bboxes there are dormant; QC's own TEI parser (7.3) is what production sees. Legacy `page;x0,y0,x1,y1` strings remain in `tests/src/pipeline/test_evidence_cache.py`, `test_pipeline_evidence_index.py`, `test_evidence_index_stability.py` — 7.2/7.4 must convert them (11.6). Whitespace-bearing coords cases live in `test_grobid_coords.py`, not `COORD_CASES` (helper regex is strict). `tei_coordinates` docstring lists seven element types vs five requested (pre-existing).
 - 7.2: on real fixtures ~64/62/47 body sentences remain page-None because their `<p>` sits inside a `<figure>` and only the figure carries coords — outside 11.3's wording; 8.1 may inherit from the enclosing figure. Pre-existing: nested `<div>`s double-enumerate sentences (`.//div` + `.//s`). Legacy `page;x0,y0,x1,y1` strings converted in three pipeline test files.
+- 7.3: **production metric change** — GROBID QC blocks now land on real pages, so `native_page_texts` for pdfplumber/pymupdf branches holds per-page GROBID text: pdfplumber `extraction_coverage_ratio` goes from ~0.07 (always triggered) to ~1.0 (not triggered); GROBID's own ratio from ~14 (inflated) to ~1.0; `min_chars_per_page` now compares real pages. Rater pass/fail and adjudication can shift — intended (design CoordsParser Risks); MUST be named in the 12.4 changelog. Divergence: page token "0" → QC 0 (clamped) vs GROBID `_parse_coords` −1 — 7.4's cross-agreement table must not include page-0 inputs. Pre-existing: `coordinate_availability` is 0.0 for GROBID blocks (`block_bbox` None).
