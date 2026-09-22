@@ -84,7 +84,7 @@ Binding order from design.md "Implementation sequencing": extractor identity →
   - _Requirements: 4.2, 4.3, 4.4, 4.6, 4.9, 3.3_
 
 - [ ] 6. Stable annotation identifiers and accurate OCR regions
-- [ ] 6.1 Build annotation selectors from each sentence's own location entry and warn when a region is missing
+- [x] 6.1 Build annotation selectors from each sentence's own location entry and warn when a region is missing
   - Zip sentences with their location entries; stop reading the structural layer; native sentences get position selectors when offsets are valid, otherwise quote selectors only
   - OCR sentences with a bounding box get a fragment selector from that box; OCR sentences without one log a warning naming page and sentence prefix and continue with a quote selector
   - Handle a missing or length-mismatched alignment by falling back to quote selectors with a single log line
@@ -256,3 +256,4 @@ Binding order from design.md "Implementation sequencing": extractor identity →
 - 5.2: quality_control.py calls `reconciler.reconcile(...)` via module attribute (line ~653) — tests that patch reconcile must target `quality_control.reconciler.reconcile`. Pre-existing: `_extract_tei_payload` concatenates adjacent `<p>` texts without a separator.
 - 5.3: alignment entries are positionally aligned with `semantic.sentences`; a miss is `-1/-1` + the existing reconciler flag. **Interim state until 6.1**: `w3c_annotation.project()` still text-keys entries and can emit `-1` offsets on a miss (pre-change it emitted 0,0 for the same cases); no test drives `project()` over real reconcile output. `_resolve_source_blocks` recognises paragraph sources by `id()` — a key-based check would be more robust if paragraph dicts are ever copied.
 - 5.4: satisfied by `test_reconciler_sentence_producer.py` (5.1, 17 tests) and `test_reconciler_sentence_location.py` (5.3, 13 tests); every bullet maps to a named test and both files' RED was reproduced independently by the 5.1/5.3 reviewers. No separate implementer dispatched.
+- 6.1: review round 1 rejected (alignment-fallback path double-logged per OCR sentence; tests filtered warnings by substring) — fixed by short-circuiting `_select_region` on `entry is None` and asserting total WARNING count. `project()` now also reads the scalar `unified.document_id` for `AnnotationRecord.document_id` — CLAUDE.md / product.md wording "reads only semantic and alignment" needs a one-line steering sync at 12.4. Native JSON-LD bodies now always carry `ocr_derived` (previously absent). `alignment is None` now yields quote-only records, not `[]`.

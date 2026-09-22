@@ -22,9 +22,12 @@ generate_w3c_jsonld(records, base_uri="")
 
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass
 from typing import Any
+
+logger = logging.getLogger("artifact_generation")
 
 
 # ---------------------------------------------------------------------------
@@ -43,17 +46,25 @@ class AnnotationRecord:
     page_index:
         Zero-based index of the page containing this sentence.
     selector_type:
-        ``"TextPositionSelector"`` for born-digital pages;
-        ``"FragmentSelector"`` for OCR/scanned pages.
+        ``"TextPositionSelector"`` for born-digital sentences with valid
+        offsets; ``"FragmentSelector"`` for OCR sentences with a region;
+        ``"TextQuoteSelector"`` when no region is available (the quote
+        selector is then the only target selector).
     selector_payload:
         For TextPositionSelector: ``{"start": int, "end": int}``
         For FragmentSelector:     ``{"page": int, "xywh": str}``
+        For TextQuoteSelector:    ``{}``
     quote_selector:
         ``{"exact": str, "prefix": str, "suffix": str}`` — always populated.
     ocr_derived:
         True when this record originates from an OCR backend.
     body_value:
         Annotation body text (typically same as sentence_text).
+    occurrence:
+        Zero-based count of prior sentences with identical text in the
+        document (copied from the sentence's alignment entry).
+    document_id:
+        ``unified.document_id`` of the record the sentence came from.
     """
 
     sentence_text: str
@@ -63,6 +74,8 @@ class AnnotationRecord:
     quote_selector: dict
     ocr_derived: bool = False
     body_value: str = ""
+    occurrence: int = 0
+    document_id: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -73,9 +86,22 @@ class AnnotationRecord:
 def project(unified: Any, base_uri: str = "") -> list[AnnotationRecord]:  # noqa: ARG001
     """Project a UnifiedRecord into annotation records.
 
-    Reads only from ``unified.semantic`` and ``unified.alignment``.
-    For scanned sentences also consults ``unified.structural.blocks`` to
-    obtain bounding boxes, but never reads raw extractor payloads.
+    Reads only ``unified.semantic``, ``unified.alignment`` and
+    ``unified.document_id`` — never ``unified.structural`` and never raw
+    extractor payloads. Sentence ``i`` is zipped with
+    ``alignment.sentence_to_char_range[i]``, the location entry the
+    reconciler emitted for that very sentence:
+
+    - native sentence, ``start >= 0``  → ``TextPositionSelector`` (start/end)
+    - native sentence, ``start == -1`` → ``TextQuoteSelector`` only
+    - OCR sentence with ``bbox``       → ``FragmentSelector`` from that box
+    - OCR sentence without ``bbox``    → WARNING (page + sentence prefix),
+      ``TextQuoteSelector`` only, ``ocr_derived`` stays ``True``; the
+      remaining sentences are still projected
+
+    When ``alignment`` is ``None`` or its length differs from the sentence
+    count, every sentence falls back to a quote selector and one line is
+    logged.
 
     Parameters
     ----------
@@ -89,66 +115,35 @@ def project(unified: Any, base_uri: str = "") -> list[AnnotationRecord]:  # noqa
     Returns
     -------
     list[AnnotationRecord]
-        One record per sentence in the semantic layer.
-        Returns an empty list when either ``semantic`` or ``alignment`` is
-        absent.
+        One record per sentence in the semantic layer. Returns an empty
+        list when ``semantic`` is absent.
     """
     records: list[AnnotationRecord] = []
-
-    if unified.alignment is None or unified.semantic is None:
+    if unified.semantic is None:
         return records
 
-    sentences = unified.semantic.sentences  # list of sentence dicts
-    alignment = unified.alignment
+    sentences: list[dict] = list(unified.semantic.sentences or [])
+    document_id = str(getattr(unified, "document_id", "") or "")
+    entries = _aligned_entries(unified.alignment, len(sentences), document_id)
 
-    # Build a lookup: sentence text → (start, end) from the list of dicts
-    char_range_lookup: dict[str, tuple[int, int]] = {}
-    for entry in alignment.sentence_to_char_range:
-        text = entry.get("sentence", "")
-        start = entry.get("start", 0)
-        end = entry.get("end", 0)
-        char_range_lookup[text] = (start, end)
-
-    # Full concatenated text for TextQuoteSelector context
+    # Quote context comes from the sentences joined in order; the running
+    # cursor gives every sentence (including duplicated text) its own
+    # neighbourhood instead of the first occurrence's.
     full_text = " ".join(s.get("text", "") for s in sentences)
-
-    for sent_dict in sentences:
+    cursor = 0
+    for sent_dict, entry in zip(sentences, entries):
         sent_text: str = sent_dict.get("text", "")
-        page_idx: int = sent_dict.get("page_index", 0)
+        page_idx: int = int(sent_dict.get("page_index", 0))
         ocr_derived: bool = bool(sent_dict.get("ocr_derived", False))
 
-        # Build TextQuoteSelector
-        idx = full_text.find(sent_text)
-        prefix = full_text[max(0, idx - 20) : idx] if idx >= 0 else ""
-        suffix = (
-            full_text[idx + len(sent_text) : idx + len(sent_text) + 20]
-            if idx >= 0
-            else ""
-        )
-        quote_selector = {"exact": sent_text, "prefix": prefix, "suffix": suffix}
+        quote_selector = {
+            "exact": sent_text,
+            "prefix": full_text[max(0, cursor - _QUOTE_CONTEXT_CHARS):cursor],
+            "suffix": full_text[cursor + len(sent_text):cursor + len(sent_text) + _QUOTE_CONTEXT_CHARS],
+        }
+        cursor += len(sent_text) + 1
 
-        if not ocr_derived:
-            # TextPositionSelector — character offsets from alignment map
-            char_range = char_range_lookup.get(sent_text, (0, 0))
-            selector_payload = {"start": char_range[0], "end": char_range[1]}
-            selector_type = "TextPositionSelector"
-        else:
-            # FragmentSelector — bounding box from structural blocks
-            ocr_block = None
-            if unified.structural is not None:
-                for block in unified.structural.blocks:
-                    if block.get("page_index") == page_idx:
-                        ocr_block = block
-                        break
-            bbox = (
-                ocr_block.get("block_bbox", (0, 0, 0, 0))
-                if ocr_block is not None
-                else (0, 0, 0, 0)
-            )
-            xywh = f"{bbox[0]},{bbox[1]},{bbox[2] - bbox[0]},{bbox[3] - bbox[1]}"
-            selector_payload = {"page": page_idx, "xywh": xywh}
-            selector_type = "FragmentSelector"
-
+        selector_type, selector_payload = _select_region(entry, sent_text, page_idx, ocr_derived)
         records.append(
             AnnotationRecord(
                 sentence_text=sent_text,
@@ -158,10 +153,70 @@ def project(unified: Any, base_uri: str = "") -> list[AnnotationRecord]:  # noqa
                 quote_selector=quote_selector,
                 ocr_derived=ocr_derived,
                 body_value=sent_text,
+                occurrence=int(entry.get("occurrence", 0)) if entry else 0,
+                document_id=document_id,
             )
         )
-
     return records
+
+
+_QUOTE_CONTEXT_CHARS = 20
+
+
+def _aligned_entries(alignment: Any, n_sentences: int, document_id: str) -> list[dict | None]:
+    """Return the location entries positionally aligned with the sentences,
+    or ``[None] * n`` (after a single log line) when the alignment is absent
+    or its length does not match."""
+    if alignment is None:
+        logger.warning(
+            "no alignment layer for document %r: emitting TextQuoteSelector only for %d sentence(s)",
+            document_id,
+            n_sentences,
+        )
+        return [None] * n_sentences
+    entries = list(alignment.sentence_to_char_range or [])
+    if len(entries) != n_sentences:
+        logger.warning(
+            "alignment has %d location entries for %d sentences in document %r: "
+            "emitting TextQuoteSelector only",
+            len(entries),
+            n_sentences,
+            document_id,
+        )
+        return [None] * n_sentences
+    return entries
+
+
+def _select_region(
+    entry: dict | None, text: str, page_idx: int, ocr_derived: bool
+) -> tuple[str, dict]:
+    """Choose the region selector for one sentence from its own entry.
+
+    - ``entry is None`` (alignment fallback) → quote selector only, silently:
+      ``_aligned_entries`` already logged the single fallback line.
+    - OCR sentence with a ``bbox`` → ``FragmentSelector`` from that box.
+    - OCR sentence without one → WARNING (page + sentence prefix), quote only.
+    - Native sentence with ``start >= 0`` → ``TextPositionSelector``.
+    - Otherwise → quote selector only (``selector_payload == {}``).
+    """
+    if entry is None:
+        return "TextQuoteSelector", {}
+
+    if ocr_derived:
+        bbox = entry.get("bbox")
+        if bbox is not None and len(bbox) == 4:
+            x0, y0, x1, y1 = bbox
+            return "FragmentSelector", {
+                "page": page_idx,
+                "xywh": f"{x0},{y0},{x1 - x0},{y1 - y0}",
+            }
+        logger.warning("no region for OCR sentence on page %d: %.60r", page_idx, text)
+        return "TextQuoteSelector", {}
+
+    start = entry.get("start", -1)
+    if isinstance(start, int) and start >= 0:
+        return "TextPositionSelector", {"start": start, "end": entry.get("end", start)}
+    return "TextQuoteSelector", {}
 
 
 # ---------------------------------------------------------------------------
@@ -201,51 +256,38 @@ def generate_w3c_jsonld(
     for rec in records:
         anno_id = f"urn:evitrace:anno:{uuid.uuid4()}"
 
+        selectors: list[dict] = []
         if rec.selector_type == "TextPositionSelector":
-            target = {
-                "source": document_source,
-                "selector": [
-                    {
-                        "type": "TextPositionSelector",
-                        "start": rec.selector_payload["start"],
-                        "end": rec.selector_payload["end"],
-                    },
-                    {
-                        "type": "TextQuoteSelector",
-                        **rec.quote_selector,
-                    },
-                ],
-            }
-            body: dict = {
-                "type": "TextualBody",
-                "value": rec.body_value,
-                "format": "text/plain",
-            }
-        else:
-            # FragmentSelector (scanned / OCR-derived)
-            target = {
-                "source": document_source,
-                "selector": [
-                    {
-                        "type": "FragmentSelector",
-                        "conformsTo": "http://www.w3.org/TR/media-frags/",
-                        "value": (
-                            f"page={rec.selector_payload['page']}"
-                            f"&xywh={rec.selector_payload['xywh']}"
-                        ),
-                    },
-                    {
-                        "type": "TextQuoteSelector",
-                        **rec.quote_selector,
-                    },
-                ],
-            }
-            body = {
-                "type": "TextualBody",
-                "value": rec.body_value,
-                "format": "text/plain",
-                "ocr_derived": True,
-            }
+            selectors.append(
+                {
+                    "type": "TextPositionSelector",
+                    "start": rec.selector_payload["start"],
+                    "end": rec.selector_payload["end"],
+                }
+            )
+        elif rec.selector_type == "FragmentSelector":
+            selectors.append(
+                {
+                    "type": "FragmentSelector",
+                    "conformsTo": "http://www.w3.org/TR/media-frags/",
+                    "value": (
+                        f"page={rec.selector_payload['page']}"
+                        f"&xywh={rec.selector_payload['xywh']}"
+                    ),
+                }
+            )
+        # "TextQuoteSelector" records (no region) carry the quote selector only.
+        selectors.append({"type": "TextQuoteSelector", **rec.quote_selector})
+
+        target = {"source": document_source, "selector": selectors}
+        # The body marking always mirrors the record (and therefore the
+        # sentence), regardless of which region selector was chosen.
+        body: dict = {
+            "type": "TextualBody",
+            "value": rec.body_value,
+            "format": "text/plain",
+            "ocr_derived": bool(rec.ocr_derived),
+        }
 
         result.append(
             {
