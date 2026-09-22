@@ -32,7 +32,7 @@ Binding order from design.md "Implementation sequencing": extractor identity →
   - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5_
 
 - [ ] 3. Adjudication-driven reconciliation
-- [ ] 3.1 Select primary and secondary branches from the adjudication decision with a deterministic fallback
+- [x] 3.1 Select primary and secondary branches from the adjudication decision with a deterministic fallback
   - Replace the hard-coded extractor-name lookups in the QC reconciler callback with selection driven by the decision's primary extractor; when no branch matches, fall back to index order and log a warning naming the unmatched extractor
   - Choose the secondary as the first remaining branch in index order so the OCR-named branch is no longer dropped
   - Record the sources actually used as primary and secondary and the selection mode alongside the existing adjudication rationale in the output provenance
@@ -249,3 +249,4 @@ Binding order from design.md "Implementation sequencing": extractor identity →
 - 1.2: shared TEI helpers live in `tests/helpers/grobid_tei.py` (import as `from tests.helpers.grobid_tei import ...`); root conftest.py now also appends the repo root to sys.path (load-bearing on pytest 8.0.x) — `.kiro/steering/testing.md:40` needs a one-line sync at 12.4. `COORD_CASES` has no whitespace-bearing case; task 7 may add one if `parse_tei_coords` tolerates whitespace.
 - 2.1: with distinct names, `AdjudicationDecision.adjudicate`'s pre-existing formula gives `confidence <= 1/N` (one report per name) and ties break by index order (index 0 wins when all pass; all-fail still elects index 0 at 0.0). No requirement governs `confidence`; no src consumer branches on it. **Open question for 3.1 / final validation**: what should adjudication confidence mean now? `test_builtin_impls_identity.py:71` pins `1/3` and must be relaxed if the formula changes. The 2.1 tests already cover every bullet of task 2.2 (reviewer reproduced their failure against pre-change code).
 - 2.2: satisfied by the tests delivered in 2.1 (`test_quality_control_identity.py`, `test_builtin_impls_identity.py`); controller re-verified the done condition in a worktree at 84ba4b1 (pre-2.1): 6 failed / 3 passed there, 9 passed on the current tree. No separate implementer dispatched.
+- 3.1: provenance keys are attached in `_pdf_reconciler_fn` after `reconcile()` returns (`_build_provenance_dict` takes fixed kwargs). The fallback warning is only reachable via the helper's unit test — since 2.1 the adjudicator always names a real branch end-to-end. Empty branch list also logs the fallback warning (harmless).

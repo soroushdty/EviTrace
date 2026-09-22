@@ -435,6 +435,47 @@ def _build_placeholder_sentence_store(full_text: str, text_processor) -> dict:
 # PDF-specific pipeline (wraps run_pipeline with concrete stage closures)
 # ---------------------------------------------------------------------------
 
+def _select_branch_roles(
+    decision: AdjudicationRules | None,
+    all_branches: list[Candidate],
+) -> tuple[Candidate | None, Candidate | None, str]:
+    """Choose the primary and secondary reconciliation branches from the decision.
+
+    ``all_branches`` must already be sorted by :attr:`Candidate.index`.
+
+    * Primary is the first branch whose ``extractor`` equals
+      ``decision.primary_extractor``.  When no branch matches, primary falls
+      back to ``all_branches[0]`` and a WARNING names the unmatched extractor.
+    * Secondary is the first branch in index order that is not the primary;
+      it is ``None`` only when a single branch (or none) exists.
+
+    Returns ``(primary, secondary, selection_mode)`` where ``selection_mode``
+    is ``"adjudicated"`` or ``"fallback_index_order"``.  ``primary`` is
+    ``None`` iff ``all_branches`` is empty.
+    """
+    adjudicated = getattr(decision, "primary_extractor", None)
+    primary = next(
+        (b for b in all_branches if b.extractor == adjudicated),
+        None,
+    )
+    if primary is not None:
+        selection_mode = "adjudicated"
+    else:
+        selection_mode = "fallback_index_order"
+        logger.warning(
+            "adjudicated primary extractor %r not among branches %r; falling back to index order",
+            adjudicated,
+            [b.extractor for b in all_branches],
+        )
+        primary = all_branches[0] if all_branches else None
+
+    secondary = next(
+        (b for b in all_branches if b is not primary),
+        None,
+    )
+    return primary, secondary, selection_mode
+
+
 def run_quality_control(
     branches: list[Candidate],
     document_id: str,
@@ -602,16 +643,11 @@ def run_quality_control(
             DEFAULT_TEXT_FIDELITY,
         )
 
-        grobid_branch = next(
-            (b for b in all_branches if b.extractor == "grobid"),
-            None,
-        )
-        secondary_branch = next(
-            (b for b in all_branches if b.extractor in {"pdfplumber", "pymupdf"}),
-            None,
+        primary_branch, secondary_branch, selection_mode = _select_branch_roles(
+            decision, all_branches
         )
 
-        primary_artifact = _build_reconciler_artifact(grobid_branch)
+        primary_artifact = _build_reconciler_artifact(primary_branch)
         secondary_artifact = _build_reconciler_artifact(secondary_branch)
 
         updated_unified = reconciler.reconcile(
@@ -624,6 +660,17 @@ def run_quality_control(
             table_figure_strategy=DEFAULT_TABLE_FIGURE_MERGE,
             text_processor=text_processor,
         )
+
+        # reconcile() owns a fixed provenance shape; the branch-role record is
+        # attached here, beside ``adjudication_decisions`` (Requirement 2.4).
+        provenance = updated_unified.content.setdefault("provenance", {})
+        provenance["primary_branch_source"] = (
+            primary_branch.source if primary_branch is not None else None
+        )
+        provenance["secondary_branch_source"] = (
+            secondary_branch.source if secondary_branch is not None else None
+        )
+        provenance["branch_selection"] = selection_mode
 
         if (
             text_processor is not None
