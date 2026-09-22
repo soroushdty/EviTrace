@@ -55,7 +55,7 @@ Binding order from design.md "Implementation sequencing": extractor identity →
   - _Boundary: BlockProvenance_
 
 - [ ] 5. Sentence production and sentence location in the reconciler
-- [ ] 5.1 Make the reconciler the sole producer of sentences, including OCR pages
+- [x] 5.1 Make the reconciler the sole producer of sentences, including OCR pages
   - Copy origin keys from blocks onto paragraph records; produce sentence records from paragraphs (inheriting the flag) and from OCR blocks on pages that have no primary text; visit pages in order with native sentences before OCR sentences
   - Build the document text from primary blocks plus the OCR blocks used for sentences, in page order, and use that same text for the exact-text output
   - Paragraph and sentence records read origin keys with `.get` defaults (not-OCR, empty source) so blocks from older callers still work
@@ -252,3 +252,4 @@ Binding order from design.md "Implementation sequencing": extractor identity →
 - 3.1: provenance keys are attached in `_pdf_reconciler_fn` after `reconcile()` returns (`_build_provenance_dict` takes fixed kwargs). The fallback warning is only reachable via the helper's unit test — since 2.1 the adjudicator always names a real branch end-to-end. Empty branch list also logs the fallback warning (harmless).
 - 3.2: `run_quality_control` has no adjudicator injection seam; end-to-end fallback test monkeypatches the module-level `AdjudicationDecision` name (late-bound in `_pdf_adjudicator_fn`). A non-GROBID primary is produced end-to-end by feeding GROBID a degraded TEI (real rater fails it 5/8 metrics at `max_triggered_fraction` 0.5) — margin is one metric; the test's precondition guard makes drift loud.
 - 4.1: `_tag_blocks` returns shallow copies (routing tests share `_make_block` dicts across mocked extractors). `_extract_branch_payload`'s legacy non-TEI fallbacks (`quality_control.py:336,349`) still emit untagged blocks — unreachable from pipeline payloads; 5.1 must read origin keys with `.get` defaults. `scanned_pymupdf_blocks` is only logged, never a branch.
+- 5.1: `reconcile()` keeps `sentence_sources` (paragraph dict with `block_index` for native sentences; the secondary block dict with `block_bbox` for OCR sentences) as a local for 5.3. `content["segments"]`/`["pages"]` are still primary-only while `exact_text` includes used OCR blocks — confirm acceptable at 5.3/12.4 (all known consumers read `exact_text`). Pre-existing env gap: config selects `nltk_punkt` but nltk is not installed in the venv (`requirements.txt:34` commented) — route to 12.4. Native-only output is byte-identical except that empty tokenizer outputs are skipped.

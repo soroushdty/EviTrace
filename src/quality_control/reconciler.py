@@ -107,6 +107,11 @@ def _build_semantic_layer(primary_blocks: list[dict]) -> SemanticLayer:
                 "text": text,
                 "page_index": page_index,
                 "block_index": idx,
+                # Origin keys stamped on blocks by the extraction pipeline
+                # (Requirement 4.1). ``.get`` defaults keep blocks from
+                # older callers working: not-OCR, empty source.
+                "ocr_derived": bool(block.get("ocr_derived", False)),
+                "source": block.get("source", ""),
             })
         else:
             # Treat as reference / other content
@@ -146,6 +151,114 @@ def _build_structural_layer(secondary_blocks: list[dict]) -> StructuralLayer:
         tables=tables,
         figures=figures,
     )
+
+
+def _pages_with_primary_text(semantic: SemanticLayer) -> set[int]:
+    """Return the page indexes that carry at least one primary paragraph."""
+    return {p.get("page_index", 0) for p in semantic.paragraphs if p.get("text")}
+
+
+def _select_ocr_blocks(semantic: SemanticLayer, secondary_blocks: list[dict]) -> list[dict]:
+    """Return the secondary OCR blocks that stand in for pages with no primary text.
+
+    A secondary block qualifies when ``ocr_derived`` is ``True``, it has text,
+    and its page has no primary paragraph text. Order: page order, then the
+    block's position in the secondary artifact (stable sort).
+    """
+    covered = _pages_with_primary_text(semantic)
+    selected = [
+        block
+        for block in secondary_blocks
+        if block.get("ocr_derived", False) is True
+        and block.get("text")
+        and block.get("page_index", 0) not in covered
+    ]
+    return sorted(selected, key=lambda b: b.get("page_index", 0))
+
+
+def _merge_in_page_order(
+    primary_items: list[dict],
+    ocr_items: list[dict],
+) -> list[dict]:
+    """Interleave page-sorted *ocr_items* into *primary_items* by page.
+
+    Primary items keep their own relative order (a native-only document is
+    therefore untouched). OCR items for page ``p`` are emitted immediately
+    before the first primary item whose page exceeds ``p``, so within a page
+    primary items precede OCR items and the overall walk is in page order.
+    """
+    merged: list[dict] = []
+    ocr_iter = iter(ocr_items)
+    pending = next(ocr_iter, None)
+    for item in primary_items:
+        page = item.get("page_index", 0)
+        while pending is not None and pending.get("page_index", 0) < page:
+            merged.append(pending)
+            pending = next(ocr_iter, None)
+        merged.append(item)
+    while pending is not None:
+        merged.append(pending)
+        pending = next(ocr_iter, None)
+    return merged
+
+
+def _build_document_text(primary_blocks: list[dict], ocr_blocks: list[dict]) -> str:
+    """Document text rule: primary blocks plus the OCR blocks used for
+    sentences, concatenated in page order (``"\\n"``-joined like before)."""
+    return _extract_text_from_blocks(_merge_in_page_order(primary_blocks, ocr_blocks))
+
+
+def _build_sentences(
+    semantic: SemanticLayer,
+    secondary_blocks: list[dict],
+    text_processor,
+) -> tuple[list[dict], list[dict | None]]:
+    """Produce the semantic sentence list and, positionally aligned with it,
+    the record each sentence came from.
+
+    1. Every primary paragraph (in order) is segmented with
+       ``text_processor.tokenize_sentences``; each sentence copies the
+       paragraph's ``page_index``, ``ocr_derived`` and ``source``.
+    2. Every secondary block with ``ocr_derived is True`` on a page that has
+       **no** primary paragraph text is segmented into sentences with
+       ``ocr_derived=True`` and ``source=block["source"]``.
+    3. Pages are visited in order; within a page primary sentences precede
+       OCR sentences.
+
+    Returns ``(sentences, source_per_sentence)`` with equal length. For a
+    paragraph sentence the source is the paragraph dict (it carries
+    ``block_index`` into the primary blocks); for an OCR sentence it is the
+    secondary block itself (it carries ``block_bbox`` when the extractor
+    provided one). Every sentence dict has exactly the keys ``text``,
+    ``page_index``, ``ocr_derived``, ``source``.
+
+    When *text_processor* is ``None`` nothing is produced.
+    """
+    if text_processor is None:
+        return [], []
+
+    paragraphs = [p for p in semantic.paragraphs if p.get("text")]
+    ocr_blocks = _select_ocr_blocks(semantic, secondary_blocks)
+
+    ocr_block_ids = {id(block) for block in ocr_blocks}
+    sentences: list[dict] = []
+    sources: list[dict | None] = []
+    for record in _merge_in_page_order(paragraphs, ocr_blocks):
+        is_ocr_block = id(record) in ocr_block_ids
+        page_index = record.get("page_index", 0)
+        ocr_derived = True if is_ocr_block else bool(record.get("ocr_derived", False))
+        source = record.get("source", "")
+        for sentence_text in text_processor.tokenize_sentences(record.get("text", "")):
+            if not sentence_text:
+                continue
+            sentences.append({
+                "text": sentence_text,
+                "page_index": page_index,
+                "ocr_derived": ocr_derived,
+                "source": source,
+            })
+            sources.append(record)
+    return sentences, sources
 
 
 def _compute_sentence_to_char_range(
@@ -385,6 +498,10 @@ def reconcile(
         section_strategy = DEFAULT_SECTION_VERIFICATION
     if table_figure_strategy is None:
         table_figure_strategy = DEFAULT_TABLE_FIGURE_MERGE
+    # The caller-supplied processor drives sentence production; when the
+    # caller passes none, sentences stay empty (design: SentenceProducer).
+    # The defaulted instance below serves only the concern strategies.
+    sentence_text_processor = text_processor
     if text_processor is None:
         import importlib as _importlib  # noqa: PLC0415
         _mod = _importlib.import_module("text_processing.composite")
@@ -433,6 +550,21 @@ def reconcile(
     semantic = _build_semantic_layer(primary_blocks)
 
     # ------------------------------------------------------------------
+    # Produce sentences (native paragraphs + OCR blocks on pages with no
+    # primary text). ``sentence_sources`` is positionally aligned with
+    # ``semantic.sentences`` and feeds per-sentence location (task 5.3).
+    # ------------------------------------------------------------------
+    semantic.sentences, sentence_sources = _build_sentences(
+        semantic, secondary_blocks, sentence_text_processor
+    )
+    # The OCR blocks step 2 used (none when no sentences are produced).
+    used_ocr_blocks = (
+        _select_ocr_blocks(semantic, secondary_blocks)
+        if sentence_text_processor is not None
+        else []
+    )
+
+    # ------------------------------------------------------------------
     # Build StructuralLayer from secondary artifact blocks
     # ------------------------------------------------------------------
     structural = _build_structural_layer(secondary_blocks)
@@ -440,7 +572,9 @@ def reconcile(
     # ------------------------------------------------------------------
     # Compute sentence_to_char_range
     # ------------------------------------------------------------------
-    full_text = _extract_text_from_blocks(primary_blocks)
+    # Document text rule: primary blocks plus the OCR blocks that produced
+    # sentences, in page order; ``content["exact_text"]`` uses the same text.
+    full_text = _build_document_text(primary_blocks, used_ocr_blocks)
     all_sentences = [p["text"] for p in semantic.paragraphs if p.get("text")]
     sentence_to_char_range = _compute_sentence_to_char_range(
         all_sentences, full_text, reconciliation_flags
