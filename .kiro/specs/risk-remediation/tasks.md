@@ -141,7 +141,7 @@ Binding order from design.md "Implementation sequencing": extractor identity →
   - _Boundary: FigureAttribution_
   - _Depends: 7.2_
 
-- [ ] 8.2 Test figure attribution on real and synthetic fixtures
+- [x] 8.2 Test figure attribution on real and synthetic fixtures
   - Real fixtures: item counts, ≥2 distinct sections, exactly one item per figure and per table, uncited figures → neutral label; the bioRxiv fixture drops caption-less figures as today
   - Existing nested-figure fixtures still produce items with the neutral label
   - Done when the evidence-index suite passes with the single-loop implementation
@@ -264,3 +264,4 @@ Binding order from design.md "Implementation sequencing": extractor identity →
 - 7.3: **production metric change** — GROBID QC blocks now land on real pages, so `native_page_texts` for pdfplumber/pymupdf branches holds per-page GROBID text: pdfplumber `extraction_coverage_ratio` goes from ~0.07 (always triggered) to ~1.0 (not triggered); GROBID's own ratio from ~14 (inflated) to ~1.0; `min_chars_per_page` now compares real pages. Rater pass/fail and adjudication can shift — intended (design CoordsParser Risks); MUST be named in the 12.4 changelog. Divergence: page token "0" → QC 0 (clamped) vs GROBID `_parse_coords` −1 — 7.4's cross-agreement table must not include page-0 inputs. Pre-existing: `coordinate_availability` is 0.0 for GROBID blocks (`block_bbox` None).
 - 7.4: legacy-grammar guard scans `tests/**/*.py`; deliberate legacy negatives must carry the marker `legacy-grammar-negative-case` on the same line. Real fixture coords counts: biorxiv 68 / arxiv 233 / plosone 109 (floors ≥50 per fixture, ≥300 total). Whitespace cases kept local; `GROBID_COORDS_RE` stays strict.
 - 8.1: figure loop uses `body.iter(figure)` (any depth) — identical to `./figure` on real GROBID (no nesting) and needed for hand-built nested fixtures. Caption sentences inside `<figDesc><div>` now carry "body" (were the last heading) and are still emitted as sentence items beside the F/T item (pre-existing duplication). On-disk evidence caches (`{paper_id}_{pdf_hash}`, no parser version in the key) keep old ids/sections/pages until cleared — 12.4 changelog must say so. Real fixture F/T counts: arxiv 10+3, biorxiv 7+0, plosone 9+1.
+- 8.2: satisfied by `test_evidence_index_figure_attribution.py` (8.1, 30 tests); every bullet maps to a named test and RED was reproduced by the 8.1 reviewer. No separate implementer dispatched.
