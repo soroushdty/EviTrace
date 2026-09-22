@@ -11,7 +11,7 @@ Binding order from design.md "Implementation sequencing": extractor identity →
   - _Requirements: 5.4, 10.3_
   - _Boundary: Config_
 
-- [ ] 1.2 Provide shared test helpers for the real GROBID TEI fixtures
+- [x] 1.2 Provide shared test helpers for the real GROBID TEI fixtures
   - Add a test helper that loads each file under the checked-in `tests/fixtures/grobid_tei/` directory by name and parses it
   - Add a small table of GROBID-format coordinate strings (single box, multi-box, malformed, empty) reusable by the coordinate tests in tasks 7 and 8
   - Done when a smoke test loads all three fixtures and asserts the known figure/table counts from the fixture README
@@ -246,3 +246,4 @@ Binding order from design.md "Implementation sequencing": extractor identity →
 
 ## Implementation Notes
 - 1.1: `tests/src/pipeline/test_token_efficiency_regression.py:150-153` and `test_orchestrator_concurrency.py:31-32` hard-code evidence budgets as literals (they never read config.yaml), so the 30000 change does not break them — task 9.3 must still update them. Root `README.md:327-339` env-override table lacks the two new env vars (outside 1.1 boundary) — route to final validation / 12.4.
+- 1.2: shared TEI helpers live in `tests/helpers/grobid_tei.py` (import as `from tests.helpers.grobid_tei import ...`); root conftest.py now also appends the repo root to sys.path (load-bearing on pytest 8.0.x) — `.kiro/steering/testing.md:40` needs a one-line sync at 12.4. `COORD_CASES` has no whitespace-bearing case; task 7 may add one if `parse_tei_coords` tolerates whitespace.
