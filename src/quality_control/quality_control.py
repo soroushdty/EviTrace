@@ -672,23 +672,6 @@ def run_quality_control(
         )
         provenance["branch_selection"] = selection_mode
 
-        if (
-            text_processor is not None
-            and updated_unified.semantic is not None
-            and not updated_unified.semantic.sentences
-        ):
-            for para in updated_unified.semantic.paragraphs:
-                para_text = para.get("text", "")
-                page_index = para.get("page_index", 0)
-                for sentence in text_processor.tokenize_sentences(para_text):
-                    updated_unified.semantic.sentences.append(
-                        {
-                            "text": sentence,
-                            "page_index": page_index,
-                            "ocr_derived": False,
-                        }
-                    )
-
         # If any branch exists, enforce non-None typed layers.
         if all_branches:
             if updated_unified.semantic is None:

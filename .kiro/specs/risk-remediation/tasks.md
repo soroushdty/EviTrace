@@ -63,7 +63,7 @@ Binding order from design.md "Implementation sequencing": extractor identity →
   - _Requirements: 4.2, 4.3, 4.4, 4.9_
   - _Boundary: SentenceProducer_
 
-- [ ] 5.2 Remove the fallback sentence loop from the QC pipeline
+- [x] 5.2 Remove the fallback sentence loop from the QC pipeline
   - Delete the post-reconciliation sentence loop in the QC pipeline callback so the reconciler is the only producer; nothing else in the QC pipeline module changes
   - Done when the QC pipeline suite passes with the loop gone and sentence counts on native-only pipeline fixtures are unchanged (mixed and scanned fixtures gain OCR sentences by design)
   - _Requirements: 4.2, 4.9_
@@ -253,3 +253,4 @@ Binding order from design.md "Implementation sequencing": extractor identity →
 - 3.2: `run_quality_control` has no adjudicator injection seam; end-to-end fallback test monkeypatches the module-level `AdjudicationDecision` name (late-bound in `_pdf_adjudicator_fn`). A non-GROBID primary is produced end-to-end by feeding GROBID a degraded TEI (real rater fails it 5/8 metrics at `max_triggered_fraction` 0.5) — margin is one metric; the test's precondition guard makes drift loud.
 - 4.1: `_tag_blocks` returns shallow copies (routing tests share `_make_block` dicts across mocked extractors). `_extract_branch_payload`'s legacy non-TEI fallbacks (`quality_control.py:336,349`) still emit untagged blocks — unreachable from pipeline payloads; 5.1 must read origin keys with `.get` defaults. `scanned_pymupdf_blocks` is only logged, never a branch.
 - 5.1: `reconcile()` keeps `sentence_sources` (paragraph dict with `block_index` for native sentences; the secondary block dict with `block_bbox` for OCR sentences) as a local for 5.3. `content["segments"]`/`["pages"]` are still primary-only while `exact_text` includes used OCR blocks — confirm acceptable at 5.3/12.4 (all known consumers read `exact_text`). Pre-existing env gap: config selects `nltk_punkt` but nltk is not installed in the venv (`requirements.txt:34` commented) — route to 12.4. Native-only output is byte-identical except that empty tokenizer outputs are skipped.
+- 5.2: quality_control.py calls `reconciler.reconcile(...)` via module attribute (line ~653) — tests that patch reconcile must target `quality_control.reconciler.reconcile`. Pre-existing: `_extract_tei_payload` concatenates adjacent `<p>` texts without a separator.
