@@ -101,7 +101,7 @@ Binding order from design.md "Implementation sequencing": extractor identity →
   - _Boundary: AnnotationIdentity_
   - _Depends: 5.3_
 
-- [ ] 6.3 Update the annotation test suite
+- [x] 6.3 Update the annotation test suite
   - Replace the two random-UUID shape assertions with determinism, distinctness, and cross-paper tests; convert hand-built records that supplied regions through the structural layer to alignment entries
   - Done when the annotation suite passes and no test constructs a structural layer to drive region selection
   - _Requirements: 3.1, 3.2, 3.3, 3.4, 4.5, 4.7_
@@ -258,3 +258,4 @@ Binding order from design.md "Implementation sequencing": extractor identity →
 - 5.4: satisfied by `test_reconciler_sentence_producer.py` (5.1, 17 tests) and `test_reconciler_sentence_location.py` (5.3, 13 tests); every bullet maps to a named test and both files' RED was reproduced independently by the 5.1/5.3 reviewers. No separate implementer dispatched.
 - 6.1: review round 1 rejected (alignment-fallback path double-logged per OCR sentence; tests filtered warnings by substring) — fixed by short-circuiting `_select_region` on `entry is None` and asserting total WARNING count. `project()` now also reads the scalar `unified.document_id` for `AnnotationRecord.document_id` — CLAUDE.md / product.md wording "reads only semantic and alignment" needs a one-line steering sync at 12.4. Native JSON-LD bodies now always carry `ocr_derived` (previously absent). `alignment is None` now yields quote-only records, not `[]`.
 - 6.2: annotation ids are now uuid5 — every existing `outputs/*.json` annotation id changes on re-run (intended; CHANGELOG at 12.4). Pre-existing: `pdf_name` is the file stem via the orchestrator but `.name` via the standalone extractor, so `base_uri`/ids differ across entry points for the same paper — note for 12.4.
+- 6.3: delivered by 6.1 (region fixtures converted to alignment entries; `StructuralLayer()` only ever empty) and 6.2 (uuid shape tests → version-5 regex + `TestAnnotationIdentity`). Controller verified: 0 `blocks=[` fixtures, 0 uuid4 regexes, 38 tests pass.
