@@ -214,7 +214,7 @@ Binding order from design.md "Implementation sequencing": extractor identity →
   - _Boundary: PageClassificationCache, RoutingUnifier_
   - Integration task across the two task-11 boundaries; not parallel with task 4 (same module)
 
-- [ ] 11.3 Add the first cache-hit tests
+- [x] 11.3 Add the first cache-hit tests
   - Hit with valid sidecar and scanned pages → OCR invoked, routing reasons equal to a miss run; hit without sidecar → classification computed and sidecar written; stale hash → recompute; unreadable sidecar and no PDF library → error log and all-native
   - New helpers are patched at the extraction-pipeline module path like the existing seams
   - Done when these tests pass alongside the existing routing suites
@@ -274,3 +274,4 @@ Binding order from design.md "Implementation sequencing": extractor identity →
 - 10.4: `EXPECTED_STATUSES` is a substring search over module source — entries that also appear in comments/docstrings (`failed_output_write` at pdf_processor.py:1735, `failed_chunks` at :988) would not catch removal of the code literal (pre-existing weakness); `failed_chunk_<n>` is expressed as the prefix `failed_chunk_` (single source occurrence).
 - 11.1: differential run (21 scenarios) vs HEAD: identical branches/routing/backend calls. **Latency note for 11.2**: the builder is now called after the `ThreadPoolExecutor` block exits, so on fully-scanned PDFs OCR no longer overlaps the cancelled-but-running GROBID future (wall time grobid + OCR instead of max) — move the `_build_branches_for_classifications` call inside the `with` block when wiring the hit path. Function logs use `pdf_path.stem` (design signature has no pdf_name): identical via orchestrator; the standalone CLI passes `paper.pdf` so its log text drops the extension.
 - 11.2: sidecar `{digest}.pages.json` is NOT written when classification was guessed (fitz missing) on either path, so a later run with fitz recomputes. `triggered_stages` round-trips as `list[int]` (design typo `list[str]` corrected). Hit-path recompute (one-time migration per document) runs pdfplumber then scan detection sequentially. 6.5 fallback derives page indices from pdfplumber blocks (matches removed legacy behaviour). `configs/config.yaml` `tei_cache_dir` comment / steering do not yet mention the sidecar — 12.4 docs/changelog. Property tests that mock the executor pin `scan_future.result()` returning a plain list.
+- 11.3: satisfied by `test_page_classification_cache.py` (11.2, 19 tests; the four hit-path scenarios plus sidecar unit tests); RED reproduced at HEAD by the 11.2 reviewer. No separate implementer dispatched.
