@@ -1,5 +1,9 @@
 # Implementation Plan — risk-remediation
 
+> **All 34 sub-tasks are complete. Feature validation returned NO-GO on Requirement 10.1 — one
+> decision is open and belongs to the spec owner. Read `validation-report.md` in this directory
+> before resuming.**
+
 Binding order from design.md "Implementation sequencing": extractor identity → branch roles → OCR provenance chain; coordinates → figure attribution → evidence coverage; synthesis repair and page-classification cache are independent. Requirement 8 is already implemented (see task 12.2).
 
 - [ ] 1. Foundation: configuration keys, canonical defaults, and shared test fixtures
