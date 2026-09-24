@@ -260,7 +260,7 @@ flowchart TD
 | 9.3 | report carries source | ExtractorIdentity | `_build_local_metrics_report` | — |
 | 9.4 | no positional-only identity | ExtractorIdentity | same | — |
 | 9.5 | documented fallback when name missing | ExtractorIdentity | `or str(i)` | — |
-| 10.1 | ≥60% of substantive text at defaults | EvidenceCoverage + Config | `select_paper_evidence` | — |
+| 10.1 | ≥60% of substantive text at defaults on the reference (bioRxiv) paper; monitored elsewhere (10.4) | EvidenceCoverage + Config | `select_paper_evidence` | — |
 | 10.2 | budget enforcement still applies | EvidenceCoverage (existing token_budget) | unchanged | — |
 | 10.3 | docs agree with values | Config | `config.yaml`, `README.md`, `config_utils` | — |
 | 10.4 | shortfall recorded | EvidenceCoverage | manifest `evidence_coverage` | — |
@@ -678,7 +678,7 @@ def select_paper_evidence(bundle: EvidenceBundle, all_fields: list[dict], *, max
 # Selection loop unchanged (10.5). build_paper_evidence_package(...) -> str wraps this and serialises.
 ```
 - **Binding cap.** Measured on the three real fixtures (non-Metadata items), mean item length is 171–193 chars, so `max_evidence_items_per_chunk: 150` binds at ≈26–29 k chars before a 30 000-char cap does. The design keeps 150 (it is what makes the ranker prune, 10.5) and raises only the char cap; coverage on the fixtures at 150/30 000 was estimated at biorxiv 82 %, plosone 62 %, arxiv 30 % (a 97 k-char paper, outside 10.1's premise); *measured during implementation (9.1, 2026-09-22) with the real ranker: 0.946 / 0.699 / 0.311 — the ranker prefers longer sentences, and the char cap, not the item cap, binds on plosone and arxiv.* The config comment (10.3) must state which cap binds conditionally — the item cap on papers with short sentences, the 30 000-char cap otherwise — with the measured coverage figures *(superseded wording "item cap is the binding constraint" corrected at 9.3, 2026-09-22)*.
-- **10.1 fixture is pinned**: `tests/fixtures/grobid_tei/biorxiv_2020.03.24.004655.tei.xml` (≈31 k substantive chars, 183 items) at default config must yield `coverage_ratio >= 0.6`. A synthetic bundle may be used additionally only with item texts ≥ 150 chars.
+- **10.1 fixture is pinned**: `tests/fixtures/grobid_tei/biorxiv_2020.03.24.004655.tei.xml` (≈31 k substantive chars, 183 items) at default config must yield `coverage_ratio >= 0.6`. A synthetic bundle may be used additionally only with item texts ≥ 150 chars. *(2026-09-23: requirement 10.1 was reworded to name this fixture as its premise, so the pin is now the criterion itself rather than a proxy for it; the floor is not guaranteed for other papers — see `validation-report.md` §1.)*
 - Naming: the keys keep their historical `*_per_chunk` names for compatibility; the selection is one paper-level package (`build_paper_evidence_package`), and all prose in code/docs says "per paper".
 - `pdf_processor` records `manifest[pdf_name]["evidence_coverage"] = {"ratio", "selected_chars", "substantive_chars", "below_threshold"}` on completion and logs WARNING when `ratio < min_evidence_coverage_ratio` (10.4).
 

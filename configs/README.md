@@ -97,7 +97,11 @@ for synthesis.
 chars per chunk. They are chosen so each chunk's evidence package
 covers at least `min_evidence_coverage_ratio` (60%) of a paper's
 substantive TEI text (sentences, captions and tables, excluding
-metadata) while the ranker still prunes. Selection stops at
+metadata) while the ranker still prunes. That floor is guaranteed
+only on the reference bioRxiv fixture; it is not guaranteed for other
+papers, because the ranker picks by relevance rather than length and
+a paper whose highest-ranked items are short falls below it (such
+papers are recorded, see below). Selection stops at
 whichever cap binds first — the item cap on papers with short
 sentences, the 30 000-char cap otherwise; the ranker prefers
 longer-than-average sentences, so `150 × mean sentence length`

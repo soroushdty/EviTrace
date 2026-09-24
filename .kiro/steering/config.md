@@ -93,7 +93,10 @@ value in `configs/config.yaml`, the loader default in
 `tests/src/utils/test_openai_config_keys.py` enforces it. Rationale:
 each chunk's package should cover at least `min_evidence_coverage_ratio`
 (60%) of the paper's substantive TEI text (sentences + captions +
-tables, excluding metadata) while the ranker still prunes. Selection
+tables, excluding metadata) while the ranker still prunes. The floor is
+guaranteed only on the reference bioRxiv fixture (Requirement 10.1); it
+is not guaranteed for other papers — one whose highest-ranked items are
+short falls below it and is recorded as under-covered. Selection
 stops at whichever cap binds first — the item cap on papers with short
 sentences, the 30 000-char cap otherwise (the ranker prefers
 longer-than-average sentences). Measured 2026-09-22 on the real TEI

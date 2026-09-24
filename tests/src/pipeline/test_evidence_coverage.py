@@ -12,7 +12,7 @@ Measured at implementation time (2026-09-22, after 8.1's table de-duplication), 
     plosone: 241 items, 42942 substantive chars, ratio 0.699
     arxiv:   496 items, 96573 substantive chars, ratio 0.311 (97k-char paper, outside 10.1)
 
-Only bioRxiv is asserted (design.md "EvidenceCoverage": "10.1 fixture is pinned").
+Only bioRxiv is asserted: requirement 10.1 (reworded 2026-09-23) names it as the reference paper.
 """
 
 from __future__ import annotations
@@ -350,6 +350,25 @@ def test_biorxiv_fixture_at_defaults_is_still_pruned():
     assert stats.selected_chars <= DEFAULT_MAX_CHARS
 
 
+def test_mean_item_length_does_not_guarantee_the_floor():
+    """Why 10.1 names the reference paper rather than a sentence-length premise
+    (reworded 2026-09-23, validation-report.md section 1): selection ranks by
+    relevance, not length, so a 30 000-char paper whose items average exactly
+    120 chars -- the break-even length at 150 items -- still falls below 0.6
+    when its short items outrank its long ones."""
+    items = [_item(f"a{k:03d}", "x" * 30, score=100) for k in range(100)]
+    items += [_item(f"b{k:03d}", "y" * 180, score=0) for k in range(150)]
+    bundle = _bundle(items)
+    _, stats = select_paper_evidence(bundle, _fields(), max_items=DEFAULT_MAX_ITEMS, max_chars=DEFAULT_MAX_CHARS)
+
+    assert stats.substantive_chars == 30_000
+    assert stats.substantive_chars / stats.total_items == 120
+    assert stats.selected_items == DEFAULT_MAX_ITEMS
+    assert stats.selected_chars == 100 * 30 + 50 * 180
+    assert stats.coverage_ratio == pytest.approx(0.4)
+    assert stats.coverage_ratio < COVERAGE_FLOOR
+
+
 def test_char_cap_reduces_coverage_rather_than_being_exceeded():
     # 10.2: a tighter char budget lowers coverage; the budget is never exceeded.
     bundle = _fixture_bundle("biorxiv")
@@ -459,6 +478,10 @@ def test_docs_state_the_measured_coverage_and_the_binding_rule():
         assert "whichever cap binds first" in text, f"{label} must describe the binding cap conditionally"
         assert "is the binding constraint" not in text, f"{label} still names one cap as always binding"
         assert "item cap binds first" not in text, f"{label} still names one cap as always binding"
+        flat = " ".join(re.sub(r"^\s*#", "", line) for line in text.splitlines()).split()
+        assert "guaranteed only on the reference bioRxiv fixture" in " ".join(flat), (
+            f"{label} must scope the 60% floor to the reference paper (10.1 as reworded 2026-09-23)"
+        )
 
 
 def test_readme_documents_the_metadata_ratio_asymmetry():

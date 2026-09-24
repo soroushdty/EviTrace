@@ -5,6 +5,20 @@ and should never be deleted. Add a brief entry whenever a spec is implemented,
 steering docs change, README files change, or any other significant code change
 occurs.
 
+## [2026-09] — Resolve the `risk-remediation` 10.1 validation finding by rewording (`risk-remediation`)
+
+Requirement 10.1 ("≥60% evidence coverage for a 30,000-char paper") was unsatisfiable as worded
+while any finite item cap exists. The spec owner chose to reword it rather than drop the
+150-item cap: the 60% floor is now guaranteed only on the reference bioRxiv fixture and is
+monitored (not guaranteed) elsewhere. No code or config value changed.
+
+- `requirements.md` 10.1 reworded (original wording preserved in its note); `design.md`,
+  `validation-report.md` §1, `tasks.md` banner and `spec.json` (`phase: implemented`) updated.
+- Coverage-rationale wording in `configs/config.yaml`, `configs/README.md` and
+  `.kiro/steering/config.md` scoped to the reference paper; enforced by the doc-site test.
+- New `test_mean_item_length_does_not_guarantee_the_floor` pins why a sentence-length premise
+  was rejected (mean 120 chars, coverage 0.40).
+
 ## [2026-09] — Implement the `risk-remediation` spec (Requirements 1–11)
 
 Eleven defects in shipped behaviour, specced, designed and implemented task-by-task with an

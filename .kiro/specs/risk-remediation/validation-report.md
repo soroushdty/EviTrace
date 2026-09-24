@@ -1,7 +1,9 @@
 # Feature Validation Report — `risk-remediation`
 
-**Status: NO-GO on one acceptance criterion (10.1). Everything else passes.**
-**One decision is open and belongs to the spec owner — see "The open decision" below.**
+**Status (2026-09-24): GO.** The 10.1 NO-GO was resolved on 2026-09-23 — the spec owner chose
+option (a) and criterion 10.1 was reworded (see "Resolution" at the end of §1); the feature was
+re-validated on 2026-09-24 (see §7). The original verdict is kept
+below as the record: *NO-GO on one acceptance criterion (10.1). Everything else passes.*
 
 Date: 2026-09-22 · Range validated: `a57294d..49a3f66` (37 commits, 34/34 sub-tasks)
 Method: full-suite execution, two independent validation agents (requirements coverage;
@@ -10,7 +12,7 @@ all work is local on `main`.
 
 ---
 
-## 1. The open decision (read this first)
+## 1. The 10.1 decision (resolved 2026-09-23 — option (a))
 
 **Requirement 10.1** — *"When an evidence package is built using default configuration for a
 paper whose substantive text is 30,000 characters, the evidence index shall select at least
@@ -64,6 +66,30 @@ outside 10.1's premise).
 
 Not recommended: leaving it as-is silently. The criterion's own objective is "fields are not
 missed because relevant sentences were pruned away", which is exactly the short-sentence case.
+
+### Resolution (2026-09-23)
+
+The spec owner chose **option (a)**. `requirements.md` 10.1 now names the reference paper — the
+bioRxiv fixture `tests/fixtures/grobid_tei/biorxiv_2020.03.24.004655.tei.xml` — as its premise,
+and states that for other papers the 60 % floor is monitored (10.4 records the shortfall), not
+guaranteed. The original wording is preserved in the reworded criterion's note. No code or
+config value changed; the item cap stays at 150.
+
+The **sentence-length** variant of (a) was rejected after measurement: selection ranks by keyword
+relevance, not length, so a mean-length premise does not bound coverage. A synthetic
+30 000-char paper of 100 × 30-char high-scoring items plus 150 × 180-char low-scoring items
+(mean exactly 120 chars) selected 12 000 chars → **0.40**. That case is now pinned by
+`test_mean_item_length_does_not_guarantee_the_floor` in
+`tests/src/pipeline/test_evidence_coverage.py`, so the reason for the wording cannot go stale.
+
+Re-measured at `2066ea6` (2026-09-23), defaults 150 / 30 000: bioRxiv 0.946, PLOS ONE 0.699,
+arXiv 0.311 — unchanged. Also updated: `design.md` (traceability row and EvidenceCoverage
+note), the coverage-rationale wording in `configs/config.yaml`, `configs/README.md` and
+`.kiro/steering/config.md` (now say the floor is guaranteed only on the reference paper; a
+doc-site test enforces it), `spec.json`, the `tasks.md` banner, and `CHANGELOG.md`.
+
+The §3 drifts, §4 pre-existing issues and §5 open questions are unaffected by this decision and
+remain as recorded.
 
 ---
 
@@ -158,3 +184,26 @@ scanned" — equivalent in practice, divergence untested.
   (one rejection at task 6.1, remediated and re-approved).
 - To re-run validation after a decision: `python -m pytest -q -m ""`, then
   `/kiro-validate-impl risk-remediation`.
+
+---
+
+## 7. Re-validation after the 10.1 decision (2026-09-24) — **GO**
+
+| Check | Result |
+|---|---|
+| Full suite incl. slow (`python -m pytest -q -m ""`) | **1921 passed, 3 skipped**, exit 0 (+1 = the new 10.1 rationale test) |
+| Dependency directions + migration pair | 73 passed |
+| TBD/TODO grep (lines added since `a57294d`) | clean (0) |
+| Secrets grep (lines added since `a57294d`) | 1 false positive (`first_token = case.coords.split(...)`, a coords parser test variable) |
+| Smoke boot | `main.py --help` and `pdf_extractor --help` both exit 0 |
+| Blocked tasks | none (34/34 sub-tasks `[x]`) |
+| Production code since the §2 validation (`49a3f66`) | **unchanged** — `git diff 49a3f66 -- src main.py configs` touches only `configs/README.md` and comment lines of `configs/config.yaml` |
+| Designed-immutable files vs `a57294d` | still byte-identical (schemas, `extraction_map.json`, `src/agents/`, `scan_detector.py`) |
+
+Because no production code changed, the §2 judgment results (requirements coverage 55/55, no
+boundary violations, no design drift, cross-task seams verified) carry forward unchanged. The one
+coverage change is 10.1: its reworded premise is exactly what
+`test_biorxiv_fixture_at_defaults_covers_at_least_60_percent` asserts, and the "monitored, not
+guaranteed" clause is backed by the 10.4 shortfall record and by
+`test_mean_item_length_does_not_guarantee_the_floor`. The §3 drifts, §4 pre-existing issues
+and §5 open questions remain non-blocking and unchanged.
