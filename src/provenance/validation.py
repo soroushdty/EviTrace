@@ -98,12 +98,61 @@ uninterpretable recorded finding makes the report ``completed=False`` with
 ``incompletion_reason`` naming each problem; the findings of the checks that
 did run are still reported. :func:`validate_chain` never raises.
 
-Ordering and severity policy
-----------------------------
-Findings are ordered deterministically by ``(code, node_id, edge_id,
-finding_id)``. The topology checks (``graph_cycle``, ``orphan_node``,
-``inconsistent_derivation``), per-code severity overrides and the
-severity-ranked ordering are added by task 4.3.
+Topology checks
+---------------
+``graph_cycle`` (8.4)
+    The derivation and revision subgraph must be acyclic. It is read in
+    dependency direction — a step depends on each ``has_input`` target, each
+    ``has_output`` target depends on its step, and a ``derived_from`` or
+    ``revises`` edge's origin depends on its target — so a cycle means some
+    record is (transitively) derived from itself. An identifier listed as
+    both an input and an output of one step is an in-place transform — a
+    filter, normalize or annotate step keeping a canonical evidence or claim
+    ID — not a cycle: that output gets no "depends on the step" edge, while
+    the step still depends on it as an input, so a genuine cycle through
+    other steps (step A keeps ``e1`` and writes ``c``; step B reads ``c`` and
+    writes ``e1``) is still found. Edges
+    leaving a record that failed to materialize are debris and are skipped;
+    endpoints that are not nodes still take part (a cycle through a dangling
+    identifier is still a cycle). The strongly connected components are found
+    by an iterative Tarjan depth-first search with an explicit stack — never
+    recursion — so a pathological chain cannot exhaust the interpreter stack.
+    Each component with more than one member, or with a self-loop, is one
+    finding: ``details["members"]`` lists its identifiers and
+    ``details["edge_ids"]`` the derivation/revision edges inside it (both
+    sorted); ``node_id`` is its smallest member that is a node.
+``orphan_node`` (8.4)
+    A node connected by no edge to any *other node* of the graph. Edges to or
+    from identifiers that are not nodes, self-loops and ``validates`` edges do
+    not connect: a ``validates`` edge only records that a finding was raised,
+    so re-validating a graph that carries its validation record yields the
+    same findings. Validation records are run-scoped (they belong to the run,
+    not to a document) and a clean report's record has no edge by design, so
+    they are never orphans. Every other node kind — sources included — can be.
+    ``details["incident_edge_ids"]`` lists the node's non-``validates`` edges.
+``inconsistent_derivation`` (8.4)
+    A derivation step with neither an input nor an output, counting only
+    identifiers that are non-empty strings (the data-model invariant; no
+    other derivation inconsistency is defined).
+
+Severity policy and ordering (8.5)
+----------------------------------
+Every finding — graph-derived or recorded — is stamped with the severity of
+the effective policy: :data:`~provenance.models.DEFAULT_SEVERITIES` updated by
+``severity_overrides`` (``provenance.severity_overrides`` in configuration).
+A recorded finding whose code is not in the default table keeps the severity
+it was recorded with unless an override names its code; it is reported like
+any other finding. Configuration is not validated upstream, so overrides
+degrade instead of failing: ``None`` means no override; a value that is not a
+mapping is ignored as a whole, and an entry whose code is not a non-empty
+string or whose severity is not exactly one of ``critical``, ``error``,
+``warning``, ``info`` is ignored on its own — each logged at WARNING, never
+raised, and never making the run unvalidated (the checks still ran). An
+override naming a code outside the default table is applied (it can only
+match recorded findings) and logged at WARNING, so a misspelt code is
+visible. Findings are ordered deterministically by ``(severity_rank, code,
+node_id)`` — ``critical`` first, a missing ``node_id`` before any other — with
+``edge_id`` and ``finding_id`` as tie-breakers.
 
 Validation is read-only with respect to the graph. Imports only the standard
 library, ``provenance.models``, ``provenance.identity``,
@@ -112,9 +161,10 @@ library, ``provenance.models``, ``provenance.identity``,
 
 from __future__ import annotations
 
+import dataclasses
 import typing
 from collections import Counter
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from typing import Any
 
 from provenance.graph import ProvenanceGraph
@@ -159,13 +209,25 @@ _PRIVACY_INVALID = "privacy_carrier_invalid"
 _DUPLICATE = "duplicate_reference"
 _AMBIGUOUS = "ambiguous_reference"
 _UNSUPPORTED = "unsupported_claim"
+_CYCLE = "graph_cycle"
+_ORPHAN = "orphan_node"
+_INCONSISTENT = "inconsistent_derivation"
 
 _CITES = "cites_evidence"
 _BELONGS = "belongs_to_source"
 _DEDICATED_TARGET_KINDS: frozenset[str] = frozenset({_CITES, _BELONGS})
 """Edge kinds whose *target* is checked by a dedicated check, not the generic dangling one."""
 
+_VALIDATES = "validates"
+_HAS_INPUT = "has_input"
+_DEPENDS_ON_TARGET: frozenset[str] = frozenset({_HAS_INPUT, "derived_from", "revises"})
+"""Derivation/revision edge kinds whose origin depends on their target."""
+_TARGET_DEPENDS_ON_ORIGIN: frozenset[str] = frozenset({"has_output"})
+"""Derivation edge kinds whose target depends on their origin (the step produced it)."""
+
 _SEVERITY_ORDER: tuple[Severity, ...] = typing.get_args(Severity)
+_SEVERITY_RANK: Mapping[str, int] = {"critical": 0, "error": 1, "warning": 2, "info": 3}
+"""Rank of each severity, most severe first (8.5)."""
 _PRIVACY_STATES: frozenset[str] = frozenset(typing.get_args(PrivacyState))
 
 _FINDING_ID_PREFIX = "finding:"
@@ -647,6 +709,170 @@ def _check_unsupported_claims(ctx: _Context) -> list[ValidationFinding]:
     return findings
 
 
+def _dependency_graph(ctx: _Context) -> tuple[dict[str, list[tuple[str, str]]], list[str]]:
+    """``(successors, vertices)`` of the derivation/revision subgraph in dependency direction.
+
+    A step's output that is also one of its own inputs (``input_ids`` or a
+    ``has_input`` edge) is an in-place transform and gets no "output depends
+    on step" edge; the step still depends on it as an input. ``successors[a]`` lists ``(b, edge_id)`` for each edge making ``a`` depend
+    on ``b``; both lists are sorted so the search order is deterministic.
+    """
+    inputs_of: dict[str, set[str]] = {}
+    for node in ctx.nodes_of(DerivationStep):
+        inputs_of.setdefault(node.node_id, set()).update(_usable_ids(node.input_ids))
+    for edge in ctx.edges:
+        if edge.kind == _HAS_INPUT:
+            inputs_of.setdefault(edge.from_id, set()).add(edge.to_id)
+
+    successors: dict[str, list[tuple[str, str]]] = {}
+    vertices: set[str] = set()
+    for edge in ctx.edges:
+        if edge.from_id not in ctx.nodes:
+            continue  # debris of a record that failed to materialize
+        if edge.kind in _DEPENDS_ON_TARGET:
+            dependent, dependency = edge.from_id, edge.to_id
+        elif edge.kind in _TARGET_DEPENDS_ON_ORIGIN:
+            if edge.to_id in inputs_of.get(edge.from_id, ()):
+                continue  # in-place transform: the step kept (filtered, annotated, ...) one of its inputs
+            dependent, dependency = edge.to_id, edge.from_id
+        else:
+            continue
+        successors.setdefault(dependent, []).append((dependency, edge.edge_id))
+        vertices.update((dependent, dependency))
+    for targets in successors.values():
+        targets.sort()
+    return successors, sorted(vertices)
+
+
+def _strongly_connected(successors: Mapping[str, Sequence[tuple[str, str]]], vertices: Sequence[str]) -> list[list[str]]:
+    """Tarjan's strongly connected components, iteratively (explicit work stack, no recursion)."""
+    index: dict[str, int] = {}
+    low: dict[str, int] = {}
+    on_stack: set[str] = set()
+    stack: list[str] = []
+    components: list[list[str]] = []
+    counter = 0
+    for root in vertices:
+        if root in index:
+            continue
+        index[root] = low[root] = counter
+        counter += 1
+        stack.append(root)
+        on_stack.add(root)
+        work: list[tuple[str, Iterator[tuple[str, str]]]] = [(root, iter(successors.get(root, ())))]
+        while work:
+            vertex, pending = work[-1]
+            descended = False
+            for successor, _edge_id in pending:
+                if successor not in index:
+                    index[successor] = low[successor] = counter
+                    counter += 1
+                    stack.append(successor)
+                    on_stack.add(successor)
+                    work.append((successor, iter(successors.get(successor, ()))))
+                    descended = True
+                    break
+                if successor in on_stack:
+                    low[vertex] = min(low[vertex], index[successor])
+            if descended:
+                continue
+            work.pop()
+            if work:
+                parent = work[-1][0]
+                low[parent] = min(low[parent], low[vertex])
+            if low[vertex] == index[vertex]:
+                component: list[str] = []
+                while True:
+                    member = stack.pop()
+                    on_stack.discard(member)
+                    component.append(member)
+                    if member == vertex:
+                        break
+                components.append(component)
+    return components
+
+
+def _check_cycles(ctx: _Context) -> list[ValidationFinding]:
+    """8.4: the derivation and revision subgraph is acyclic; one finding per cyclic component."""
+    successors, vertices = _dependency_graph(ctx)
+    findings: list[ValidationFinding] = []
+    for component in _strongly_connected(successors, vertices):
+        members = set(component)
+        edge_ids = sorted(
+            edge_id
+            for member in component
+            for successor, edge_id in successors.get(member, ())
+            if successor in members
+        )
+        if not edge_ids:
+            continue  # a single vertex without a self-loop is not a cycle
+        ordered = sorted(members)
+        subject = next((member for member in ordered if member in ctx.nodes), ordered[0])
+        findings.append(
+            _finding(
+                _CYCLE,
+                node_id=subject,
+                edge_id=None,
+                message=(
+                    f"derivation/revision cycle of {len(ordered)} record(s) through {subject}: "
+                    "a record is derived from itself"
+                ),
+                details={"members": ordered, "edge_ids": edge_ids},
+            )
+        )
+    return findings
+
+
+def _check_orphans(ctx: _Context) -> list[ValidationFinding]:
+    """8.4: a node connected by no edge to any other node of the graph (validation records exempt)."""
+    connected: set[str] = set()
+    incident: dict[str, list[str]] = {}
+    for edge in ctx.edges:
+        if edge.kind == _VALIDATES:
+            continue
+        for end in {edge.from_id, edge.to_id}:
+            incident.setdefault(end, []).append(edge.edge_id)
+        if edge.from_id != edge.to_id and edge.from_id in ctx.nodes and edge.to_id in ctx.nodes:
+            connected.update((edge.from_id, edge.to_id))
+    return [
+        _finding(
+            _ORPHAN,
+            node_id=node.node_id,
+            edge_id=None,
+            message=f"{node.kind} {node.node_id} is connected to no other node of the graph",
+            details={"node_kind": node.kind, "incident_edge_ids": sorted(incident.get(node.node_id, ()))},
+        )
+        for node in ctx.nodes.values()
+        if node.node_id not in connected and not isinstance(node, ValidationRecord)
+    ]
+
+
+def _usable_ids(ids: object) -> list[str]:
+    if not isinstance(ids, (tuple, list)):
+        return []
+    return [identifier for identifier in ids if isinstance(identifier, str) and identifier]
+
+
+def _check_inconsistent_derivations(ctx: _Context) -> list[ValidationFinding]:
+    """8.4: a derivation step has at least one input or at least one output."""
+    return [
+        _finding(
+            _INCONSISTENT,
+            node_id=node.node_id,
+            edge_id=None,
+            message=f"derivation step {node.node_id} has neither an input nor an output",
+            details={
+                "stage": node.stage,
+                "derivation_kind": node.derivation_kind,
+                "input_ids": [_short_repr(i) for i in node.input_ids] if isinstance(node.input_ids, (tuple, list)) else [],
+                "output_ids": [_short_repr(o) for o in node.output_ids] if isinstance(node.output_ids, (tuple, list)) else [],
+            },
+        )
+        for node in ctx.nodes_of(DerivationStep)
+        if not _usable_ids(node.input_ids) and not _usable_ids(node.output_ids)
+    ]
+
+
 _Check = Callable[[_Context], Iterable[ValidationFinding]]
 
 _CHECKS: tuple[tuple[str, _Check], ...] = (
@@ -658,6 +884,9 @@ _CHECKS: tuple[tuple[str, _Check], ...] = (
     (_PRIVACY_INVALID, _check_privacy_carriers),
     (_DUPLICATE, _check_duplicate_references),
     (_UNSUPPORTED, _check_unsupported_claims),
+    (_CYCLE, _check_cycles),
+    (_ORPHAN, _check_orphans),
+    (_INCONSISTENT, _check_inconsistent_derivations),
 )
 """``(check name, check)`` in run order; each check runs inside its own guard."""
 
@@ -731,8 +960,67 @@ def _merge(findings: Iterable[ValidationFinding]) -> list[ValidationFinding]:
     return merged
 
 
-def _order_key(finding: ValidationFinding) -> tuple[str, str, str, str]:
-    return (finding.code, finding.node_id or "", finding.edge_id or "", finding.finding_id)
+# ---------------------------------------------------------------------------
+# Severity policy and ordering (8.5)
+# ---------------------------------------------------------------------------
+
+
+def _severity_policy(overrides: object) -> dict[str, Severity]:
+    """The default severity table updated by every usable override entry; never raises."""
+    policy: dict[str, Severity] = dict(DEFAULT_SEVERITIES)
+    if overrides is None:
+        return policy
+    if not isinstance(overrides, Mapping):
+        logger.warning(
+            "provenance severity overrides ignored: expected a mapping of finding code to severity, got %s",
+            type(overrides).__name__,
+        )
+        return policy
+    try:
+        entries = list(overrides.items())
+    except Exception as exc:  # noqa: BLE001 — an unreadable mapping must not abort validation
+        logger.warning("provenance severity overrides ignored: mapping cannot be read: %s: %s", type(exc).__name__, exc)
+        return policy
+    for code, severity in entries:
+        if not isinstance(code, str) or not code:
+            logger.warning(
+                "provenance severity override %s -> %s ignored: the finding code is not a non-empty string",
+                _short_repr(code),
+                _short_repr(severity),
+            )
+            continue
+        if not isinstance(severity, str) or severity not in _SEVERITY_RANK:
+            logger.warning(
+                "provenance severity override %r -> %s ignored: severity must be one of %s",
+                code,
+                _short_repr(severity),
+                ", ".join(_SEVERITY_ORDER),
+            )
+            continue
+        if code not in DEFAULT_SEVERITIES:
+            logger.warning(
+                "provenance severity override names unknown finding code %r; it applies only to recorded "
+                "findings with that code",
+                code,
+            )
+        policy[code] = severity  # type: ignore[assignment]
+    return policy
+
+
+def _classify(finding: ValidationFinding, policy: Mapping[str, Severity]) -> ValidationFinding:
+    """``finding`` stamped with the policy severity of its code (its own severity for an unknown code)."""
+    severity = policy.get(finding.code, finding.severity)
+    return finding if severity == finding.severity else dataclasses.replace(finding, severity=severity)
+
+
+def _order_key(finding: ValidationFinding) -> tuple[int, str, str, str, str]:
+    return (
+        _SEVERITY_RANK.get(finding.severity, len(_SEVERITY_RANK)),
+        finding.code,
+        finding.node_id or "",
+        finding.edge_id or "",
+        finding.finding_id,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -740,8 +1028,12 @@ def _order_key(finding: ValidationFinding) -> tuple[str, str, str, str]:
 # ---------------------------------------------------------------------------
 
 
-def _report(findings: Iterable[ValidationFinding], problems: Sequence[str]) -> ChainValidationReport:
-    ordered = tuple(sorted(_merge(findings), key=_order_key))
+def _report(
+    findings: Iterable[ValidationFinding],
+    problems: Sequence[str],
+    policy: Mapping[str, Severity],
+) -> ChainValidationReport:
+    ordered = tuple(sorted((_classify(finding, policy) for finding in _merge(findings)), key=_order_key))
     counts = Counter(finding.severity for finding in ordered)
     report = ChainValidationReport(
         completed=not problems,
@@ -772,13 +1064,18 @@ def _recorded(recorded_findings: object, problems: list[str]) -> list[Validation
 def validate_chain(
     graph: ProvenanceGraph,
     *,
+    severity_overrides: Mapping[str, Severity] | None = None,
     recorded_findings: Sequence[ValidationFinding] = (),
 ) -> ChainValidationReport:
-    """Validate the provenance chain of ``graph`` into a populated report (5.3, 5.4, 8.1–8.4, 8.6, 9.6).
+    """Validate the provenance chain of ``graph`` into a populated report (5.3, 5.4, 8.1–8.6, 9.6).
 
-    ``recorded_findings`` are the findings recorded during the run
-    (``RecordedRun.findings``); they are merged with the graph-derived
-    findings as described in the module docstring and counted per severity.
+    ``severity_overrides`` maps a finding code to the severity that replaces
+    its default (``provenance.severity_overrides``); unusable entries are
+    ignored with a WARNING. ``recorded_findings`` are the findings recorded
+    during the run (``RecordedRun.findings``); they are merged with the
+    graph-derived findings as described in the module docstring. Every finding
+    is classified by the effective severity policy, counted per severity and
+    ordered by ``(severity_rank, code, node_id)``.
 
     Never raises. ``completed`` is ``False`` — the run is unvalidated, never
     valid — whenever a check could not run or an input could not be
@@ -788,18 +1085,19 @@ def validate_chain(
     problems: list[str] = []
     findings: list[ValidationFinding] = []
     try:
+        policy = _severity_policy(severity_overrides)
         findings.extend(_recorded(recorded_findings, problems))
         if not isinstance(graph, ProvenanceGraph):
             problems.append(f"validation cannot run: expected a ProvenanceGraph, got {type(graph).__name__}")
-            return _report(findings, problems)
+            return _report(findings, problems, policy)
         try:
             ctx = _Context(graph)
         except _CannotRun as exc:
             problems.append(f"validation cannot run: {exc}")
-            return _report(findings, problems)
+            return _report(findings, problems, policy)
         except Exception as exc:  # noqa: BLE001 — an unreadable graph leaves the run unvalidated
             problems.append(f"validation cannot run: graph indexes unavailable: {type(exc).__name__}: {exc}")
-            return _report(findings, problems)
+            return _report(findings, problems, policy)
         graph_findings: list[ValidationFinding] = []
         for name, check in _CHECKS:
             try:
@@ -809,7 +1107,7 @@ def validate_chain(
                 continue
             graph_findings.extend(produced)
         # Graph-derived findings first, so a recorded finding never displaces one with the same ID.
-        return _report([*graph_findings, *findings], problems)
+        return _report([*graph_findings, *findings], problems, policy)
     except Exception as exc:  # noqa: BLE001 — validate_chain never raises
         logger.warning("provenance chain validation failed unexpectedly: %s", exc)
         return ChainValidationReport(
