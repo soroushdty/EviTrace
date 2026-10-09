@@ -162,6 +162,35 @@
   - _Depends: 4.1, 4.3_
   - _Boundary: CompletenessComputer_
 
+- [ ] 4.6 Scope stage status to individual documents
+  - Add an optional source-identifier keyword to the stage complete and failed marks: without it the mark stays run-wide (used for chain validation and for failures before any document is known); with it the mark applies to that document only and leaves the run-wide status unchanged. Reject a malformed source identifier.
+  - Extend the recorded-run snapshot with per-document stage status and per-document failure reasons, both defaulting to empty; keep per-document marks escalate-only and keep every distinct failure reason per document and stage, in recording order. The snapshot is never serialized, so the schema version does not change.
+  - Make the graph builder emit one stage missing segment per failed stage and document, naming the document and that document's steps of the stage; keep the single segment for a run-wide failure.
+  - Make completeness evaluate each document and stage on the worse of the run-wide and per-document status, so a per-document failure leaves only that document and the claims its segment covers undetermined, and report a run with no recorded documents as undetermined.
+  - Observable: tests show a failure marked for one of two documents leaves the other document determinable and the failed one undetermined with its own reason, one missing segment per failed document, run-wide marks behaving exactly as before, every per-document reason kept, and an empty run reported undetermined.
+  - _Requirements: 2.1, 2.2, 2.5, 7.4_
+  - _Depends: 4.5_
+  - _Boundary: ProvenanceRecorder, ProvenanceModels, GraphBuilder, CompletenessComputer_
+
+- [ ] 4.7 Tighten evidence anchors and content, and keep checkpoint metadata, in the adapters
+  - Classify anchor precision by the single design rule: exact needs page and coordinates; approximate needs at least one real locator (page, character span, or a structural path addressing one element by `xml:id`); a section path, a weak tag-only structural path, or coordinates without a page are recorded but leave the anchor absent; list every missing anchor kind.
+  - Keep text, annotations, and the source PDF path out of parser metadata as a declared deny-list; when text is present add its digest and character count, computing the digest through a new public text-digest helper in the identity module so hashing stays there.
+  - Keep every unconsumed checkpoint-identity key on the source node as an `x-manifest-<key>` extension, with one fallback extension for keys outside the extension-key charset; accept additional model identifiers when building the run identity so a distinct synthesis model is part of it.
+  - Update the completeness and validation tests whose fixtures relied on a section path alone counting as approximate.
+  - Observable: adapter tests show section-path-only and weak-path-only items classified absent with their missing kinds listed, a page alone or an `xml:id` path alone classified approximate, no evidence node's parser metadata containing text, annotations, or the source PDF path while it carries the text digest and length, a source node carrying the output-path and schema-version extensions, and a run identity whose model identifiers and run identifier change with an additional synthesis model.
+  - _Requirements: 1.3, 2.4, 3.2, 3.5, 4.4, 4.5, 10.2_
+  - _Depends: 4.6_
+  - _Boundary: Adapters/evidence_adapter, Adapters/identity_adapter, IdentityService_
+
+- [ ] 4.8 Apply the duplicate-identity severity and the prefill completeness policy
+  - Raise the default severity of the duplicate-identity finding to error.
+  - Add a dedicated, overridable prefill-unsupported finding code with default severity warning, emitted instead of the unsupported-claim finding for an unsupported claim of prefill origin.
+  - In completeness aggregation, report a prefill-origin claim that is incomplete — unsupported, or missing an anchor because it cites a header metadata node without coordinates — as incomplete with its reason at claim level, but do not let it alone make its document or the run incomplete; an undetermined prefill claim and every model-origin claim follow the normal rule.
+  - Observable: tests show the duplicate-identity default is error, an unsupported prefill claim yields one prefill-unsupported warning and no unsupported-claim finding, an override changes that code's severity alone, and a document whose only gaps are an unsupported prefill claim and a missing-anchor prefill claim is complete while both claims are reported incomplete.
+  - _Requirements: 2.2, 5.2, 5.7, 8.5_
+  - _Depends: 4.7_
+  - _Boundary: ProvenanceModels, ChainValidator, CompletenessComputer_
+
 - [ ] 5. Persistence: schema-versioned artifact serialization
 
 - [x] 5.1 Implement graph serialization with the schema version guard
@@ -194,40 +223,58 @@
   - _Boundary: PipelineIntegration_
 
 - [ ] 6.2 Emit evidence nodes from the evidence index on both cache paths
-  - Add an optional recorder parameter to evidence bundle construction and emit evidence nodes through the evidence adapter.
+  - Add an optional recorder parameter to evidence bundle construction and emit evidence nodes through the single-item evidence adapter, turning each item without a usable identifier into a recorded invalid-identifier issue instead of a silent skip.
   - Emit on the cache-hit path as well as the cache-miss path so a cached run is not reported provenance-incomplete.
-  - Observable: an integration test runs bundle construction twice against the same cached bundle and confirms both runs record the same evidence node identifiers.
-  - _Requirements: 4.1, 4.7_
-  - _Depends: 6.1_
+  - Record the title item (the metadata-section item) as metadata evidence by overriding its kind on the pipeline side, leaving the evidence-index item format, the evidence cache, and the prompt unchanged.
+  - Add the pure header-metadata helper that returns the first-author value and the matched publication date together with their header elements; make the author prefill and the header branch of year resolution read their values from it; and from the bundle's TEI mint one metadata evidence item per found element under the reserved local identifiers, recorded only in provenance and never added to the bundle's items, the evidence cache, or any prompt.
+  - Mark the evidence-index stage per document.
+  - Observable: an integration test runs bundle construction twice against the same cached bundle and confirms both runs record the same evidence node identifiers, including the title as metadata evidence and the header author and date nodes; an item with a malformed identifier yields a recorded invalid-identifier issue; and the prefilled values and the shared prompt prefix bytes are unchanged.
+  - _Requirements: 4.1, 4.7, 8.4_
+  - _Depends: 6.1, 4.8_
   - _Boundary: PipelineIntegration_
 
 - [ ] 6.3 Emit the source node and reconciliation-derived derivation steps from the extraction pipeline
-  - Emit the source node for each document from the checkpoint identity mapping, and record the run identity once per run.
-  - Convert the reconciled record's provenance mapping into derivation steps on the pipeline side, leaving the quality-control package unmodified.
-  - Observable: an integration test over a fabricated bundle confirms one source node per document and at least one reconciliation derivation step is recorded, and the dependency-direction suite still passes.
-  - _Requirements: 1.1, 3.1, 3.5, 6.1_
+  - Compute each document's checkpoint identity on the pipeline side (no production call site computes it today), treat the manifest's missing-hash sentinels as missing fingerprints, and emit the source node through the identity adapter so unconsumed keys, including the run-relative output path, land as manifest extensions.
+  - Build the run identity once per run from the documents actually processed: exclude documents the manifest already marks complete (resumed), and pass the synthesis model as an additional model identifier when it differs from the chunk model.
+  - Record a source shared by two same-content PDFs once and log a warning naming both, leaving any conflicting later record to surface as a duplicate-identity finding.
+  - Convert the reconciled record's provenance mapping into derivation steps on the pipeline side, leaving the quality-control package unmodified, and mark the document-extraction and quality-control stages per document.
+  - Observable: an integration test over a fabricated bundle confirms one source node per processed document carrying the output-path extension, no source node or fingerprint for a resumed document, a run identity listing the synthesis model when it differs, one source and a warning for two same-content PDFs, and at least one reconciliation derivation step; the dependency-direction suite still passes.
+  - _Requirements: 1.1, 1.3, 3.1, 3.5, 6.1_
   - _Depends: 6.2_
   - _Boundary: PipelineIntegration_
 
 - [ ] 6.4 Emit claim nodes and extraction derivation steps from the per-PDF processor
-  - Emit claim nodes for merged extracted fields with their citing edges, and emit per-chunk and synthesis derivation steps marked probabilistic with the model identifier in effect.
-  - Emit locally prefilled fields with the non-model origin, and record discard steps with their removal reason where content is dropped.
-  - Pass the recorder's issue sink into every production call to chunk-output validation and field reconstruction on both the chunk path and the synthesis path, so reference issues are recorded on the real call path and not only in tests.
+  - Emit claim nodes for merged extracted fields with their citing edges, passing the anchors of the same evidence nodes used as the known evidence set, and emit per-chunk and synthesis derivation steps marked probabilistic with the model identifier in effect, using only node identifiers as step inputs and outputs.
+  - Populate the revision and contributing-claim inputs for synthesized or merged claims so revision links are produced on the real path.
+  - Emit locally prefilled fields with the non-model origin under a prefill derivation step, each citing the header metadata node its value came from (the first-author node for a header author, the publication-date node for a header year) and citing nothing when the value came from a fallback; record discard steps with their removal reason where content is dropped.
+  - Mark each claim-scoped stage complete or failed per document, with one producing step per document for every stage marked complete.
+  - Pass the recorder's issue sink into every production call to chunk-output validation and field reconstruction on both the chunk path and the synthesis path, wrapped per document so each issue names its claim identifier and carries the raw reference, so reference issues are recorded on the real call path and not only in tests.
   - Perform all emission after prompt assembly and after response parsing so no provenance value can reach the shared prompt prefix.
-  - Observable: an integration test over a fabricated chunk result set confirms one claim node per merged field, probabilistic derivation steps carrying the model identifier, prefilled fields carrying the non-model origin, and that a chunk citing an unknown evidence identifier produces a recorded finding while the field survives into the merged output.
-  - _Requirements: 5.1, 5.7, 6.1, 6.7_
+  - Observable: an integration test over a fabricated chunk result set confirms one claim node per merged field, probabilistic derivation steps carrying the model identifier, prefilled fields carrying the non-model origin and citing a header node only for header-sourced values, a revision link from a synthesized claim to each contributor, a failure in one document leaving the others determinable, and that a chunk citing an unknown evidence identifier produces a recorded finding naming the claim while the field survives into the merged output.
+  - _Requirements: 2.5, 5.1, 5.4, 5.5, 5.7, 6.1, 6.7_
   - _Depends: 6.3_
   - _Boundary: PipelineIntegration_
 
 - [ ] 6.5 Wire the recorder lifecycle into the orchestrator
-  - Construct one recorder per run from the resolved configuration and pass it explicitly down the call chain, introducing no module-level state.
-  - After processing completes, build the graph, run chain validation, attach the validation report and records to the graph, compute completeness, attach the completeness report to the graph, and write the run artifact, which takes the graph as its only data argument.
+  - Construct one recorder per run from the resolved configuration, passing the enable flag as a real boolean, and pass it explicitly down the call chain, introducing no module-level state.
+  - After processing completes, build the graph, run chain validation with the configured severity overrides and the recorded findings, and attach the validation report and records to the graph; then mark the chain-validation stage run-wide as complete, or failed with the reason when validation did not complete, take a post-validation snapshot, compute completeness from it with the strict stage-contract setting validated as a boolean, and attach the completeness report to the graph.
+  - Resolve the artifact directory from the configured output subdirectory under the run output folder, rejecting an empty, absolute, or parent-traversing value with a warning and falling back to the default, and write the run artifact there; the write takes the graph as its only data argument.
+  - Catch every provenance exception (unknown stage, invalid identifier, serialization, or any other), log it, and degrade, because provenance never aborts extraction.
   - Log one run-level summary line covering node counts, findings by severity, and the run completeness state, and honor the disabled setting by skipping artifact production without changing extraction behavior.
   - Honor the fail-on-severity setting: when configured and the findings reach that severity or worse, log at error level and record a provenance failure in the run summary, while still writing the extraction output because provenance never aborts extraction.
-  - Observable: a run over fabricated inputs produces a provenance artifact in the run output directory containing validation records and the computed completeness states, and the same run with provenance disabled produces no artifact and no behavior change.
-  - _Requirements: 1.3, 1.4, 2.2, 8.7_
+  - Observable: a run over fabricated inputs produces a provenance artifact in the configured run output subdirectory containing validation records, a complete chain-validation stage, and the computed completeness states; an invalid output subdirectory falls back to the default with a warning; an injected provenance error is logged without aborting extraction; and the same run with provenance disabled produces no artifact and no behavior change.
+  - _Requirements: 1.3, 1.4, 2.2, 8.5, 8.6, 8.7_
   - _Depends: 6.4_
   - _Boundary: PipelineIntegration_
+
+- [ ] 6.6 (P) Give caption sentences the enclosing figure's location
+  - In the evidence index, give sentence items emitted from inside a figure caption the page and coordinates of the enclosing figure when neither the sentence nor its paragraph carries coordinates.
+  - Keep item identifiers stable: add, remove, or renumber no item. Existing evidence caches keep the old shape until regenerated.
+  - Treat this as a declared prompt-content change: page and coordinates are copied into the paper evidence package embedded in the shared prompt prefix, so the affected items' bytes change (the prefix stays byte-stable across the chunks of one paper).
+  - Parallel caveat: 6.2 edits the same evidence-index module, so run 6.6 before 6.2 starts or after it lands, never concurrently.
+  - Observable: on the three TEI fixtures every caption sentence item carries a page and coordinates and the item identifier sequence is unchanged, and the shared prompt prefix of one paper is still byte-identical across its chunks.
+  - _Requirements: 4.3, 4.4, 4.5_
+  - _Boundary: PipelineIntegration (src/pipeline/evidence_index.py only)_
 
 - [ ] 7. Validation: boundary, property, regression, and end-to-end coverage
 
@@ -306,3 +353,6 @@
 - 5.1 (NEEDS HUMAN CONFIRMATION): unknown keys of a compatible artifact are preserved only where a free-form slot exists (node extensions under `x-compat-unknown`, edge `attributes`, finding `details`). Keys at the top level, run identity, missing segments, report containers and completeness entries are dropped with one WARNING naming each path. Full preservation needs an `extensions` field on ProvenanceGraph/RunIdentity (core type change, Revalidation Trigger). A bad record in a compatible artifact raises `MalformedProvenanceArtifactError` (no partial graph). New public names: `UnrecognizedSchemaVersionError`, `MalformedProvenanceArtifactError`, `COMPAT_UNKNOWN_KEY`, `SUPPORTED_SCHEMA_MAJORS=(1,)`. A graph read from disk keeps the version it was read with.
 - 5.1 → 6.x / downstream emitters: free-form values must be JSON-native (lists not tuples/sets, str keys, finite floats). Tuples read back as lists (breaks round-trip equality); sets/frozensets raise TypeError on write. 6.5 must catch serialization errors so provenance never aborts extraction. Vocabulary additions are unreadable by older same-major readers — treat them as a major bump or relax the reader.
 - 5.1 → 5.2: `graph_to_dict` passes NaN/inf through; 5.2 must decide on `allow_nan=False` for a strict, byte-identical writer. 5.2 must also resolve the artifact dir from `provenance.output_subdir` (see 1.2 note).
+- DECISIONS (user, 2026-10-09) — SUPERSEDES the 2026-10-08 prefill decision (prefill cites the title) and resolves the NEEDS HUMAN CONFIRMATION notes 2.2 (duplicate_identity), 2.4 (stage names: confirmed as is), 3.2 (identity keys), 3.3 (a)(b)(c) and 5.1 (unknown keys: accepted as implemented). design.md now states these and the deviations recorded above for 1.1–5.1 (claim-adapter signature, `validate_chain`/`compute_completeness` signatures, failed-stage segments, builder-derived edges, schema constants in graph.py, dependency rule, serialization compatibility). (A3) `duplicate_identity` default severity → error: same-content PDFs collide on one source id and the second record is dropped while completeness says complete (4.8). (B1) stage marks take kw-only `source_id` (None = run-wide, for chain_validation and pre-document failures); `RecordedRun` gains `document_stage_status` / `document_stage_failure_reasons` (default empty, escalate-only, every reason kept); a per-document failure gives one stage segment per (stage, source_id) and makes only that document and its covered claims undetermined; resumed documents are excluded from the run's provenance; an empty run is undetermined; RecordedRun is not serialized, so no schema bump (4.6, 6.3, 6.4). (B2) anchor rule: exact = page AND coords; approximate = a real locator (page, char_span, or an `xml:id` structural path); section path / weak `.//{tag}` path alone → absent; resolves 3.3(a) (4.7). (B3) `text`, `annotations`, `source_pdf` never enter parser_metadata; `text_sha256` (new `identity.derive_text_digest`) and `text_chars` added; artifact content-free for all nodes; evidence text comes from the evidence cache (reviewer-ui revalidation item); resolves 3.3(c) (4.7). (B4) title item recorded as kind `metadata` pipeline-side; pure header helper `extract_header_metadata` feeds both the prefill and provenance-only header metadata nodes (`M-first-author`, `M-publication-date`); prefill cites the header node its value came from, fallback values cite nothing; an unsupported prefill claim is incomplete at claim level only, plus a `prefill_unsupported` warning (overridable), and does not make its document or run incomplete; resolves 3.3(b) and the 3.4 prefill question (4.8, 6.2, 6.4). Out-of-scope pipeline follow-up: fallback author/year are labelled confidence "h". (B5) unconsumed ManifestIdentity keys kept as `x-manifest-<key>` (fallback `x-manifest-unnamespaced`); run-relative `output_path` is Req 1.3's link; 6.3 computes ManifestIdentity and passes the synthesis model via `additional_model_ids`; resolves 3.2 (4.7, 6.3). (B6) caption sentences inherit the enclosing figure's page/coords with stable ids; page/coords are prompt bytes (`select_paper_evidence` → `serialise_evidence_package` → `_shared_paper_prefix`), so this is a declared prompt-content change; 7.3's prefix baseline must be taken after 6.6 (6.6). Output directory: 6.5 resolves `provenance.output_subdir` and passes the path to `write_graph`; Serialization reads no config (supersedes the 1.2 and 5.1 → 5.2 notes saying 5.2 resolves it).
+- 2026-10-09 OPEN (needs human decision): GROBID header elements carry no `coords` and no `xml:id` (all three TEI fixtures), so under B2 the header metadata nodes are `absent` and a TEI-sourced prefill claim classifies `missing_anchor` — not exempted by the B4 policy, so its document is incomplete. Options: the helper gives header items page 1 (the title item's existing convention), extend the prefill policy to `missing_anchor`, or accept. Choices made while writing design.md, for end review: names `extract_header_metadata`, `derive_text_digest`, `additional_model_ids`; reserved local ids `M-first-author` / `M-publication-date`; fallback extension `x-manifest-unnamespaced`; per-document reasons stored as `tuple[str, ...]`; `prefill_unsupported` replaces (not adds to) `unsupported_claim`; a caption sentence inherits the figure location only when neither it nor its `<p>` has coords; 6.2 now depends on 4.8 and 6.6 must not run concurrently with 6.2 (same module).
+- DECISION (user, 2026-10-09) resolving the OPEN note above: extend the prefill policy — a prefill-origin claim that is `missing_anchor` (TEI-header value citing a header metadata node without coords/xml:id) is, like an unsupported one, incomplete at claim level only and does not by itself make its document or run incomplete; no assumed page is assigned to header metadata nodes (4.8).

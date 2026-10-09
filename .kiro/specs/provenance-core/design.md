@@ -44,7 +44,7 @@
 - **Reporting** the completeness state, rendering audit artifacts, or defining an interoperable export format — `provenance-audit-export` consumes `CompletenessReport` and `ChainValidationReport` as-is.
 - **Populating** the privacy carrier or defining the label/decision vocabulary — `privacy-core`.
 - **Consulting** the carrier to decide disclosure, and any public/private view — `public-private-provenance`.
-- Changing the model-facing `loc` vocabulary, the chunk-output JSON contract, `_shared_paper_prefix`, or any prompt content.
+- Changing the model-facing `loc` vocabulary, the chunk-output JSON contract, `_shared_paper_prefix`, or any prompt content — with one declared exception: the caption-sentence location fix in `evidence_index.py` (PipelineIntegration) changes the `page`/`coords` values of the affected items, and those values are serialized into the paper evidence package that `_shared_paper_prefix` embeds. It is a prompt-content change, scoped to those two values on those items.
 - Fixing the pre-existing duplication of `_compute_extraction_map_hash` between `manifest.py` and `evidence_index.py`; this spec adds no third computation but does not consolidate the existing two.
 - Changing the raise semantics of `validate_chunk_output` on the existing call path.
 - Any change to `src/quality_control/`, `src/agents/`, `src/pdf_extractor/`, or `src/text_processing/`.
@@ -66,6 +66,8 @@
 - **Adding or renaming a stage in `STAGE_CONTRACTS` or `STAGE_ORDER`** — this is the expected growth path, not an exceptional one: `evidence-routing` adds seven stages (index build, local retrieval, locator, route QC, counterfactual, adjudication, pack assembly) and `multiagent-extraction` adds seven more (its extraction, verification, adjudication, and repair stages). Each such spec **extends both tables in place** — adding a `StageContract` entry and an ordered `STAGE_ORDER` position — and routes its records through `ProvenanceRecorder`. Bypassing the recorder, catching `UnknownStageError` to skip declaration, or maintaining a private stage list are all prohibited. The vocabulary stays closed and the contract-drift test (every recorded stage appears in both tables) stays in force; a spec that adds a stage must extend the tables and re-run that test, and must re-verify `compute_completeness` under `stage_contracts_strict`.
 - Any change to the `derivation_from_stage_event` signature, or to the stage→`DerivationKind` mappings downstream specs pin against it.
 - Any change to the `src/provenance` dependency direction rules.
+- Any change to the anchor-precision rule (Adapters) or to the evidence-node content rule (content-bearing keys never enter `parser_metadata`) — `reviewer-ui` must revalidate against both: an `absent` anchor may still carry text-search hints (section path, weak structural path) but its precision is never upgraded, and evidence text is not in the artifact — reviewer-ui reads it from the evidence cache (see Security Considerations).
+- Provenance `RunIdentity.run_id` is `run:<sha16>` over the configuration fingerprint, schema fingerprint, and model ids, so runs with identical configuration share it and `created_at` distinguishes them. It is **not** `cost-and-run-reporting`'s `run_id` (the run folder name); a cross-spec consumer that joins the two must map them explicitly, never conflate them.
 
 ## Architecture
 
@@ -213,14 +215,14 @@ One test module per adapter, so the four adapter tasks share no test file. The o
 ### Modified Files
 
 - `src/utils/config_utils.py` — add `_PROVENANCE_DEFAULTS`, register `"provenance"` in `_ALL_KNOWN_TOP_LEVEL_KEYS`, add `load_provenance_config(config)`.
-- `src/utils/path_utils.py` — add `PROVENANCE_DIR = resolve_run_output_path("provenance")`.
+- `src/utils/path_utils.py` — add `PROVENANCE_DIR = resolve_run_output_path("provenance")`. It is the **default** artifact directory only; the effective directory is resolved by PipelineIntegration from `provenance.output_subdir` (see Configuration).
 - `configs/config.yaml` — add the `provenance:` block.
 - `tests/test_dependency_directions.py` — add 8 `FORBIDDEN_PAIRS` entries plus one named test per pair.
 - `src/pipeline/validator.py` — add optional `issue_sink` to `_validate_extraction_item`, `validate_chunk_output`, and `reconstruct_fields`. Default `None` preserves current behavior exactly.
-- `src/pipeline/evidence_index.py` — add optional `recorder` keyword to `build_or_load_evidence_bundle`; emit evidence nodes via `evidence_adapter` after the bundle is built (both cache-hit and cache-miss paths).
-- `src/pipeline/extraction_pipeline.py` — emit the source node from the run's `ManifestIdentity`, and convert `unified.content["provenance"]` into derivation steps via `derivation_adapter`.
-- `src/pipeline/pdf_processor.py` — emit claim nodes and per-chunk/synthesis derivation steps; mark prefilled fields 1–2 as non-model origin.
-- `src/pipeline/orchestrator.py` — own the recorder lifecycle: construct per run, pass explicitly, then build graph, validate, compute completeness, and write the artifact.
+- `src/pipeline/evidence_index.py` — add optional `recorder` keyword to `build_or_load_evidence_bundle`; emit evidence nodes via `evidence_adapter.evidence_node_from_item` after the bundle is built (both cache-hit and cache-miss paths). Add the pure header helper `extract_header_metadata` (PipelineIntegration), which the author/year prefill also reads. Fix caption-sentence locations (PipelineIntegration).
+- `src/pipeline/extraction_pipeline.py` — emit the source node from the document's `ManifestIdentity` (computed by PipelineIntegration via `manifest.compute_identity`; no production call site computes it today), and convert `unified.content["provenance"]` into derivation steps via `derivation_adapter`.
+- `src/pipeline/pdf_processor.py` — emit claim nodes and per-chunk/synthesis derivation steps; mark prefilled fields 1–2 as non-model origin, citing the header metadata node their value came from; mark claim-scoped stages per document.
+- `src/pipeline/orchestrator.py` — own the recorder lifecycle: construct per run, pass explicitly, then build graph, validate, mark `chain_validation`, compute completeness over a post-validation snapshot, resolve the artifact directory, and write the artifact.
 
 ## System Flows
 
@@ -265,14 +267,15 @@ stateDiagram-v2
     Received --> HasReferences: one or more references
     HasReferences --> ReferenceIssue: unknown or duplicate or ambiguous id
     ReferenceIssue --> HasReferences: claim retained with issue recorded
-    HasReferences --> MissingAnchor: evidence exists but anchor absent
-    HasReferences --> Supported: evidence exists and anchored
+    HasReferences --> Unsupported: no reference resolves
+    HasReferences --> MissingAnchor: evidence exists but no cited node usable
+    HasReferences --> Supported: at least one cited node usable
     Unsupported --> [*]
     MissingAnchor --> [*]
     Supported --> [*]
 ```
 
-`Unsupported` and `MissingAnchor` are distinct terminal states — this is the whole point of 5.6 and 2.4. A reference issue never destroys the claim (5.4).
+`Unsupported` and `MissingAnchor` are distinct terminal states — this is the whole point of 5.6 and 2.4. A reference issue never destroys the claim (5.4). A cited node is *usable* when its anchor precision is `exact` or `approximate` (rule under Adapters); a claim with mixed citations is `supported` if **any** cited node is usable. A claim whose references all fail to resolve is `unsupported` and carries a `dangling_reference` finding per unresolved reference.
 
 ## Requirements Traceability
 
@@ -335,6 +338,9 @@ stateDiagram-v2
 NodeKind = Literal["source", "evidence", "claim", "derivation", "validation"]
 EdgeKind = Literal["cites_evidence", "anchored_in", "derived_from",
                    "has_input", "has_output", "revises", "validates", "belongs_to_source"]
+# anchored_in and derived_from are declared but never produced by this spec:
+# belongs_to_source / has_input / has_output are derived by GraphBuilder,
+# cites_evidence / revises by the claim adapter, validates by attach_validation.
 EvidenceKind = Literal["sentence", "figure_caption", "table", "metadata"]
 AnchorPrecision = Literal["exact", "approximate", "absent"]
 DerivationKind = Literal["extract", "normalize", "chunk", "filter", "merge",
@@ -467,8 +473,12 @@ class RecordedRun:
     nodes: Mapping[str, ProvenanceNode]
     edges: tuple[ProvenanceEdge, ...]
     findings: tuple[ValidationFinding, ...]
-    stage_status: Mapping[str, Literal["complete", "failed", "not_run"]]
-    stage_failure_reasons: Mapping[str, str]
+    stage_status: Mapping[str, Literal["complete", "failed", "not_run"]]   # run-wide
+    stage_failure_reasons: Mapping[str, str]                                # run-wide, first reason
+    document_stage_status: Mapping[str, Mapping[str, Literal["complete", "failed", "not_run"]]] = {}
+                                                    # source_id -> stage -> status
+    document_stage_failure_reasons: Mapping[str, Mapping[str, tuple[str, ...]]] = {}
+                                                    # source_id -> stage -> every distinct reason, in recording order
 
 @dataclass(frozen=True)
 class ChainValidationReport:
@@ -486,6 +496,7 @@ class CompletenessReport:
 
 - Preconditions: `extensions` keys match `x-<ns>-<field>`; `node_id` non-empty.
 - Postconditions: records are hashable and comparable by value.
+- `RecordedRun` is an in-memory snapshot and is never serialized, so the per-document stage-status fields are not a `PROVENANCE_SCHEMA_VERSION` change. Both default to empty, so a run that marks stages only run-wide behaves exactly as before.
 - Invariants: no record exposes a mutation method; vocabularies are exhaustive.
 
 **Implementation Notes**
@@ -578,7 +589,13 @@ def derive_claim_id(source_id: str, field_index: int, revision: int = 0) -> str:
 def derive_derivation_id(stage: str, kind: str,
                          input_ids: Sequence[str], output_ids: Sequence[str]) -> str: ...
 def derive_validation_id(run_id: str, check_name: str) -> str: ...
+def derive_value_digest(value: object) -> str: ...                     # ClaimNode.value_digest: sha256 of canonical JSON ["claim-value", value]
+def derive_text_digest(text: str) -> str: ...                          # sha256 hex of UTF-8 text; evidence parser_metadata["text_sha256"]
 ```
+
+`derive_text_digest` exists so that `hashlib` stays confined to `identity.py` (Boundary test 3); the evidence adapter calls it rather than hashing. It digests evidence text the pipeline already holds — it is not a document, config, or extraction-map fingerprint (3.6).
+
+`derive_run_id` digests the run-wide configuration fingerprint, schema fingerprint, and model ids only — not document fingerprints, schema version, or `created_at` — so same-configuration runs share a `run_id` (see Revalidation Triggers for the distinction from `cost-and-run-reporting`'s run folder name).
 
 - Preconditions: `local_id` is non-empty and contains no `#`.
 - Postconditions: `parse_evidence_id(format_evidence_id(s, l)) == (s, l)` for all valid inputs.
@@ -600,6 +617,19 @@ def derive_validation_id(run_id: str, check_name: str) -> str: ...
 - `STAGE_CONTRACTS: Mapping[str, StageContract]` where `StageContract` names the required record kinds and the artifact scope (`run`, `document`, or `claim`).
 - `STAGE_ORDER: tuple[str, ...]` gives the deterministic ordering used by the event-log projection (7.6).
 - Absence is only detectable against a declaration; therefore the table, not the stage, is authoritative.
+- **Declared stages** (in `STAGE_ORDER` order; `src/provenance/contracts.py`):
+
+  | Stage | Required record kinds | Scope | Emission point |
+  |---|---|---|---|
+  | `document_extraction` | source | document | `extraction_pipeline` |
+  | `quality_control` | derivation | document | `extraction_pipeline` |
+  | `evidence_index` | evidence | document | `evidence_index` |
+  | `metadata_prefill` | claim, derivation | claim | `pdf_processor` |
+  | `extraction_chunk` | claim, derivation | claim | `pdf_processor` |
+  | `synthesis` | claim, derivation | claim | `pdf_processor` |
+  | `chain_validation` | validation | run | `orchestrator` |
+
+  `validation_repair` and `cache_warmup` (pipeline telemetry stage labels, also listed by cost-and-run-reporting) are **not** provenance stages: cache warm-up produces no record, and output repaired by validation repair is attributed to the `extraction_chunk` or `synthesis` stage whose output it repairs. `chain_validation` is marked by PipelineIntegration after `validate_chain` returns (see PipelineIntegration).
 - **Extension protocol for downstream specs**: the vocabulary is closed but the table is *extensible*. A spec that introduces new pipeline stages (`evidence-routing`, `multiagent-extraction`) adds one `StageContract` entry per stage to `STAGE_CONTRACTS` and one ordered position per stage to `STAGE_ORDER`, in the same commit that adds the emitting code. It does **not** bypass `ProvenanceRecorder`, does not suppress or catch `UnknownStageError` to avoid declaring, and does not keep a private stage table. Extending the tables is a Revalidation Trigger for this spec but is *not* a `PROVENANCE_SCHEMA_VERSION` bump: `stage` is a free-form string field on `DerivationStep`, so a new stage name is forward-compatible with existing readers.
 
 **Contracts**: State [x]
@@ -614,11 +644,12 @@ def derive_validation_id(run_id: str, check_name: str) -> str: ...
 | Field | Detail |
 |-------|--------|
 | Intent | Append-only in-run sink that pipeline stages write records into |
-| Requirements | 1.2, 1.5, 1.6, 2.1, 2.3, 5.4 |
+| Requirements | 1.2, 1.5, 1.6, 2.1, 2.3, 2.5, 5.4 |
 
 **Responsibilities & Constraints**
 - Append-only: exposes only `record_*` and `mark_stage_*`; no update or delete method exists.
-- Recording the same `node_id` twice with identical content is a no-op; with differing content it records a `duplicate_identity` finding and keeps the first (idempotent retry safety).
+- Recording the same `node_id` twice with identical content is a no-op; with differing content it records a `duplicate_identity` finding (default severity `error`) and keeps the first (idempotent retry safety).
+- **Stage status is run-wide or per document.** `source_id=None` marks the stage for the whole run (`stage_status`, `stage_failure_reasons`; first reason kept) — used for `chain_validation` and for failures before any document is known. A `source_id` marks that one document (`document_stage_status`, `document_stage_failure_reasons`) and does **not** change the run-wide status. Both levels are escalate-only (`not_run < complete < failed`); per document every distinct failure reason is kept, in recording order.
 - Holds an `issue_sink` callable that `src/pipeline/validator.py` can pass so bad `loc` references become recorded issues while the claim is retained (5.4).
 - `enabled=False` makes every method a no-op returning the derived ID, so the pipeline never branches on provenance being off.
 - Performs no I/O and no network access (1.5).
@@ -642,15 +673,16 @@ class ProvenanceRecorder:
     def record_validation(self, record: ValidationRecord) -> str: ...
     def record_issue(self, finding: ValidationFinding) -> None: ...
     def issue_sink(self) -> Callable[[str, str, Mapping[str, Any]], None]: ...
-    def mark_stage_complete(self, stage: str) -> None: ...
-    def mark_stage_failed(self, stage: str, reason: str) -> None: ...
+    def mark_stage_complete(self, stage: str, *, source_id: str | None = None) -> None: ...
+    def mark_stage_failed(self, stage: str, reason: str, *, source_id: str | None = None) -> None: ...
     def snapshot(self) -> RecordedRun: ...
 ```
 
-- Preconditions: `stage` is declared in `STAGE_CONTRACTS`.
-- Postconditions: `snapshot()` returns an immutable `RecordedRun` carrying nodes, edges, findings, and per-stage status; calling it twice returns equal values.
+- Preconditions: `stage` is declared in `STAGE_CONTRACTS`; `source_id`, when given, is a valid source id (`src:<fingerprint>`).
+- Postconditions: `snapshot()` returns an immutable `RecordedRun` carrying nodes, edges, findings, run-wide and per-document stage status; calling it twice returns equal values.
 - Invariants: the recorder never removes a previously recorded record.
-- Errors: `UnknownStageError` when a stage is not declared.
+- Errors: `UnknownStageError` when a stage is not declared (in both enabled and disabled mode); `InvalidIdentifierError` for a malformed `source_id`. The issue sink raises `ValueError` for a finding code outside `DEFAULT_SEVERITIES`.
+- Issue-sink contract (`(code, message, details)`): the claim is named only via `details["node_id"]`, which the caller sets to `derive_claim_id(source_id, field_index)`; `details["reference"]` is the raw `loc` value, never stripped or casefolded; `reference_kind` is omitted or `"evidence"`. Only `dangling_reference`, `duplicate_reference`, and `ambiguous_reference` are passed, classified as the claim adapter classifies them.
 
 **Implementation Notes**
 - Integration: constructed once per run in `orchestrator.py` and passed explicitly — no module-level singleton, per the no-global-mutation rule.
@@ -661,18 +693,21 @@ class ProvenanceRecorder:
 | Field | Detail |
 |-------|--------|
 | Intent | Convert existing pipeline mappings into provenance records without importing `pipeline` |
-| Requirements | 3.1, 3.2, 3.4, 3.5, 3.7, 4.1, 4.3, 4.4, 4.5, 4.6, 4.7, 5.1, 5.2, 5.5, 5.6, 5.7, 6.1, 6.3, 6.4, 6.5, 6.6, 6.7, 10.2 |
+| Requirements | 1.3, 3.1, 3.2, 3.4, 3.5, 3.7, 4.1, 4.3, 4.4, 4.5, 4.6, 4.7, 5.1, 5.2, 5.5, 5.6, 5.7, 6.1, 6.3, 6.4, 6.5, 6.6, 6.7, 10.2 |
 
 **Responsibilities & Constraints**
 - Accept `Mapping`/`Sequence[Mapping]` only. This is what keeps the dependency direction legal and what makes the adapters unit-testable with literal dicts.
-- `evidence_adapter` maps the item dict field-for-field, and derives `SourceAnchor.precision`:
-  - `exact` — `page` and `coords` both present;
-  - `approximate` — coordinates absent but page or section path present, or the structural path is the weak `.//{tag}` fallback rather than an `xml:id` path (4.5);
-  - `absent` — no page, no coords, no usable structural path; `missing` then enumerates the absent anchor kinds (4.4).
-- `evidence_adapter` copies unrecognized item keys into `parser_metadata` rather than discarding them (10.2).
-- `claim_adapter` sets `origin="prefill"` for fields produced without a model call (5.7) and classifies `support` per the claim-support state machine (5.2, 5.6).
+- `evidence_adapter` maps the item dict field-for-field (`id`→`local_id`, `type`→`evidence_kind` with unknown types recorded as `sentence` and logged, `xpath`→`structural_path`, `score`→`rank_score`), records every available anchor kind on `SourceAnchor` (4.3), and derives `SourceAnchor.precision` by this single rule:
+  - `exact` — `page` **and** `coords` both present;
+  - `approximate` — not exact, but at least one *real locator* is present: a `page`, a `char_span`, or a structural path that addresses a single element (the `//*[@xml:id='…']` form) (4.5);
+  - `absent` — no real locator. A `section_path`, a weak `.//{tag}` structural path, or `coords` without a page are still recorded on the anchor but do **not** by themselves make it usable (4.4).
+
+  `missing` enumerates every anchor kind with no value, for `approximate` and `absent` alike (4.4). A node is *usable* for claim support iff its precision is `exact` or `approximate`. An `absent` anchor may still carry text-search hints (section path, weak structural path) for a reviewer, but its precision is never upgraded.
+- **Content rule: content-bearing keys never enter `parser_metadata`.** `evidence_adapter` copies unrecognized item keys into `parser_metadata` (10.2) **except** the declared deny-list `{"text", "annotations", "source_pdf"}`: `text` and `annotations` carry document content, and `source_pdf` is redundant with `SourceNode.source_label`/`document_fingerprint` while an absolute path leaks the operator's filesystem. When `text` is a string, the adapter adds `parser_metadata["text_sha256"] = identity.derive_text_digest(text)` and `parser_metadata["text_chars"] = len(text)`, so a reader can verify recovered text without the artifact carrying it.
+- `claim_adapter` sets `origin="prefill"` for fields produced without a model call (5.7) and classifies `support` per the claim-support state machine (5.2, 5.6). Classification fails closed: a cited known id with no entry, or an invalid entry, in `evidence_anchors` is anchorless; `supported` if **any** cited node is usable; all cited nodes anchorless ⇒ `missing_anchor`; every reference unresolved ⇒ `unsupported` plus a `dangling_reference` finding per reference. `value_digest` is `identity.derive_value_digest(value)`. Input keys `revision` and `contributing_claim_ids` produce the claim id's `@r<n>` suffix and its `revises` edges (5.5).
 - `derivation_adapter` marks model-performed steps `probabilistic` with the model id, and rule-based steps `deterministic` (6.3, 6.4); it emits one step with many inputs for merges (6.5) and reuses a single input node across many steps for fan-out (6.6); removals carry `removal_reason` and `removed_ids` (6.7).
-- `identity_adapter` consumes `ManifestIdentity.to_dict()` and computes no fingerprint of its own (3.6); it copies source metadata without evaluating disclosure (3.7), and produces a source identity from fingerprints alone when descriptive metadata is absent (3.4).
+- `identity_adapter` consumes `ManifestIdentity.to_dict()` and computes no fingerprint of its own (3.6); it copies source metadata without evaluating disclosure (3.7), and produces a source identity from fingerprints alone when descriptive metadata is absent (3.4). It consumes `pdf_content_hash`, `config_hash`, `extraction_map_hash`, and `model_id`; every other key is kept on the `SourceNode` as extension `x-manifest-<key>` when `<key>` satisfies the extension-key charset, and otherwise under the single fallback extension `x-manifest-unnamespaced` (a mapping of raw key → value, mirroring the derivation adapter's `x-qc-unnamespaced`). Values must be JSON-native. `output_path` (`x-manifest-output_path`) is relative to the run output directory and is Requirement 1.3's explicit, resolvable link from the source record to the extraction output; `schema_version` is kept as `x-manifest-schema_version`.
+- `run_identity_from_identities` adopts the sorted set of per-document `model_id`s plus `additional_model_ids` (kw-only, default `()`), through which PipelineIntegration supplies the synthesis model when it differs from the chunk model (3.5). The run id therefore changes with the synthesis model.
 
 **`derivation_from_stage_event` — call contract for downstream specs**
 
@@ -691,12 +726,16 @@ This is the adapter every downstream spec calls to record a stage event, so its 
 def source_node_from_identity(identity: Mapping[str, str], *, source_label: str,
                               source_format: str, run_id: str) -> SourceNode: ...
 def run_identity_from_identities(identities: Mapping[str, Mapping[str, str]],
-                                 *, created_at: str) -> RunIdentity: ...
+                                 *, created_at: str,
+                                 additional_model_ids: Sequence[str] = ()) -> RunIdentity: ...
+def evidence_node_from_item(item: Mapping[str, Any], *, source_id: str,
+                            run_id: str, producing_backend: str | None) -> EvidenceNode: ...
 def evidence_nodes_from_items(items: Sequence[Mapping[str, Any]], *, source_id: str,
                               run_id: str, producing_backend: str | None) -> list[EvidenceNode]: ...
 def claim_nodes_from_fields(fields: Sequence[Mapping[str, Any]], *, source_id: str,
                             run_id: str, known_evidence_ids: AbstractSet[str],
-                            origin: ClaimOrigin
+                            origin: ClaimOrigin,
+                            evidence_anchors: Mapping[str, SourceAnchor]
                             ) -> tuple[list[ClaimNode], list[ProvenanceEdge], list[ValidationFinding]]: ...
 def derivations_from_qc_provenance(provenance: Mapping[str, Any], *, source_id: str,
                                    run_id: str) -> list[DerivationStep]: ...
@@ -712,8 +751,11 @@ def derivation_from_stage_event(stage: str, kind: DerivationKind, *, run_id: str
 
 `kind` is required and closed; `determinism` is the `Determinism` literal (defaulting to `"probabilistic"` when `model_id` is given and `"deterministic"` otherwise) and never a `bool`; every field not declared on `DerivationStep` travels in `extensions` under `x-<ns>-<field>`.
 
-- Preconditions: mappings use the key names emitted by the current pipeline; unknown keys are preserved, never rejected. `kind` is a member of `DerivationKind`; `determinism`, when supplied, is a member of `Determinism`; every `extensions` key matches `x-<ns>-<field>`.
-- Postconditions: adapters are pure and total — a malformed item yields a node with `precision="absent"` and a finding, never an exception.
+- Preconditions: mappings use the key names emitted by the current pipeline; unknown keys are preserved (evidence: in `parser_metadata`, minus the content deny-list; identity: as `x-manifest-*`; QC provenance: as `x-qc-*`), never rejected. `kind` is a member of `DerivationKind`; `determinism`, when supplied, is a member of `Determinism`; every `extensions` key matches `x-<ns>-<field>`. `evidence_anchors` maps full evidence node ids (`<source_id>#<local_id>`) to their anchors, built from the same nodes as `known_evidence_ids`.
+- Postconditions: adapters are pure and total over malformed **content** — a malformed anchor, kind, score, or extra key yields a node (with `precision="absent"` when no real locator is usable), never an exception. Malformed **identity** is the exception, and the caller converts it:
+  - `evidence_node_from_item` raises `InvalidIdentifierError` when an item has no usable id (not a mapping; `id` missing, non-string, empty, or containing `#`); the caller turns it into a recorded `invalid_identifier` issue. `evidence_nodes_from_items` instead skips such items (DEBUG per item, one WARNING per call) because its list return cannot carry findings; PipelineIntegration therefore calls `evidence_node_from_item` per item.
+  - `source_node_from_identity` / `run_identity_from_identities` raise `InvalidIdentifierError` on a missing or malformed fingerprint, on disagreeing run-wide fingerprints, or on empty input; the caller catches it and degrades (never aborts extraction).
+  - Every adapter raises on caller errors (wrong argument types, malformed `source_id`/`run_id`).
 - Invariants: no adapter imports from `pipeline`, `quality_control`, `agents`, or `pdf_extractor`.
 
 **Implementation Notes**
@@ -728,16 +770,18 @@ def derivation_from_stage_event(stage: str, kind: DerivationKind, *, run_id: str
 | Field | Detail |
 |-------|--------|
 | Intent | Assemble a typed provenance graph, preserving whatever succeeded |
-| Requirements | 1.3, 1.4, 1.6, 7.1, 7.2, 7.3, 7.4, 7.5 |
+| Requirements | 1.3, 1.4, 1.6, 2.5, 7.1, 7.2, 7.3, 7.4, 7.5 |
 
 **Responsibilities & Constraints**
 - Every node and edge carries an explicit kind from the closed vocabulary (7.1, 7.2).
 - Per-record construction is individually guarded: a record that cannot be materialized becomes a `MissingSegment(stage, record_kind, reason, affected_ids)` and the rest of the graph is still produced (7.4). Construction never raises to the caller.
 - A stage that emitted nothing produces no nodes and does not abort assembly (1.6).
-- Attaches `PROVENANCE_SCHEMA_ID` and `PROVENANCE_SCHEMA_VERSION` to the graph (7.5).
+- **A failed stage is a missing segment** (2.5, 7.4): a run-wide failure yields one `MissingSegment(stage, record_kind="stage", reason, affected_ids=<all of that stage's derivation-step ids>)`; a per-document failure yields one `record_kind="stage"` segment per `(stage, source_id)` with `affected_ids = (source_id, <that document's derivation-step ids of the stage>)`. Failed records with no producing step are attributed to stage `"unattributed"`, which is not a declared stage.
+- **Derives structural edges** from record fields; no adapter emits them: `belongs_to_source` (evidence/claim → `source_id`), `has_input` and `has_output` (derivation step ↔ its `input_ids`/`output_ids`). `anchored_in` and `derived_from` are declared in `EdgeKind` but never produced by this spec. A derived edge to an id that is not a node is reported as dangling, so PipelineIntegration passes only node ids as derivation inputs/outputs.
+- Defines `PROVENANCE_SCHEMA_ID` and `PROVENANCE_SCHEMA_VERSION` (in `graph.py`; Serialization imports them) and attaches them to the graph (7.5).
 - **Owns `attach_validation` and `attach_completeness`** (8.7): they return a new graph carrying the reports, and `attach_validation` additionally adds `ValidationRecord` nodes and `validates` edges. Serialization merely writes what the graph already holds; it never attaches anything.
 - Exposes `path_from_claim(claim_id)` returning the claim → evidence → source chain, which is the traversable path of 1.4.
-- Stores references only; evidence text is never copied onto claim nodes, keeping the artifact separate from but linkable to raw model outputs (1.3).
+- Stores references only; document content is never copied onto any node (content rule under Adapters), keeping the artifact separate from but linkable to raw model outputs (1.3) — the source node's `x-manifest-output_path` is the run-relative link to the extraction output.
 
 **Contracts**: Service [x]
 
@@ -769,8 +813,8 @@ def attach_completeness(graph: ProvenanceGraph,
 
 `attach_validation` returns a new graph with `validation` set **and** with one `ValidationRecord` node plus its `validates` edges added (8.7). `attach_completeness` sets `completeness` only; completeness is a computed view, not a node kind. Both are total, non-mutating, and idempotent — attaching twice with the same report yields an equal graph.
 
-- Postconditions: `build_graph` never raises; `len(missing_segments) > 0` iff some record failed to materialize.
-- Invariants: `nodes` is keyed by `node_id`; every edge endpoint either exists in `nodes` or is reported by the validator as a dangling reference.
+- Postconditions: `build_graph` never raises; `len(missing_segments) > 0` iff some record failed to materialize **or** some stage is marked failed (run-wide or for a document).
+- Invariants: `nodes` is keyed by `node_id`; edge order is preserved (graph equality depends on it). Every edge endpoint either exists in `nodes` or is reported by the validator — as `dangling_reference`, or as `source_not_represented` for a source id — with one qualification: an edge leaving a record that failed to materialize is debris of that record, already explained by its `MissingSegment`, and is not re-reported (a live node pointing at such a record is reported, flagged `covered_by_missing_segment`).
 
 **Implementation Notes**
 - Integration: `attach_validation` returns a new graph carrying validation nodes, satisfying 8.7 without mutating the original; `attach_completeness` is its completeness counterpart and adds no node kind.
@@ -783,14 +827,19 @@ def attach_completeness(graph: ProvenanceGraph,
 | Field | Detail |
 |-------|--------|
 | Intent | Detect broken chains and classify each finding by severity |
-| Requirements | 5.3, 5.4, 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7, 9.6 |
+| Requirements | 5.3, 5.4, 5.7, 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7, 9.6 |
 
 **Responsibilities & Constraints**
-- Check set: `dangling_reference` (8.1), `source_not_represented` (8.2), `evidence_out_of_run_context` (8.3), `graph_cycle`, `orphan_node`, `missing_anchor`, `invalid_identifier`, `inconsistent_derivation` (8.4), plus `duplicate_reference`, `ambiguous_reference`, `unsupported_claim` (5.3, 5.4) and `privacy_carrier_invalid` (9.6).
+- Check set: `dangling_reference` (8.1), `source_not_represented` (8.2), `evidence_out_of_run_context` (8.3), `graph_cycle`, `orphan_node`, `missing_anchor`, `invalid_identifier`, `inconsistent_derivation` (8.4), plus `duplicate_reference`, `ambiguous_reference`, `unsupported_claim`, `prefill_unsupported` (5.3, 5.4, 5.7) and `privacy_carrier_invalid` (9.6). `duplicate_identity` is not graph-derived; the recorder records it and it arrives through `recorded_findings`.
 - Every finding carries a severity from `DEFAULT_SEVERITIES` (declared in `models.py`, so emission-layer components can stamp a severity at construction time), overridable via `provenance.severity_overrides` (8.5).
-- Default severities: `dangling_reference`/`graph_cycle`/`invalid_identifier` → `critical`; `source_not_represented`/`evidence_out_of_run_context`/`inconsistent_derivation`/`privacy_carrier_invalid` → `error`; `unsupported_claim`/`missing_anchor`/`duplicate_reference`/`ambiguous_reference` → `warning`; `orphan_node` → `info`.
+- Default severities: `dangling_reference`/`graph_cycle`/`invalid_identifier` → `critical`; `source_not_represented`/`evidence_out_of_run_context`/`inconsistent_derivation`/`privacy_carrier_invalid`/`duplicate_identity` → `error`; `unsupported_claim`/`prefill_unsupported`/`missing_anchor`/`duplicate_reference`/`ambiguous_reference` → `warning`; `orphan_node` → `info`.
+  - `duplicate_identity` is `error` because two same-content PDFs collide on one source id: the second record is dropped while completeness would otherwise report the document complete.
+  - `prefill_unsupported` is emitted **in place of** `unsupported_claim` for an `unsupported` claim with `origin="prefill"` — a prefilled value that came from a fallback (paper id as author; year from PDF metadata, first-page text, filename, or `"nr"`) and so cites nothing. It is a dedicated code so the policy is overridable on its own. Adding a finding code is not a schema-version change: codes are free strings in the artifact.
+- **Recorded findings** (5.4): findings recorded during the run (`RecordedRun.findings` — recorder `duplicate_identity`, issue-sink findings, claim-adapter reference findings) cannot be reconstructed from the graph, so the caller passes them as `recorded_findings`. They are merged with graph-derived findings and deduplicated first by `finding_id`, then by reference problem `(code, node_id, normalized details["reference"], reference_kind)` — a local evidence id is scoped to the claim's source so the issue sink's full id and the claim adapter's local id of one `loc` meet. Each surviving finding lists the ids it absorbed in `details["merged_finding_ids"]`. A recorded finding with a known code is re-stamped to its effective severity; an unknown code keeps its own.
+- Override entries naming an unknown code or a non-`Severity` value are ignored with a WARNING; validation never raises over them and `completed` stays true.
+- `orphan_node`: a node connected by no edge to **another node** — `validates` edges, self-loops, and edges to non-node ids do not count; `ValidationRecord` nodes are exempt.
 - If a check cannot run, the report records `completed=False` with a reason and the run is reported **unvalidated**, never valid (8.6).
-- Cycle detection is an iterative depth-first search over derivation and revision edges; iterative rather than recursive so a pathological chain cannot exhaust the stack.
+- Cycle detection is an iterative search over derivation and revision dependencies; iterative rather than recursive so a pathological chain cannot exhaust the stack. One `graph_cycle` finding per strongly connected component. An id that is both input and output of **one** step is an in-place transform (e.g. filter or annotate over canonical ids), not a cycle; cycles across steps are still reported. `inconsistent_derivation` fires only for a step with no usable inputs and no outputs.
 
 **Contracts**: Service [x]
 
@@ -800,11 +849,12 @@ def attach_completeness(graph: ProvenanceGraph,
 
 ```python
 def validate_chain(graph: ProvenanceGraph, *,
-                   severity_overrides: Mapping[str, Severity] | None = None
+                   severity_overrides: Mapping[str, Severity] | None = None,
+                   recorded_findings: Sequence[ValidationFinding] = ()
                    ) -> ChainValidationReport: ...
 ```
 
-- Postconditions: `completed is False` implies the caller must treat the run as unvalidated; `findings` is ordered deterministically by `(severity_rank, code, node_id)`.
+- Postconditions: never raises; `completed is False` implies the caller must treat the run as unvalidated; `findings` is ordered deterministically by `(severity_rank, code, node_id, edge_id, finding_id)`; `counts_by_severity` counts merged findings and lists non-zero severities only.
 - Invariants: validation is read-only with respect to the graph.
 
 **Implementation Notes**
@@ -816,13 +866,16 @@ def validate_chain(graph: ProvenanceGraph, *,
 | Field | Detail |
 |-------|--------|
 | Intent | Compute the provenance-completeness state as queryable data at three levels |
-| Requirements | 2.1, 2.2, 2.3, 2.4, 2.5, 2.6 |
+| Requirements | 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 5.7 |
 
 **Responsibilities & Constraints**
 - Diffs `STAGE_CONTRACTS` against `RecordedRun` stage status and graph content to detect stages that did not emit what they declared (2.1).
 - Produces `run`, per-document, and per-claim states (2.2), each with `missing_record_kinds` and `responsible_stages` (2.3).
-- A claim whose evidence exists but has `precision == "absent"` is `incomplete` with reason `missing_anchor`; a claim with no references at all is `incomplete` with reason `unsupported`. The two are never merged (2.4).
-- A stage marked failed, or a graph carrying a `MissingSegment` covering an artifact, yields `undetermined` with the recorded reason rather than `complete` (2.5).
+- A claim whose cited evidence exists but none of it is usable (`precision == "absent"`) is `incomplete` with reason `missing_anchor`; a claim with no resolvable reference is `incomplete` with reason `unsupported`. The two are never merged (2.4). The mixed-citation rule is the claim adapter's: one usable cited node suffices.
+- **Prefill policy** (5.7): a claim with `origin="prefill"` that is `incomplete` — reason `unsupported` (a fallback value that cites nothing) or `missing_anchor` (a TEI-header value citing a header metadata node, which GROBID gives no coordinates or `xml:id`) — is reported `incomplete` with its reason **at claim level only**; it does not by itself make its document or the run incomplete. The signal is carried by the `prefill_unsupported` finding (warning) for the unsupported case and by the existing `missing_anchor` finding on the cited header node. A prefill claim that is `undetermined`, and every model-origin claim, follows the normal aggregation.
+- **Stage status is evaluated per (document, stage).** The effective status is the worse of the run-wide `stage_status` and that document's `document_stage_status` (`not_run < complete < failed`). Only effectively `complete` stages are diffed against their contracts; `not_run` is never "missing" (e.g. `num_chunks = 1` runs no `extraction_chunk`). A claim-scoped stage that is effectively complete for a document must have emitted claim **and** derivation records for that document (per document, not per claim), else that document is `incomplete` with reason `missing_records`. Claims are tied to a stage through the derivation steps that output them.
+- A stage effectively `failed` for a document, or a `MissingSegment` covering an artifact, yields `undetermined` with the recorded reason rather than `complete` (2.5). A **per-document** failure makes only that document — and the claims its stage segment covers — undetermined; other documents stay determinable. A **run-wide** failure makes every document with that stage's steps undetermined. A per-document status for a `source_id` with no source node makes the run `undetermined`, naming the id.
+- `stage_contracts_strict` (from `provenance.stage_contracts_strict`): when true, a recorded stage absent from `contracts` yields `undetermined`; when false, it is ignored. A non-`bool` value raises `TypeError`; PipelineIntegration validates the YAML value first.
 - Returns data only. It produces no string report, no CSV, and no file (2.6) — `provenance-audit-export` owns all of that.
 
 **Contracts**: Service [x]
@@ -834,11 +887,13 @@ def validate_chain(graph: ProvenanceGraph, *,
 ```python
 def compute_completeness(graph: ProvenanceGraph, recorded: RecordedRun,
                          report: ChainValidationReport | None = None,
-                         *, contracts: Mapping[str, StageContract] = STAGE_CONTRACTS
+                         *, contracts: Mapping[str, StageContract] = STAGE_CONTRACTS,
+                         stage_contracts_strict: bool = True
                          ) -> CompletenessReport: ...
 ```
 
-- Postconditions: run state is the most severe of its documents; a document state is the most severe of its claims, with `undetermined` outranking `incomplete`.
+- Postconditions: state rank is `complete < incomplete < undetermined`. A document state is the most severe of its claims (subject to the prefill policy) and of its own document-scoped contract gaps and failures. The run state is **at least as severe as its worst document**, and can be worse: run-scoped contract gaps, validation `completed=False`, unattributable missing segments, and undeclared (strict) or run-wide failed stages each make it `incomplete` or `undetermined`; an **empty run** (no recorded documents — e.g. every document resumed) is `undetermined`, never `complete`.
+- `recorded` must be a snapshot taken **after** PipelineIntegration marks `chain_validation`, so the run-scoped `chain_validation` contract is diffed against its real status.
 
 **Implementation Notes**
 - Risks: the contract table drifting from the pipeline — mitigated by the drift test declared under StageContracts.
@@ -887,12 +942,14 @@ def project_event_log(graph: ProvenanceGraph) -> tuple[ProvenanceEvent, ...]: ..
 | Requirements | 1.3, 7.3, 7.5, 7.7, 10.3, 10.4, 10.5, 10.6 |
 
 **Responsibilities & Constraints**
-- `PROVENANCE_SCHEMA_ID = "evitrace/provenance-graph"`, `PROVENANCE_SCHEMA_VERSION = "1.0.0"` (SemVer, matching the `MANIFEST_SCHEMA_VERSION` convention).
+- Uses `PROVENANCE_SCHEMA_ID = "evitrace/provenance-graph"` and `PROVENANCE_SCHEMA_VERSION = "1.0.0"` (SemVer, matching the `MANIFEST_SCHEMA_VERSION` convention), imported from `provenance.graph`, which defines them. `SUPPORTED_SCHEMA_MAJORS = (1,)`.
 - The artifact is self-describing: node kinds, edge kinds, and the vocabulary version are embedded, so it is interpretable without pipeline internals (7.3).
-- Namespaced extension fields round-trip unchanged and are visibly distinct from core fields (10.4); unknown keys within a compatible major version are preserved into `extensions` rather than dropped (10.5).
-- Same major version ⇒ interpret. Different major version ⇒ raise `UnrecognizedSchemaVersionError` naming the version found and the versions supported (10.6). It never partially materializes an artifact it does not understand.
+- Namespaced extension fields round-trip unchanged and are visibly distinct from core fields (10.4).
+- **Unknown keys of a compatible-minor artifact** (10.5) are preserved where a free-form slot exists: on a node under the extension `x-compat-unknown` (`COMPAT_UNKNOWN_KEY`, a mapping of raw key → value), in edge `attributes`, and in finding `details`. Elsewhere — top level, run identity, missing segments, report containers, completeness entries — they are named (by path) in one WARNING and dropped. Consequently a future minor version **must not** add keys at the top-level, run, segment, or report levels unless it adds an `extensions` slot at the same level in that same change; otherwise it is a major bump. Vocabulary additions are unreadable by older same-major readers and are likewise a major bump.
+- Same major version ⇒ interpret. Different major version ⇒ raise `UnrecognizedSchemaVersionError` naming the version found and the versions supported (10.6). A malformed record in a compatible artifact raises `MalformedProvenanceArtifactError`. It never partially materializes an artifact. A graph read from disk keeps the schema version it was read with.
+- Writer contract: free-form values (`extensions`, `parser_metadata`, edge `attributes`, finding `details`) must be JSON-native — lists not tuples or sets, `str` keys, finite floats. Tuples read back as lists; sets raise `TypeError` on write.
 - Serializes whatever `ValidationRecord` nodes the graph already carries, so a new validation method needs no core type change (10.3). Attaching those nodes is GraphBuilder's job, not this module's.
-- Writes exactly one artifact per run to `PROVENANCE_DIR`; defines **no** interoperable or external export format (7.7).
+- Writes exactly one artifact per run to the directory its caller passes; it reads **no** configuration. PipelineIntegration resolves that directory from `provenance.output_subdir` (`PROVENANCE_DIR` is the default only). Defines **no** interoperable or external export format (7.7).
 
 **Contracts**: Batch [x] / State [x]
 
@@ -900,7 +957,7 @@ def project_event_log(graph: ProvenanceGraph) -> tuple[ProvenanceEvent, ...]: ..
 
 - Trigger: end of `run_pipeline()`, after validation and completeness.
 - Input / validation: a single `ProvenanceGraph` with validation and completeness already attached. The artifact is a pure function of that one argument — serialization takes no second report parameter.
-- Output / destination: `outputs/run_<ts>/provenance/provenance_graph.json`.
+- Output / destination: `<run output dir>/<output_subdir>/provenance_graph.json`, by default `outputs/run_<ts>/provenance/provenance_graph.json`; the directory arrives as `write_graph`'s `path` argument.
 - Idempotency & recovery: written to a temp file then `os.replace`, mirroring `save_manifest`. Re-running over an identical graph produces a byte-identical file.
 
 ##### Service Interface
@@ -911,12 +968,15 @@ def graph_from_dict(payload: Mapping[str, Any]) -> ProvenanceGraph: ...
 def write_graph(graph: ProvenanceGraph, path: Path) -> Path: ...
 def read_graph(path: Path) -> ProvenanceGraph: ...
 class UnrecognizedSchemaVersionError(Exception): ...
+class MalformedProvenanceArtifactError(ValueError): ...
+COMPAT_UNKNOWN_KEY = "x-compat-unknown"
+SUPPORTED_SCHEMA_MAJORS: tuple[int, ...] = (1,)
 ```
 
 - Postconditions: `graph_from_dict(graph_to_dict(g)) == g` for any graph built by `build_graph`, including one that has since passed through `attach_validation` and `attach_completeness` — which is the state every persisted artifact is in.
 
 **Implementation Notes**
-- Risks: growth on large corpora — mitigated by storing references, never evidence text, on claim nodes.
+- Risks: growth on large corpora — mitigated by storing references and digests, never document content, on any node (content rule under Adapters).
 
 ### Integration Layer
 
@@ -925,16 +985,24 @@ class UnrecognizedSchemaVersionError(Exception): ...
 | Field | Detail |
 |-------|--------|
 | Intent | Wire recorder lifecycle and emission call sites into the existing pipeline |
-| Requirements | 1.1, 1.2, 1.4, 2.1, 3.1, 3.5, 4.1, 4.7, 5.1, 5.3, 5.4, 5.7, 6.1, 6.7 |
+| Requirements | 1.1, 1.2, 1.3, 1.4, 2.1, 2.2, 2.5, 3.1, 3.5, 4.1, 4.3, 4.5, 4.7, 5.1, 5.3, 5.4, 5.5, 5.7, 6.1, 6.7 |
 
 **Responsibilities & Constraints**
-- `orchestrator.py` constructs one `ProvenanceRecorder` per run from the resolved config and passes it explicitly down the call chain — no global, no module-level singleton.
-- `extraction_pipeline.py` emits the source node from `compute_identity(...).to_dict()` and converts `unified.content["provenance"]` into derivation steps. **`quality_control` is not modified**; the conversion happens on the pipeline side.
-- `evidence_index.py` emits evidence nodes on **both** the cache-hit and cache-miss paths, so a cached run is not silently provenance-incomplete.
-- `pdf_processor.py` emits claim nodes and per-chunk/synthesis derivation steps; prefilled fields 1–2 are emitted with `origin="prefill"`.
+- `orchestrator.py` constructs one `ProvenanceRecorder` per run from the resolved config and passes it explicitly down the call chain — no global, no module-level singleton. `enabled` is passed as a real `bool`.
+- **Identity and run scope.** PipelineIntegration computes each document's `ManifestIdentity` itself via `manifest.compute_identity(pdf_path, config)` (no production call site computes it today) and builds `RunIdentity` with `run_identity_from_identities(..., additional_model_ids=(synthesis_model,))` when the synthesis model differs from the chunk model (3.5). Manifest sentinels `"nohash"` / `"no_extraction_map"` are treated as missing fingerprints, never as identities. **Resumed documents** — those `process_pdf` skips because the manifest already marks them complete — are excluded from this run's provenance: they are not in `RunIdentity.document_fingerprints` and get no source node. A run in which every document is resumed is therefore an empty run (`undetermined`). Two PDFs with the same content fingerprint share one source id: the source is recorded once, a WARNING names both labels, and any conflicting record the second produces surfaces as `duplicate_identity` (error).
+- `extraction_pipeline.py` emits the source node from that identity's `to_dict()` (unconsumed keys become `x-manifest-*` extensions via the adapter) and converts `unified.content["provenance"]` into derivation steps. **`quality_control` is not modified**; the conversion happens on the pipeline side.
+- `evidence_index.py` emits evidence nodes on **both** the cache-hit and cache-miss paths, so a cached run is not silently provenance-incomplete. It calls `evidence_node_from_item` per item and turns each `InvalidIdentifierError` into a recorded `invalid_identifier` issue. An item whose `section_path` equals the pipeline's `_METADATA_SECTION` (the TEI title) is converted with evidence kind `metadata` (4.1) — a pipeline-side override on a copy of the item; the evidence-index item format, the evidence cache, and the prompt are unchanged.
+- **Header metadata evidence.** A pure helper in `evidence_index.py`, `extract_header_metadata(tei_xml) -> HeaderMetadata`, parses the TEI header once and returns the first-author value with its element and the publication year with its matched `<date>` element (the element `_extract_publication_year_from_tei` selects). The author prefill and the TEI-header branch of `resolve_publication_year` read their values from this helper, so prefilled values and their citations cannot drift. From `bundle.tei_xml` (present on both cache paths) PipelineIntegration mints one `metadata` evidence item per found element, with reserved local ids `M-first-author` and `M-publication-date` (never produced by the S/T/F numbering), and records them as evidence of stage `evidence_index`. These items exist only in provenance: they are never added to `bundle.evidence_items`, the evidence cache, or any prompt.
+  - GROBID header elements carry neither `coords` nor `xml:id` (verified on all three TEI fixtures), so under the anchor rule a header metadata node is `absent` and a TEI-sourced prefill claim citing it classifies `missing_anchor`. The helper assigns no assumed page; instead the CompletenessComputer prefill policy covers `missing_anchor` as well as `unsupported`, so such a claim is incomplete at claim level only (decision 2026-10-09).
+- `pdf_processor.py` emits claim nodes and per-chunk/synthesis derivation steps, passing `evidence_anchors={n.node_id: n.anchor}` built from the same evidence nodes as `known_evidence_ids`, and populating `revision`/`contributing_claim_ids` for synthesized or merged claims so `revises` edges (5.5) are produced on the real path. Prefilled fields 1–2 are emitted with `origin="prefill"` under stage `metadata_prefill` (a `prefill` derivation step whose outputs are the prefilled claim ids). Each prefilled field's `location` cites the header metadata node its value came from — `M-first-author` when the author came from the TEI header, `M-publication-date` when the year's provenance is `tei_header` — and a value from a fallback (paper id as author; year from PDF metadata, first-page text, filename, or `"nr"`) cites nothing. Derivation inputs and outputs are node ids only.
+- **Per-document stage marks.** Every document-scoped and claim-scoped stage is marked with `source_id`: `mark_stage_complete(stage, source_id=...)` once the document's records for that stage are recorded (one producing step per document per claim stage marked complete, `metadata_prefill` included), `mark_stage_failed(stage, reason, source_id=...)` when that document's stage fails. Run-wide marks (`source_id=None`) are used only for `chain_validation` and for failures before any document is known.
 - `validator.py` gains an optional `issue_sink`; when supplied, unknown/duplicate `loc` IDs are recorded as findings and the claim is retained; when omitted, behavior is unchanged byte-for-byte.
-- **The sink must actually be passed at the production call sites** in `pdf_processor.py` (the `validate_chunk_output` and `reconstruct_fields` calls on both the chunk path and the synthesis path). Adding the parameter without wiring it would leave 5.3 and 5.4 satisfied only in tests.
+- **The sink must actually be passed at the production call sites** in `pdf_processor.py` (the `validate_chunk_output` and `reconstruct_fields` calls on both the chunk path and the synthesis path). Adding the parameter without wiring it would leave 5.3 and 5.4 satisfied only in tests. The validator has no `source_id`, so `pdf_processor` wraps the sink per document and injects `details["node_id"] = derive_claim_id(source_id, field_index)` and the raw `loc` as `details["reference"]` (issue-sink contract under ProvenanceRecorder).
+- **Run end (orchestrator).** After processing: snapshot, `build_graph`, `validate_chain(graph, severity_overrides=..., recorded_findings=recorded.findings)`, `attach_validation`; then mark `chain_validation` run-wide — `complete`, or `failed` with the incompletion reason when the report is not `completed` — take a **post-validation snapshot**, and call `compute_completeness(validated_graph, post_validation_snapshot, stage_contracts_strict=...)` with the YAML value validated as a `bool`; `attach_completeness`; write. Every provenance exception (`UnknownStageError`, `InvalidIdentifierError`, serialization errors, any other) is caught, logged, and degraded — provenance never aborts extraction.
+- **Artifact directory.** PipelineIntegration resolves `resolve_run_output_path(load_provenance_config(cfg)["output_subdir"])` and passes it to `write_graph`. An `output_subdir` that is empty, absolute, or contains a `..` segment is rejected: a WARNING names the value and the default `"provenance"` is used.
+- **Caption-sentence locations.** In `_build_items_from_tei`, GROBID's `<figDesc>` holds `<div><p><s>`, so the body `div` loop emits caption sentences as `sentence` items whose `<s>`/`<p>` carry no `coords` — `page=None`, `coords=None`, weak `.//s` path, which the anchor rule makes `absent`. Such a sentence inherits the `page` and `coords` of its enclosing `<figure>` when its own and its `<p>`'s coords are absent. Item ids stay stable: no item is added, removed, or renumbered. Existing evidence caches keep the old shape until regenerated (the cache key does not change). `page` and `coords` **are** prompt bytes — `select_paper_evidence` copies both into each selected item and `serialise_evidence_package` emits them into the paper evidence package embedded in `_shared_paper_prefix` — so this is a declared prompt-content change (see Out of Boundary); the prefix stays byte-stable across chunks of one PDF.
 - All emission occurs after prompt assembly and after response parsing. No provenance value may enter `_shared_paper_prefix`.
+- **Out-of-scope pipeline defect (follow-up, not planned here):** fallback author and year prefills are labelled confidence `"h"` (`pdf_processor` sets `"h"` for any non-empty value other than `"nr"`; `resolve_publication_year` also returns `"h"` for PDF-metadata years), overstating confidence for values that cite no evidence.
 
 **Dependencies**
 - Outbound: every provenance component (P0); `utils.config_utils`, `utils.path_utils` (P1)
@@ -943,7 +1011,7 @@ class UnrecognizedSchemaVersionError(Exception): ...
 
 **Implementation Notes**
 - Integration: `provenance.enabled: false` yields a recorder whose methods no-op, so no call site needs a conditional.
-- Validation: an end-to-end test with a fabricated `QCBundle` and evidence bundle asserts a graph is produced, validated, and written; a separate regression test asserts `_shared_paper_prefix` output is unchanged.
+- Validation: an end-to-end test with a fabricated `QCBundle` and evidence bundle asserts a graph is produced, validated, and written; a separate regression test asserts `_shared_paper_prefix` output is unchanged by provenance emission (its baseline is taken after the declared caption-location change).
 - Risks: `asyncio` PDF-level concurrency interleaving records — mitigated by the recorder's internal lock and value-only records.
 
 ## Data Models
@@ -975,9 +1043,9 @@ Invariants:
 
 | Entity | Key | Cardinality | Notes |
 |---|---|---|---|
-| RunIdentity | `run_id` | 1 per run | Digest of `ManifestIdentity` fields shared across documents |
+| RunIdentity | `run_id` | 1 per run | Digest of `ManifestIdentity` fields shared across documents (config, schema, model ids); shared by same-configuration runs, `created_at` distinguishes them; not the run folder name |
 | SourceNode | `src:<document_fingerprint>` | N per run | Fingerprint consumed from `ManifestIdentity.pdf_content_hash` |
-| EvidenceNode | `<source_id>#<local_id>` | N per source | `local_id` verbatim from the evidence index |
+| EvidenceNode | `<source_id>#<local_id>` | N per source | `local_id` verbatim from the evidence index; header metadata nodes use the reserved `M-first-author` / `M-publication-date` |
 | ClaimNode | `claim:<source_id>#f<field_index>[@r<n>]` | N per source | One per extracted field; revisions add `@r<n>` |
 | DerivationStep | `drv:<sha256[:16]>` | N per run | Content-addressed; idempotent on retry |
 | ValidationRecord | `val:<run_id>:<check_name>` | N per run | Attached post-validation |
@@ -1001,10 +1069,10 @@ Registered in `_ALL_KNOWN_TOP_LEVEL_KEYS`, defaults in `_PROVENANCE_DEFAULTS`, r
 | Key | Consumer |
 |---|---|
 | `enabled` | `ProvenanceRecorder` (no-op mode) and PipelineIntegration (artifact production) |
-| `output_subdir` | Serialization (artifact path) |
+| `output_subdir` | PipelineIntegration — resolves `resolve_run_output_path(output_subdir)` and passes it to `write_graph`; empty, absolute, or `..`-containing values fall back to `"provenance"` with a WARNING. Serialization reads no config |
 | `severity_overrides` | `validate_chain` (per-code severity override) |
 | `fail_run_on_severity` | PipelineIntegration — when set, a run whose findings include that severity or worse is logged at ERROR and the run summary records a provenance failure; extraction output is still written, because provenance never aborts extraction |
-| `stage_contracts_strict` | `compute_completeness` — when true, a stage absent from `STAGE_CONTRACTS` yields `undetermined`; when false, it is ignored |
+| `stage_contracts_strict` | `compute_completeness` (kw-only argument, passed by PipelineIntegration after validating the value is a `bool`) — when true, a stage absent from `STAGE_CONTRACTS` yields `undetermined`; when false, it is ignored |
 
 **Artifact schema (abbreviated)**
 
@@ -1023,7 +1091,7 @@ Registered in `_ALL_KNOWN_TOP_LEVEL_KEYS`, defaults in `_PROVENANCE_DEFAULTS`, r
 }
 ```
 
-**Compatibility rule**: readers accept any artifact whose major version matches `PROVENANCE_SCHEMA_VERSION`, preserving unknown keys into `extensions`; a differing major raises `UnrecognizedSchemaVersionError`.
+**Compatibility rule**: readers accept any artifact whose major version is in `SUPPORTED_SCHEMA_MAJORS`. Unknown keys are preserved where a free-form slot exists (node `extensions` under `x-compat-unknown`, edge `attributes`, finding `details`) and elsewhere named in a WARNING and dropped (see Serialization); adding keys at the top-level, run, segment, or report levels therefore requires a major bump or an `extensions` slot added in the same change. A differing major raises `UnrecognizedSchemaVersionError`.
 
 ## Error Handling
 
@@ -1033,9 +1101,11 @@ Provenance failures must never abort extraction — an unrecoverable provenance 
 
 | Category | Example | Response |
 |---|---|---|
-| Malformed input record | Evidence item missing `page` and `coords` | `SourceAnchor(precision="absent", missing=(...))`; `missing_anchor` finding (warning) |
-| Invalid identifier | `local_id` containing `#` | `InvalidIdentifierError` inside the adapter, converted to a `MissingSegment`; the rest of the graph builds |
-| Unknown stage | Stage name absent from `STAGE_CONTRACTS` | `UnknownStageError` at record time; caught by integration, logged, and the stage is reported `undetermined` |
+| Malformed input record | Evidence item with no real locator (no page, no char span, no `xml:id` structural path — a section path or weak `.//{tag}` path alone does not count) | `SourceAnchor(precision="absent", missing=(...))`; `missing_anchor` finding (warning) |
+| Invalid identifier | `local_id` containing `#` | `InvalidIdentifierError` from `evidence_node_from_item`; PipelineIntegration records an `invalid_identifier` issue (critical) and the rest of the graph builds. A record that reaches the builder but cannot be materialized becomes a `MissingSegment` |
+| Unknown stage | Stage name absent from `STAGE_CONTRACTS` | `UnknownStageError` at record time (enabled or not); caught by integration, logged, and the stage is reported `undetermined` |
+| Stage failed for one document | One PDF's synthesis call fails | `mark_stage_failed(stage, reason, source_id=...)`; that document and the claims its stage segment covers are `undetermined`; other documents stay determinable |
+| Duplicate identity | Two same-content PDFs; conflicting re-record of one id | First record kept; `duplicate_identity` finding (error) |
 | Broken chain | Claim cites a nonexistent evidence ID | `dangling_reference` finding (critical); the claim is retained (5.4) |
 | Non-conforming privacy carrier | Wrong field types | `state="rejected"` plus `privacy_carrier_invalid` (error); node retained |
 | Validation cannot run | Node index unavailable | `completed=False` with reason; run reported unvalidated (8.6) |
@@ -1052,7 +1122,7 @@ All provenance logging goes through `utils.logging_utils.get_logger(__name__)`; 
 
 1. `format_evidence_id`/`parse_evidence_id` round-trip for every ID shape, and rejection of a `local_id` containing `#` (4.7, 4.8).
 2. `attach_privacy` stores label and decision byte-identically, returns `UNKNOWN_PRIVACY` for `None`, and returns `state="rejected"` with a reason for a malformed mapping (9.2, 9.3, 9.6).
-3. `evidence_nodes_from_items` classifies anchor precision as `exact`, `approximate`, and `absent` across the real emitted item shapes, and enumerates `missing` anchor kinds (4.3, 4.4, 4.5).
+3. `evidence_nodes_from_items` classifies anchor precision as `exact`, `approximate`, and `absent` across the real emitted item shapes — including section-path-only and weak-xpath-only items classifying `absent` — enumerates `missing` anchor kinds, and keeps `text`/`annotations`/`source_pdf` out of `parser_metadata` while adding `text_sha256`/`text_chars` (4.3, 4.4, 4.5, 10.2).
 4. `derive_derivation_id` is invariant under input and output permutation and stable across processes (6.2, 3.3).
 5. `compute_completeness` distinguishes a no-reference claim (`unsupported`) from an anchorless-evidence claim (`missing_anchor`) (2.4).
 6. `graph_from_dict(graph_to_dict(g)) == g`, including namespaced extension round-trip (10.4, 10.5).
@@ -1061,7 +1131,7 @@ All provenance logging goes through `utils.logging_utils.get_logger(__name__)`; 
 ### Integration Tests
 
 1. Recorder → graph → validator → completeness → artifact over a fabricated multi-document run: artifact written, schema metadata present, run completeness computed (1.3, 7.5, 2.2).
-2. A stage marked failed mid-run still yields a graph containing every other stage's nodes, with a `MissingSegment` and an `undetermined` completeness state (1.6, 7.4, 2.5).
+2. A stage marked failed mid-run still yields a graph containing every other stage's nodes, with a `MissingSegment` and an `undetermined` completeness state; a stage failed for **one** document makes only that document undetermined while the others stay determinable (1.6, 7.4, 2.5).
 3. `validate_chain` produces one finding of each code from purpose-built minimal graphs, with the documented default severity for each (8.1–8.5).
 4. `validator.py` with an `issue_sink` records unknown-`loc` findings and retains the claim; without a sink, current raise and silent-drop behavior is byte-for-byte unchanged (5.3, 5.4).
 5. `project_event_log` over a graph is deterministic across two invocations and contains no field absent from the graph, proving the ledger is a projection (7.6).
@@ -1069,11 +1139,11 @@ All provenance logging goes through `utils.logging_utils.get_logger(__name__)`; 
 
 ### Boundary and Regression Tests
 
-1. AST dependency-direction tests for all 8 new pairs: `provenance` must not import `agents`/`pipeline`/`pdf_extractor`/`quality_control`, and none of those four may import `provenance`.
+1. AST dependency-direction tests for all 8 new pairs: `provenance` ↛ {`agents`, `pipeline`, `pdf_extractor`, `quality_control`}; {`quality_control`, `agents`, `pdf_extractor`, `text_processing`} ↛ `provenance`. `pipeline` is the sole integrator and may import `provenance`.
 2. `src/provenance/` imports cleanly with `pipeline` and `quality_control` absent from `sys.modules`, and with no network access (1.5).
 3. No module under `src/provenance/` computes a document, config, or extraction-map fingerprint — asserted by AST scan for `hashlib` use outside `identity.py` (3.6).
 4. `privacy_carrier.py` contains no comparison against any privacy label literal (9.4).
-5. `_shared_paper_prefix` output is unchanged by provenance integration (prompt-cache stability constraint).
+5. `_shared_paper_prefix` output is unchanged by provenance emission (prompt-cache stability constraint); the baseline includes the declared caption-location change, the only prompt-content change this spec makes.
 6. Every stage name the recorder accepts is declared in both `STAGE_CONTRACTS` and `STAGE_ORDER` (contract-drift guard).
 
 ### Property Tests (Hypothesis)
@@ -1084,7 +1154,8 @@ All provenance logging goes through `utils.logging_utils.get_logger(__name__)`; 
 
 ## Security Considerations
 
-- Provenance stores content fingerprints, identifiers, and anchors; it never stores evidence text on claim nodes, which bounds what a shared artifact could leak.
+- Provenance stores content fingerprints, identifiers, digests, and anchors. The artifact is **content-free for all nodes**: claim nodes carry a value digest, evidence nodes carry `text_sha256`/`text_chars` instead of text, and content-bearing keys (`text`, `annotations`, `source_pdf`) never enter `parser_metadata`. This bounds what a shared artifact could leak; absolute filesystem paths are excluded for the same reason (`x-manifest-output_path` is run-relative).
+- Evidence text remains recoverable from the evidence cache (`evidence_cache_dir`, run-scoped by default; file `<paper stem>_<document fingerprint>_<schema fingerprint>.evidence.json`, item by local id — the same SHA-256 values the source node carries) and can be verified against `text_sha256`. That cache, not the artifact, is the source for `reviewer-ui`'s evidence text (a reviewer-ui revalidation item).
 - Provenance makes **no** disclosure decision and applies **no** redaction (3.7, 9.4). The artifact written by this spec is an internal artifact; producing any shareable view is `public-private-provenance`'s responsibility.
 - Test fixtures use synthetic identifiers and lorem text only — no PHI, credentials, or real patient data.
 - No credential, API key, or model response body is recorded; derivation steps carry only the model identifier string.
