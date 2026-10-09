@@ -34,6 +34,17 @@ FORBIDDEN_PAIRS = [
     ("agents", "pdf_extractor"),
     # text_processing must not import quality_control
     ("text_processing", "quality_control"),
+    # provenance-core Requirement 1.5 / design "Allowed Dependencies":
+    # provenance is a leaf package (imports only utils + stdlib) ...
+    ("provenance", "agents"),
+    ("provenance", "pipeline"),
+    ("provenance", "pdf_extractor"),
+    ("provenance", "quality_control"),
+    # ... and pipeline is its sole integration point, so these must not import it.
+    ("quality_control", "provenance"),
+    ("agents", "provenance"),
+    ("pdf_extractor", "provenance"),
+    ("text_processing", "provenance"),
 ]
 
 
@@ -195,6 +206,119 @@ def test_text_processing_does_not_import_quality_control():
     assert not violations, (
         "text_processing imports quality_control (forbidden):\n"
         + "\n".join(violations)
+    )
+
+
+def _assert_source_package_exists(source_package: str) -> None:
+    """
+    Guard against a vacuous pass: ``_check_forbidden_imports`` returns no
+    violations for a package directory that does not exist, so a renamed or
+    missing package would otherwise satisfy its rule silently.
+    """
+    package_dir = PROJECT_ROOT / "src" / source_package
+    assert package_dir.is_dir(), (
+        f"src/{source_package}/ does not exist; its dependency-direction rule "
+        "would pass vacuously"
+    )
+
+
+def test_provenance_does_not_import_agents():
+    """
+    provenance-core Requirement 1.5: provenance SHALL NOT import agents.
+    """
+    _assert_source_package_exists("provenance")
+    violations = _check_forbidden_imports("provenance", "agents")
+    assert not violations, (
+        "provenance imports agents (forbidden by provenance-core 1.5):\n"
+        + "\n".join(violations)
+    )
+
+
+def test_provenance_does_not_import_pipeline():
+    """
+    provenance-core Requirement 1.5: provenance SHALL NOT import pipeline.
+    """
+    _assert_source_package_exists("provenance")
+    violations = _check_forbidden_imports("provenance", "pipeline")
+    assert not violations, (
+        "provenance imports pipeline (forbidden by provenance-core 1.5):\n"
+        + "\n".join(violations)
+    )
+
+
+def test_provenance_does_not_import_pdf_extractor():
+    """
+    provenance-core Requirement 1.5: provenance SHALL NOT import pdf_extractor.
+    """
+    _assert_source_package_exists("provenance")
+    violations = _check_forbidden_imports("provenance", "pdf_extractor")
+    assert not violations, (
+        "provenance imports pdf_extractor (forbidden by provenance-core 1.5):\n"
+        + "\n".join(violations)
+    )
+
+
+def test_provenance_does_not_import_quality_control():
+    """
+    provenance-core Requirement 1.5: provenance SHALL NOT import quality_control.
+    """
+    _assert_source_package_exists("provenance")
+    violations = _check_forbidden_imports("provenance", "quality_control")
+    assert not violations, (
+        "provenance imports quality_control (forbidden by provenance-core 1.5):\n"
+        + "\n".join(violations)
+    )
+
+
+def test_quality_control_does_not_import_provenance():
+    """
+    provenance-core design (Allowed Dependencies): quality_control SHALL NOT
+    import provenance.
+    """
+    _assert_source_package_exists("quality_control")
+    violations = _check_forbidden_imports("quality_control", "provenance")
+    assert not violations, (
+        "quality_control imports provenance (forbidden; pipeline is the sole "
+        "integration point):\n" + "\n".join(violations)
+    )
+
+
+def test_agents_does_not_import_provenance():
+    """
+    provenance-core design (Allowed Dependencies): agents SHALL NOT import
+    provenance.
+    """
+    _assert_source_package_exists("agents")
+    violations = _check_forbidden_imports("agents", "provenance")
+    assert not violations, (
+        "agents imports provenance (forbidden; pipeline is the sole "
+        "integration point):\n" + "\n".join(violations)
+    )
+
+
+def test_pdf_extractor_does_not_import_provenance():
+    """
+    provenance-core design (Allowed Dependencies): pdf_extractor SHALL NOT
+    import provenance.
+    """
+    _assert_source_package_exists("pdf_extractor")
+    violations = _check_forbidden_imports("pdf_extractor", "provenance")
+    assert not violations, (
+        "pdf_extractor imports provenance (forbidden; pipeline is the sole "
+        "integration point):\n" + "\n".join(violations)
+    )
+
+
+def test_text_processing_does_not_import_provenance():
+    """
+    provenance-core design (Allowed Dependencies): text_processing SHALL NOT
+    import provenance.
+    """
+    _assert_source_package_exists("text_processing")
+    violations = _check_forbidden_imports("text_processing", "provenance")
+    assert not violations, (
+        "text_processing imports provenance (forbidden; pipeline is the sole "
+        "integration point):\n" + "\n".join(violations)
     )
 
 

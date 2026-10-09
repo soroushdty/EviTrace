@@ -2,7 +2,7 @@
 
 - [ ] 1. Foundation: package scaffold, dependency rules, configuration and output paths
 
-- [ ] 1.1 Create the `src/provenance/` package skeleton and declare its dependency direction
+- [x] 1.1 Create the `src/provenance/` package skeleton and declare its dependency direction
   - Create the package directory with an `__init__.py` placeholder re-export surface and the `adapters/` subpackage, plus the mirrored `tests/src/provenance/` directory.
   - Add eight forbidden-import pairs to the AST dependency-direction rule table: `provenance` must not import `agents`, `pipeline`, `pdf_extractor`, or `quality_control`; and `quality_control`, `agents`, `pdf_extractor`, and `text_processing` must not import `provenance`.
   - Add one named test per new pair alongside the existing per-pair tests so the exhaustive test and the named tests stay consistent.
@@ -266,3 +266,8 @@
   - _Requirements: 1.4, 1.6, 2.5, 9.7_
   - _Depends: 7.1, 7.2, 7.3_
   - _Boundary: provenance end-to-end test module (read-only over PipelineIntegration, GraphBuilder, CompletenessComputer)_
+
+## Implementation Notes
+
+- 1.1: design.md "Testing Strategy → Boundary and Regression Tests" item 1 says agents/pipeline/pdf_extractor/quality_control must not import provenance; that contradicts "Allowed Dependencies" (pipeline is the sole integrator) and omits text_processing. Implemented per task text + Allowed Dependencies: the reverse rules cover quality_control, agents, pdf_extractor, text_processing; pipeline may import provenance. Design wording left for human correction.
+- 1.1: the 8 provenance dependency tests call `_assert_source_package_exists` so a missing/renamed package fails instead of passing vacuously. `tests/src/provenance/.gitkeep` can be removed once a test module lands there.
