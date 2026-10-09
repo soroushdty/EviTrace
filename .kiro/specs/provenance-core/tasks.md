@@ -19,7 +19,7 @@
 
 - [ ] 2. Definition layer: vocabularies, records, identity, and stage contracts
 
-- [ ] 2.1 Implement the privacy label and disclosure decision carrier
+- [x] 2.1 Implement the privacy label and disclosure decision carrier
   - Define the single carrier record with privacy state, opaque label, opaque decision, supplying component, supply timestamp, and rejection reason, plus a shared unknown-state constant.
   - Implement attachment that stores supplied values verbatim, returns the unknown constant when nothing is supplied, and never infers or defaults a label.
   - Implement structural-only conformance checking that rejects malformed input with a reason and leaves the label unset, performing no interpretation of label or decision values.
@@ -272,3 +272,4 @@
 - 1.1: design.md "Testing Strategy → Boundary and Regression Tests" item 1 says agents/pipeline/pdf_extractor/quality_control must not import provenance; that contradicts "Allowed Dependencies" (pipeline is the sole integrator) and omits text_processing. Implemented per task text + Allowed Dependencies: the reverse rules cover quality_control, agents, pdf_extractor, text_processing; pipeline may import provenance. Design wording left for human correction.
 - 1.1: the 8 provenance dependency tests call `_assert_source_package_exists` so a missing/renamed package fails instead of passing vacuously. `tests/src/provenance/.gitkeep` can be removed once a test module lands there.
 - 1.2: design names both `PROVENANCE_DIR = resolve_run_output_path("provenance")` (hard-coded) and `provenance.output_subdir` (read by Serialization) without saying which wins. 5.2 should resolve the artifact dir via `resolve_run_output_path(cfg["output_subdir"])` (PROVENANCE_DIR = default only) so the key is not dead; 6.5 must pass the merged provenance settings down. `load_provenance_config` does no value validation (per design): consumers should tolerate `severity_overrides: null`.
+- 2.1: carrier input shape is pinned to exactly {`label` (required str), `decision` (optional str/None)}; extra keys and decision-without-label are rejected (fails closed; compatible with privacy-core `carrier_input_from`). Stored values keep object identity. `PrivacyCarrier` has no `__post_init__` so deserialization can construct it directly.
