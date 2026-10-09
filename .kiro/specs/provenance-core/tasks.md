@@ -10,7 +10,7 @@
   - _Requirements: 1.5_
   - _Boundary: ProvenanceModels_
 
-- [ ] 1.2 Register the provenance configuration block and run-scoped output directory
+- [x] 1.2 Register the provenance configuration block and run-scoped output directory
   - Add a `provenance` defaults mapping covering the enable flag, output subdirectory, severity overrides, fail-on-severity policy, and strict stage-contract flag.
   - Register `provenance` as a known top-level configuration key so configuration loading does not reject it, and add a loader that returns the merged provenance settings from a passed-in config mapping.
   - Add the run-scoped provenance output directory constant using the existing run-output-path helper, and add the `provenance` block to the shipped configuration file.
@@ -271,3 +271,4 @@
 
 - 1.1: design.md "Testing Strategy → Boundary and Regression Tests" item 1 says agents/pipeline/pdf_extractor/quality_control must not import provenance; that contradicts "Allowed Dependencies" (pipeline is the sole integrator) and omits text_processing. Implemented per task text + Allowed Dependencies: the reverse rules cover quality_control, agents, pdf_extractor, text_processing; pipeline may import provenance. Design wording left for human correction.
 - 1.1: the 8 provenance dependency tests call `_assert_source_package_exists` so a missing/renamed package fails instead of passing vacuously. `tests/src/provenance/.gitkeep` can be removed once a test module lands there.
+- 1.2: design names both `PROVENANCE_DIR = resolve_run_output_path("provenance")` (hard-coded) and `provenance.output_subdir` (read by Serialization) without saying which wins. 5.2 should resolve the artifact dir via `resolve_run_output_path(cfg["output_subdir"])` (PROVENANCE_DIR = default only) so the key is not dead; 6.5 must pass the merged provenance settings down. `load_provenance_config` does no value validation (per design): consumers should tolerate `severity_overrides: null`.

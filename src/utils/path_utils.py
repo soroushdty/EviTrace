@@ -87,6 +87,9 @@ PDF_DIR: Path = BASE_DIR / _LOCAL_SETTINGS.get("pdfs_path", "pdfs")
 OUTPUT_DIR: Path = resolve_run_output_path(_LOCAL_SETTINGS.get("output_folder_path", "outputs"))
 """Directory where extraction results are written."""
 
+PROVENANCE_DIR: Path = resolve_run_output_path("provenance")
+"""Run-scoped directory where the per-run provenance graph artifact is written."""
+
 MANIFEST_FILE: Path = BASE_DIR / "manifest.json"
 """Manifest file tracking which PDFs have been processed."""
 

@@ -243,8 +243,46 @@ _ALL_KNOWN_TOP_LEVEL_KEYS: frozenset[str] = _LOCAL_ALLOWED_TOP_LEVEL_KEYS | froz
         # below; cache_diagnostics.threshold currently has no reader wired in
         # (see src/agents/openai/telemetry.py's check_cache_diagnostics()).
         "token_budgets", "cache_diagnostics",
+        # Provenance subsystem settings -- defaults in _PROVENANCE_DEFAULTS,
+        # read via load_provenance_config() below.
+        "provenance",
     }
 )
+
+
+# ============================================================================
+# Provenance configuration defaults and loader
+# ============================================================================
+
+_PROVENANCE_DEFAULTS: dict = {
+    # Master switch: when False the recorder runs in no-op mode and no
+    # provenance artifact is produced.
+    "enabled": True,
+    # Subdirectory of the run folder that receives the provenance artifact.
+    "output_subdir": "provenance",
+    # Per-finding-code severity overrides applied by chain validation
+    # (finding code -> severity).
+    "severity_overrides": {},
+    # None | "critical" | "error": findings at or above this severity are
+    # logged at ERROR and recorded as a provenance failure in the run summary.
+    # Provenance never aborts extraction.
+    "fail_run_on_severity": None,
+    # When True, a stage absent from the stage-contract table makes artifact
+    # completeness "undetermined"; when False the stage is ignored.
+    "stage_contracts_strict": True,
+}
+
+
+def load_provenance_config(config: dict) -> dict:
+    """Return the ``provenance`` settings from an already-loaded config mapping.
+
+    ``config`` is the full top-level configuration mapping (as parsed from
+    config.yaml). Its ``provenance`` block, if any, is deep-merged over
+    ``_PROVENANCE_DEFAULTS`` so callers always receive every documented key.
+    Neither the input mapping nor the defaults are mutated.
+    """
+    user_block = (config or {}).get("provenance") or {}
+    return _deep_merge(_PROVENANCE_DEFAULTS, user_block)
 
 
 # ============================================================================

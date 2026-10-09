@@ -41,8 +41,9 @@ All `openai.*` keys can be overridden via environment variables:
 | `load_openai_config()` | OpenAI + extraction + concurrency + retry dict | Pipeline orchestrator, api_client |
 | `load_qc_config()` | `{quality_control: ..., text_processor: ...}` deep-merged with `_QC_DEFAULTS` | QC pipeline, scan detector, extraction_pipeline |
 | `load_local_config()` | Local parser settings (pdfs_path, len_filter, ocr, etc.) deep-merged with `_LOCAL_DEFAULTS` | main.py, GrobidServerManager, pdf_extractor CLI |
+| `load_provenance_config(config)` | `provenance` block deep-merged with `_PROVENANCE_DEFAULTS` | Provenance recorder, chain validation, completeness, serialization |
 
-All three functions accept an optional `config_path` argument. When `None`, they resolve `configs/config.yaml` first; if absent, fall back to repo-root `config.yaml`.
+The first three functions accept an optional `config_path` argument. When `None`, they resolve `configs/config.yaml` first; if absent, fall back to repo-root `config.yaml`. `load_provenance_config` instead takes an already-loaded top-level config mapping and reads no file.
 
 ---
 
@@ -53,7 +54,7 @@ All three functions accept an optional `config_path` argument. When `None`, they
 3. Add a default value to `_QC_DEFAULTS` (for `quality_control` / `text_processor` keys) or `_LOCAL_DEFAULTS` (for local parser keys).
 4. Document the key in the relevant section below.
 
-Currently registered top-level keys: `openai`, `extraction`, `concurrency`, `retry`, `quality_control`, `text_processor`, `local`, `pdfs_path`, `output_folder_path`, `extraction_map_path`, `log_file`, `log_level`, `len_filter`, `ocr`.
+Currently registered top-level keys: `openai`, `extraction`, `concurrency`, `retry`, `quality_control`, `text_processor`, `local`, `pdfs_path`, `output_folder_path`, `extraction_map_path`, `log_file`, `log_level`, `len_filter`, `ocr`, `provenance`.
 
 ---
 
@@ -142,6 +143,22 @@ log_level: "DEBUG"               # DEBUG | INFO | WARNING | ERROR | CRITICAL
 len_filter: 40                   # minimum sentence length for extraction (chars)
 ocr: false                       # enable PaddleOCR for scanned pages
 ```
+
+### `provenance`
+
+```yaml
+provenance:
+  enabled: true                 # false -> recorder no-op, no provenance artifact
+  output_subdir: "provenance"   # run-folder subdirectory for the artifact
+  severity_overrides: {}        # finding code -> severity
+  fail_run_on_severity: null    # null | "critical" | "error"
+  stage_contracts_strict: true  # stage missing from STAGE_CONTRACTS -> completeness "undetermined"
+```
+
+Defaults live in `_PROVENANCE_DEFAULTS` and are read via `load_provenance_config(config)`. The run-scoped
+artifact directory is `utils.path_utils.PROVENANCE_DIR` (`<main_output_dir>/run_*/provenance/`).
+`fail_run_on_severity` logs at ERROR and records a provenance failure in the run summary; it never
+aborts extraction.
 
 ### `text_processor`
 

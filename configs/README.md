@@ -168,6 +168,26 @@ these documented defaults with a logged warning. `load_openai_config()`
 passes the raw section through; `pipeline.token_budget.load_budgets()`
 is the sole validator.
 
+### `provenance`
+
+```yaml
+provenance:
+  enabled: true
+  output_subdir: "provenance"
+  severity_overrides: {}        # finding code -> severity
+  fail_run_on_severity: null    # null | "critical" | "error"
+  stage_contracts_strict: true
+```
+
+Settings for the provenance graph. `utils.config_utils.load_provenance_config(config)`
+deep-merges this block over `_PROVENANCE_DEFAULTS`; the artifact directory is
+`utils.path_utils.PROVENANCE_DIR`, i.e. `<main_output_dir>/run_*/provenance/`.
+`enabled: false` turns the recorder into a no-op; `severity_overrides` remaps the
+severity of individual validation finding codes; `fail_run_on_severity` marks the run
+summary as a provenance failure (logged at ERROR) when findings reach that severity,
+without aborting extraction; `stage_contracts_strict` makes completeness
+`undetermined` for a stage with no declared contract.
+
 ### Paths
 
 ```yaml
