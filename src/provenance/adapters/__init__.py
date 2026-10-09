@@ -8,3 +8,4 @@ Each adapter module appends exactly one re-export here when it is created.
 __all__: list[str] = []
 from provenance.adapters.identity_adapter import run_identity_from_identities, source_node_from_identity  # noqa: E402,F401
 from provenance.adapters.evidence_adapter import evidence_node_from_item, evidence_nodes_from_items  # noqa: E402,F401
+from provenance.adapters.claim_adapter import claim_nodes_from_fields  # noqa: E402,F401

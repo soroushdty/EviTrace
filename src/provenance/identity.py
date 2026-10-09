@@ -23,8 +23,10 @@ only scope it by source (4.7), so no second evidence numbering scheme exists;
 Document, configuration and extraction-map fingerprints are **consumed** from
 the caller (``ManifestIdentity``) and never computed here (3.6).
 ``hashlib.sha256`` is used only to digest identifier material — the run
-identity fields and the derivation-step content address — and this module is
-the only provenance module that imports ``hashlib``.
+identity fields and the derivation-step content address — and claim values
+(:func:`derive_value_digest`, so a claim node records a digest of its
+extracted value and never the value itself); this module is the only
+provenance module that imports ``hashlib``.
 
 Every function is pure: no clock, no randomness, no filesystem or network
 access. Malformed input raises :class:`InvalidIdentifierError`.
@@ -51,6 +53,7 @@ __all__ = [
     "derive_claim_id",
     "derive_derivation_id",
     "derive_validation_id",
+    "derive_value_digest",
 ]
 
 EVIDENCE_SCOPE_SEPARATOR = "#"
@@ -63,6 +66,9 @@ DERIVATION_ID_PREFIX = "drv:"
 VALIDATION_ID_PREFIX = "val:"
 
 _DIGEST_LENGTH = 16
+
+_VALUE_DIGEST_DOMAIN = "claim-value"
+"""Domain-separation tag: a value digest never equals an identifier digest of the same material."""
 
 
 class InvalidIdentifierError(ValueError):
@@ -240,3 +246,49 @@ def derive_derivation_id(
     inputs = _require_id_sequence(input_ids, "input_ids")
     outputs = _require_id_sequence(output_ids, "output_ids")
     return f"{DERIVATION_ID_PREFIX}{_digest([stage, kind, sorted(inputs), sorted(outputs)])}"
+
+
+# ---------------------------------------------------------------------------
+# Claim value digest (5.1)
+# ---------------------------------------------------------------------------
+
+
+def _non_json(value: object) -> dict[str, str]:
+    """Stand-in for a value JSON cannot represent: its type name and ``repr``."""
+    try:
+        text = repr(value)
+    except Exception:  # noqa: BLE001 — a broken __repr__ must not make digesting raise
+        text = "<unrepresentable>"
+    return {"x-non-json-type": f"{type(value).__module__}.{type(value).__qualname__}", "x-non-json-repr": text}
+
+
+def derive_value_digest(value: object) -> str:
+    """Return the 16-hex SHA-256 digest of an extracted claim value; never raises.
+
+    The material is ``["claim-value", value]`` serialized as canonical JSON
+    (``sort_keys=True``, compact separators), so it is domain-separated from
+    identifier digests and insensitive to mapping key order. Tuples digest
+    like lists. A value JSON cannot represent is replaced by its type name and
+    ``repr`` — deterministic for values whose ``repr`` is (strings, numbers,
+    dataclasses), but not for objects whose ``repr`` embeds a memory address,
+    nor for sets of strings (their ``repr`` order follows ``PYTHONHASHSEED``). Should the canonical form still fail (mixed-type mapping
+    keys, a reference cycle), the whole value is replaced the same way. Lone
+    surrogates are encoded with ``surrogatepass`` rather than rejected.
+    """
+    try:
+        canonical = json.dumps(
+            [_VALUE_DIGEST_DOMAIN, value],
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+            default=_non_json,
+        )
+    except (TypeError, ValueError, RecursionError):
+        canonical = json.dumps(
+            [_VALUE_DIGEST_DOMAIN, _non_json(value)],
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+    encoded = canonical.encode("utf-8", "surrogatepass")
+    return hashlib.sha256(encoded).hexdigest()[:_DIGEST_LENGTH]

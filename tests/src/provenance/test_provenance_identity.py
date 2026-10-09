@@ -31,6 +31,7 @@ from provenance.identity import (
     derive_run_id,
     derive_source_id,
     derive_validation_id,
+    derive_value_digest,
     format_evidence_id,
     parse_evidence_id,
 )
@@ -398,3 +399,72 @@ def test_unencodable_identifier_material_raises_invalid_identifier_error():
         identity.derive_run_id({"document_fingerprint": "\ud800"})
     with pytest.raises(identity.InvalidIdentifierError):
         identity.derive_derivation_id("reconcile", "merge", ["\ud800"], ["out"])
+
+
+# ---------------------------------------------------------------------------
+# Claim value digest
+# ---------------------------------------------------------------------------
+
+
+def test_value_digest_is_16_hex_and_deterministic() -> None:
+    digest = derive_value_digest("120 patients")
+    assert len(digest) == 16 and all(ch in "0123456789abcdef" for ch in digest)
+    assert derive_value_digest("120 patients") == digest
+
+
+def test_value_digest_is_canonical_domain_separated_sha256() -> None:
+    material = json.dumps(["claim-value", "nr"], ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    assert derive_value_digest("nr") == hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
+
+
+@pytest.mark.parametrize(
+    "a, b",
+    [
+        ("120 patients", "121 patients"),
+        ("1", 1),
+        (None, "nr"),
+        ("", None),
+        ([1, 2], [2, 1]),
+        ({"a": 1}, {"a": 2}),
+    ],
+)
+def test_value_digest_is_value_sensitive(a: object, b: object) -> None:
+    assert derive_value_digest(a) != derive_value_digest(b)
+
+
+def test_value_digest_is_insensitive_to_mapping_key_order() -> None:
+    assert derive_value_digest({"a": 1, "b": {"x": 1, "y": 2}}) == derive_value_digest(
+        {"b": {"y": 2, "x": 1}, "a": 1}
+    )
+
+
+class _Unserializable:
+    def __repr__(self) -> str:
+        return "Unserializable()"
+
+
+class _BrokenRepr:
+    def __repr__(self) -> str:
+        raise RuntimeError("no repr")
+
+
+def _cycle() -> list:
+    loop: list = []
+    loop.append(loop)
+    return loop
+
+
+@pytest.mark.parametrize(
+    "value",
+    [_Unserializable(), _BrokenRepr(), {1: "a", "b": 2}, _cycle(), "\ud800", b"bytes", {"k": {1, 2}}, float("nan")],
+    ids=["object", "broken-repr", "mixed-keys", "cycle", "lone-surrogate", "bytes", "nested-set", "nan"],
+)
+def test_value_digest_never_raises_on_non_json_values(value: object) -> None:
+    digest = derive_value_digest(value)
+    assert len(digest) == 16
+    assert derive_value_digest(value) == digest
+
+
+def test_value_digest_of_non_json_value_is_stable_when_its_repr_is() -> None:
+    assert derive_value_digest(_Unserializable()) == derive_value_digest(_Unserializable())
+    assert derive_value_digest(_Unserializable()) != derive_value_digest("Unserializable()")
