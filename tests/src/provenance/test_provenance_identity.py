@@ -30,6 +30,7 @@ from provenance.identity import (
     derive_derivation_id,
     derive_run_id,
     derive_source_id,
+    derive_text_digest,
     derive_validation_id,
     derive_value_digest,
     format_evidence_id,
@@ -468,3 +469,36 @@ def test_value_digest_never_raises_on_non_json_values(value: object) -> None:
 def test_value_digest_of_non_json_value_is_stable_when_its_repr_is() -> None:
     assert derive_value_digest(_Unserializable()) == derive_value_digest(_Unserializable())
     assert derive_value_digest(_Unserializable()) != derive_value_digest("Unserializable()")
+
+
+# ---------------------------------------------------------------------------
+# Evidence text digest
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("text", ["Patients were enrolled.", "", "Ünïcode — 5 µg/kg", "line\nbreak"])
+def test_text_digest_is_full_sha256_hex_of_utf8_text(text: str) -> None:
+    # A reader verifies text recovered from the evidence cache with a plain sha256.
+    assert derive_text_digest(text) == hashlib.sha256(text.encode("utf-8")).hexdigest()
+    assert len(derive_text_digest(text)) == 64
+
+
+def test_text_digest_is_text_sensitive_and_deterministic() -> None:
+    assert derive_text_digest("a") == derive_text_digest("a")
+    assert derive_text_digest("a") != derive_text_digest("a ")
+
+
+def test_text_digest_never_raises_on_a_lone_surrogate() -> None:
+    digest = derive_text_digest("\ud800")
+    assert len(digest) == 64
+    assert digest == hashlib.sha256("\ud800".encode("utf-8", "surrogatepass")).hexdigest()
+
+
+@pytest.mark.parametrize("bad", [None, b"text", 5, ["text"]])
+def test_text_digest_rejects_non_string_input(bad: object) -> None:
+    with pytest.raises(TypeError):
+        derive_text_digest(bad)  # type: ignore[arg-type]
+
+
+def test_text_digest_is_exported() -> None:
+    assert "derive_text_digest" in identity.__all__

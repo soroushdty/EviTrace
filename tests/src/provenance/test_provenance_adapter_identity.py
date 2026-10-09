@@ -14,6 +14,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -72,7 +73,10 @@ def test_source_node_carries_fingerprints_format_label_and_models() -> None:
     assert node.schema_fingerprint == _MAP
     assert node.model_ids == (_MODEL,)
     assert node.privacy == UNKNOWN_PRIVACY
-    assert node.extensions == {}
+    assert node.extensions == {
+        "x-manifest-schema_version": "1.0.0",
+        "x-manifest-output_path": "outputs/paper_a.extracted.json",
+    }
 
 
 def test_source_id_tracks_document_content_fingerprint() -> None:
@@ -100,6 +104,7 @@ def test_metadata_free_mapping_still_yields_a_source_identity() -> None:
     assert node.source_label == ""
     assert node.source_format == ""
     assert node.model_ids == ()
+    assert node.extensions == {}
 
 
 def test_source_metadata_is_copied_verbatim_without_disclosure_evaluation() -> None:
@@ -114,12 +119,88 @@ def test_source_metadata_is_copied_verbatim_without_disclosure_evaluation() -> N
     assert node.privacy == UNKNOWN_PRIVACY
 
 
-def test_unconsumed_identity_keys_are_tolerated() -> None:
+def test_unconsumed_identity_keys_are_kept_as_manifest_extensions() -> None:
     node = source_node_from_identity(
-        _identity(**{"future_field": "anything"}), source_label="a", source_format="pdf", run_id=_RUN_ID
+        _identity(future_field="anything", Retry_Count=2, nested={"k": [1, 2]}),
+        source_label="a",
+        source_format="pdf",
+        run_id=_RUN_ID,
     )
 
     assert node.node_id == f"src:{_PDF_A}"
+    assert node.extensions == {
+        "x-manifest-schema_version": "1.0.0",
+        "x-manifest-output_path": "outputs/paper_a.extracted.json",
+        "x-manifest-future_field": "anything",
+        "x-manifest-Retry_Count": 2,
+        "x-manifest-nested": {"k": [1, 2]},
+    }
+
+
+def test_consumed_identity_keys_never_become_extensions() -> None:
+    node = source_node_from_identity(_identity(), source_label="a", source_format="pdf", run_id=_RUN_ID)
+
+    for key in ("pdf_content_hash", "config_hash", "extraction_map_hash", "model_id"):
+        assert f"x-manifest-{key}" not in node.extensions
+    assert not any(key in node.extensions for key in ("pdf_content_hash", "config_hash"))
+
+
+def test_output_path_is_the_run_relative_link_to_the_extraction_output() -> None:
+    node = source_node_from_identity(
+        _identity(output_path="paper_a.extracted.json"), source_label="a", source_format="pdf", run_id=_RUN_ID
+    )
+
+    assert node.extensions["x-manifest-output_path"] == "paper_a.extracted.json"
+
+
+def test_keys_outside_the_extension_charset_go_to_one_fallback_extension() -> None:
+    identity: dict[object, object] = dict(_identity())
+    identity.update({"bad key": 1, "ü-field": "u", "": "empty", "-lead": "dash", 7: "int", "unnamespaced": "collides"})
+
+    node = source_node_from_identity(identity, source_label="a", source_format="pdf", run_id=_RUN_ID)  # type: ignore[arg-type]
+
+    assert node.extensions["x-manifest-unnamespaced"] == {
+        "bad key": 1,
+        "ü-field": "u",
+        "": "empty",
+        "-lead": "dash",
+        "7": "int",
+        "unnamespaced": "collides",
+    }
+    assert set(node.extensions) == {
+        "x-manifest-schema_version",
+        "x-manifest-output_path",
+        "x-manifest-unnamespaced",
+    }
+
+
+def test_fallback_extension_is_absent_when_every_key_namespaces() -> None:
+    node = source_node_from_identity(_identity(), source_label="a", source_format="pdf", run_id=_RUN_ID)
+
+    assert "x-manifest-unnamespaced" not in node.extensions
+
+
+def test_unnamespaced_keys_are_logged_once_at_warning() -> None:
+    logger = identity_adapter.logger
+    records: list[logging.LogRecord] = []
+
+    class _Capture(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            records.append(record)
+
+    handler = _Capture(level=logging.DEBUG)
+    logger.addHandler(handler)
+    try:
+        source_node_from_identity(
+            _identity(**{"bad key": 1}), source_label="a", source_format="pdf", run_id=_RUN_ID
+        )
+        source_node_from_identity(_identity(), source_label="a", source_format="pdf", run_id=_RUN_ID)
+    finally:
+        logger.removeHandler(handler)
+
+    warnings = [r.getMessage() for r in records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "x-manifest-unnamespaced" in warnings[0] and "'bad key'" in warnings[0]
 
 
 @pytest.mark.parametrize("missing", ["pdf_content_hash", "config_hash", "extraction_map_hash"])
@@ -253,6 +334,61 @@ def test_source_nodes_and_run_identity_share_one_fingerprint_set() -> None:
         assert node.config_fingerprint == run.config_fingerprint
         assert node.schema_fingerprint == run.schema_fingerprint
         assert set(node.model_ids) <= set(run.model_ids)
+
+
+def test_additional_model_ids_default_to_none() -> None:
+    plain = run_identity_from_identities({"p": _identity()}, created_at=_CREATED_AT)
+    explicit = run_identity_from_identities({"p": _identity()}, created_at=_CREATED_AT, additional_model_ids=())
+
+    assert plain == explicit
+    assert plain.model_ids == (_MODEL,)
+
+
+def test_a_distinct_synthesis_model_is_part_of_the_run_identity() -> None:
+    base = run_identity_from_identities({"p": _identity()}, created_at=_CREATED_AT)
+    with_synthesis = run_identity_from_identities(
+        {"p": _identity()}, created_at=_CREATED_AT, additional_model_ids=("gpt-5",)
+    )
+
+    assert with_synthesis.model_ids == ("gpt-5", _MODEL)
+    assert with_synthesis.run_id != base.run_id
+    assert with_synthesis.run_id == derive_run_id(
+        {
+            "config_fingerprint": _CONFIG,
+            "schema_fingerprint": _MAP,
+            "model_ids": json.dumps(["gpt-5", _MODEL]),
+        }
+    )
+
+
+def test_additional_model_ids_are_deduplicated_with_document_models() -> None:
+    base = run_identity_from_identities({"p": _identity()}, created_at=_CREATED_AT)
+    same = run_identity_from_identities(
+        {"p": _identity()}, created_at=_CREATED_AT, additional_model_ids=[_MODEL, _MODEL, ""]
+    )
+
+    assert same == base
+
+
+def test_additional_model_ids_extend_a_metadata_free_run() -> None:
+    identities = {"p": {"pdf_content_hash": _PDF_A, "config_hash": _CONFIG, "extraction_map_hash": _MAP}}
+
+    run = run_identity_from_identities(identities, created_at=_CREATED_AT, additional_model_ids=("m-b", "m-a"))
+
+    assert run.model_ids == ("m-a", "m-b")
+
+
+@pytest.mark.parametrize("bad", ["gpt-5", b"gpt-5", None, 5, ("gpt-5", 3), [None]])
+def test_malformed_additional_model_ids_raise_type_error(bad: object) -> None:
+    with pytest.raises(TypeError):
+        run_identity_from_identities(
+            {"p": _identity()}, created_at=_CREATED_AT, additional_model_ids=bad  # type: ignore[arg-type]
+        )
+
+
+def test_additional_model_ids_are_keyword_only() -> None:
+    with pytest.raises(TypeError):
+        run_identity_from_identities({"p": _identity()}, _CREATED_AT, ("gpt-5",))  # type: ignore[misc]
 
 
 # ---------------------------------------------------------------------------

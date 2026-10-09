@@ -7,10 +7,14 @@ Item mappings are literal dicts in the exact shape ``_build_items_from_tei`` in
 ``.//{tag}`` structural-path case.
 
 Covers the evidence kind and producing backend on every node (4.1, 4.6), every
-available anchor preserved (4.3), anchor precision ``exact`` / ``approximate``
-/ ``absent`` with the absent anchor kinds enumerated (4.4, 4.5), the item
-identifier adopted verbatim as the local identifier (4.7), unrecognized item
-keys preserved in ``parser_metadata`` (10.2), and totality: a malformed item
+available anchor preserved (4.3), anchor precision by the single rule —
+``exact`` needs page and coords, ``approximate`` needs a real locator (page,
+char span, or an ``xml:id`` structural path), and a section path, weak path or
+page-less coords alone leave it ``absent`` — with the absent anchor kinds
+enumerated (4.4, 4.5), the item identifier adopted verbatim as the local
+identifier (4.7), unrecognized item keys preserved in ``parser_metadata``
+minus the content deny-list ``text`` / ``annotations`` / ``source_pdf``, with
+``text_sha256`` / ``text_chars`` in place of the text (10.2), and totality: a malformed item
 converts without raising, while an item that has no usable identifier is the
 only one that cannot become a node — and neither a skipped item nor a ``type``
 fallback is silent: each is logged at DEBUG, with one WARNING per batch.
@@ -20,6 +24,7 @@ from __future__ import annotations
 
 import ast
 import copy
+import hashlib
 import logging
 import math
 from collections.abc import Iterator
@@ -31,7 +36,12 @@ import pytest
 from provenance import adapters
 from provenance.adapters import evidence_adapter
 from provenance.adapters.evidence_adapter import evidence_node_from_item, evidence_nodes_from_items
-from provenance.identity import InvalidIdentifierError, format_evidence_id, parse_evidence_id
+from provenance.identity import (
+    InvalidIdentifierError,
+    derive_text_digest,
+    format_evidence_id,
+    parse_evidence_id,
+)
 from provenance.models import EvidenceNode, SourceAnchor
 from provenance.privacy_carrier import UNKNOWN_PRIVACY
 
@@ -216,19 +226,32 @@ def test_approximate_when_page_present_but_coords_absent() -> None:
     assert anchor.missing == ("coords", "char_span")
 
 
-def test_approximate_when_page_and_coords_none_but_section_path_present() -> None:
+def test_absent_when_page_and_coords_none_with_section_path_and_weak_path() -> None:
     # A GROBID run without coordinates: _parse_coords yields page=None, coords=None.
+    # A section path and a weak ``.//{tag}`` path are recorded as text-search
+    # hints, but neither is a real locator, so the anchor is absent (4.4).
     anchor = _one(_sentence_item(page=None, coords=None, xpath=".//p")).anchor
 
-    assert anchor.precision == "approximate"
+    assert anchor.precision == "absent"
     assert anchor.section_path == "Methods"
+    assert anchor.structural_path == ".//p"
     assert anchor.missing == ("page", "coords", "char_span")
 
 
-def test_approximate_when_only_the_weak_structural_path_remains() -> None:
+def test_absent_when_only_a_section_path_remains() -> None:
+    anchor = _one(_sentence_item(page=None, coords=None, xpath=None)).anchor
+
+    assert anchor == SourceAnchor(
+        precision="absent",
+        section_path="Methods",
+        missing=("page", "coords", "char_span", "structural_path"),
+    )
+
+
+def test_absent_when_only_the_weak_structural_path_remains() -> None:
     anchor = _one(_sentence_item(page=None, coords=None, section_path=None, xpath=".//p")).anchor
 
-    assert anchor.precision == "approximate"
+    assert anchor.precision == "absent"
     assert anchor.structural_path == ".//p"
     assert anchor.missing == ("page", "coords", "section_path", "char_span")
 
@@ -241,12 +264,59 @@ def test_approximate_when_only_an_xml_id_structural_path_remains() -> None:
     assert anchor.missing == ("page", "coords", "section_path", "char_span")
 
 
-def test_approximate_when_coords_present_without_page() -> None:
+def test_approximate_when_only_a_page_remains() -> None:
+    item = {"id": "S000011", "type": "sentence", "page": 2}
+    anchor = _one(item).anchor
+
+    assert anchor == SourceAnchor(
+        precision="approximate",
+        page=2,
+        missing=("coords", "section_path", "char_span", "structural_path"),
+    )
+
+
+def test_absent_when_coords_present_without_page() -> None:
     anchor = _one(_sentence_item(page=None, section_path=None, xpath=None)).anchor
 
-    assert anchor.precision == "approximate"
+    assert anchor.precision == "absent"
     assert anchor.coords == (72.0, 100.5, 523.25, 112.0)
     assert anchor.missing == ("page", "section_path", "char_span", "structural_path")
+
+
+def test_absent_when_coords_without_page_sit_beside_section_and_weak_paths() -> None:
+    anchor = _one(_sentence_item(page=None, xpath=".//s")).anchor
+
+    assert anchor.precision == "absent"
+    assert anchor.missing == ("page", "char_span")
+
+
+def test_approximate_when_coords_without_page_sit_beside_an_xml_id_path() -> None:
+    anchor = _one(_sentence_item(page=None)).anchor
+
+    assert anchor.precision == "approximate"
+    assert anchor.missing == ("page", "char_span")
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        ".//s",
+        ".//title",
+        "//*[@xml:id='']",
+        "//*[@xml:id='_s1']/s",
+        "//s[@xml:id='_s1']",
+        "//*[@xml:id='_s1'] or //*[@xml:id='_s2']",
+        "//*[@xml:id='a'b']",
+        "/TEI/text/body/div[1]/p[2]",
+        "_s1",
+    ],
+)
+def test_structural_path_not_addressing_one_xml_id_is_no_locator(path: str) -> None:
+    anchor = _one({"id": "S000012", "type": "sentence", "xpath": path}).anchor
+
+    assert anchor.precision == "absent"
+    assert anchor.structural_path == path  # recorded as a hint, never upgraded
+    assert anchor.missing == ("page", "coords", "section_path", "char_span")
 
 
 def test_absent_when_no_anchor_is_present_and_all_kinds_enumerated() -> None:
@@ -278,22 +348,78 @@ def test_char_span_alone_is_an_approximate_anchor() -> None:
     assert anchor.char_span == (0, 5)
     assert anchor.missing == ("page", "coords", "section_path", "structural_path")
 
-
 # ---------------------------------------------------------------------------
-# Parser metadata: unrecognized keys preserved (10.2)
+# Parser metadata: unrecognized keys preserved minus the content deny-list (10.2)
 # ---------------------------------------------------------------------------
 
+_TEXT = "Patients were enrolled between 2010 and 2015."
+_TEXT_SHA256 = hashlib.sha256(_TEXT.encode("utf-8")).hexdigest()
+_DENIED_KEYS = ("text", "annotations", "source_pdf")
 
-def test_unrecognized_keys_are_copied_into_parser_metadata() -> None:
+
+def test_unrecognized_keys_are_copied_into_parser_metadata_minus_content() -> None:
     annotations = {"quantities": [{"text": "5 mg", "type": "quantity"}]}
     node = _one(_sentence_item(annotations=annotations, ocr_confidence=0.93))
 
     assert node.parser_metadata == {
-        "text": "Patients were enrolled between 2010 and 2015.",
-        "source_pdf": _PDF,
-        "annotations": annotations,
+        "text_sha256": _TEXT_SHA256,
+        "text_chars": len(_TEXT),
         "ocr_confidence": 0.93,
     }
+
+
+def test_text_digest_is_computed_by_the_identity_service() -> None:
+    metadata = _one(_sentence_item()).parser_metadata
+
+    assert metadata["text_sha256"] == derive_text_digest(_TEXT)
+    assert metadata["text_chars"] == 45
+
+
+def test_text_digest_and_length_follow_the_text() -> None:
+    text = "Ünïcode — 5 µg/kg"
+    metadata = _one(_sentence_item(text=text)).parser_metadata
+
+    assert metadata["text_sha256"] == hashlib.sha256(text.encode("utf-8")).hexdigest()
+    assert metadata["text_chars"] == len(text)
+    assert _one(_sentence_item(text="")).parser_metadata["text_chars"] == 0
+
+
+@pytest.mark.parametrize("bad_text", [None, 5, ["a"], {"t": "x"}, b"bytes"])
+def test_non_string_text_is_denied_without_a_digest(bad_text: Any) -> None:
+    metadata = _one(_sentence_item(text=bad_text)).parser_metadata
+
+    assert metadata == {}
+
+
+def test_item_without_text_carries_no_digest() -> None:
+    item = _sentence_item()
+    del item["text"]
+
+    assert _one(item).parser_metadata == {}
+
+
+def test_item_supplied_digest_keys_never_override_the_adapter() -> None:
+    forged = _sentence_item(text_sha256="0" * 64, text_chars=1)
+    no_text = _sentence_item(text_sha256="0" * 64, text_chars=1)
+    del no_text["text"]
+
+    assert _one(forged).parser_metadata == {"text_sha256": _TEXT_SHA256, "text_chars": len(_TEXT)}
+    assert _one(no_text).parser_metadata == {}
+
+
+def test_no_evidence_node_carries_text_annotations_or_source_pdf() -> None:
+    items = [
+        _sentence_item(annotations={"entities": ["Aspirin"]}),
+        _sentence_item(id="S000042", section_path="Metadata", page=1, coords=None, xpath=".//title"),
+        _sentence_item(id="T000001", type="table", text="| a | b |", annotations={"cells": [[1]]}),
+        {"id": "F000001", "type": "figure", "source_pdf": "/abs/path/paper.pdf", "annotations": None},
+        {"id": "S000077", "text": None, "source_pdf": None, "annotations": {}},
+    ]
+    for node in _convert(items):
+        for key in _DENIED_KEYS:
+            assert key not in node.parser_metadata, (node.local_id, key)
+        for value in node.parser_metadata.values():
+            assert value != _PDF and _TEXT not in repr(value)
 
 
 def test_recognized_keys_are_not_duplicated_into_parser_metadata() -> None:
@@ -304,13 +430,13 @@ def test_recognized_keys_are_not_duplicated_into_parser_metadata() -> None:
 
 
 def test_parser_metadata_does_not_alias_the_item() -> None:
-    item = _sentence_item(annotations={"entities": ["Aspirin"]})
+    item = _sentence_item(vendor_blob={"entities": ["Aspirin"]})
     node = _one(item)
-    item["annotations"]["entities"].append("Placebo")
+    item["vendor_blob"]["entities"].append("Placebo")
     item["text"] = "changed"
 
-    assert node.parser_metadata["annotations"] == {"entities": ["Aspirin"]}
-    assert node.parser_metadata["text"] == "Patients were enrolled between 2010 and 2015."
+    assert node.parser_metadata["vendor_blob"] == {"entities": ["Aspirin"]}
+    assert node.parser_metadata["text_sha256"] == _TEXT_SHA256
 
 
 def test_conversion_does_not_mutate_the_items() -> None:

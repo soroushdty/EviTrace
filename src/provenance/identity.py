@@ -25,8 +25,10 @@ the caller (``ManifestIdentity``) and never computed here (3.6).
 ``hashlib.sha256`` is used only to digest identifier material — the run
 identity fields and the derivation-step content address — and claim values
 (:func:`derive_value_digest`, so a claim node records a digest of its
-extracted value and never the value itself); this module is the only
-provenance module that imports ``hashlib``.
+extracted value and never the value itself), and evidence text
+(:func:`derive_text_digest`, so an evidence node records a digest of its text
+and never the text itself); this module is the only provenance module that
+imports ``hashlib``.
 
 Every function is pure: no clock, no randomness, no filesystem or network
 access. Malformed input raises :class:`InvalidIdentifierError`.
@@ -54,6 +56,7 @@ __all__ = [
     "derive_derivation_id",
     "derive_validation_id",
     "derive_value_digest",
+    "derive_text_digest",
 ]
 
 EVIDENCE_SCOPE_SEPARATOR = "#"
@@ -292,3 +295,20 @@ def derive_value_digest(value: object) -> str:
         )
     encoded = canonical.encode("utf-8", "surrogatepass")
     return hashlib.sha256(encoded).hexdigest()[:_DIGEST_LENGTH]
+
+
+def derive_text_digest(text: str) -> str:
+    """Return the full SHA-256 hex digest of *text* encoded as UTF-8.
+
+    The evidence adapter stores it as ``parser_metadata["text_sha256"]`` in
+    place of the evidence text, so a reader can verify text recovered from the
+    evidence cache with a plain ``sha256(text.encode("utf-8"))``. Unlike
+    :func:`derive_value_digest` it is neither truncated nor domain-separated:
+    it is a checksum of text the pipeline already holds, not an identifier and
+    not a document, configuration or extraction-map fingerprint (3.6). Lone
+    surrogates are encoded with ``surrogatepass`` rather than rejected, so any
+    ``str`` digests. Raises ``TypeError`` when *text* is not a ``str``.
+    """
+    if not isinstance(text, str):
+        raise TypeError(f"text must be a str, got {type(text).__name__}")
+    return hashlib.sha256(text.encode("utf-8", "surrogatepass")).hexdigest()

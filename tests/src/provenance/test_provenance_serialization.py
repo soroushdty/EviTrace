@@ -155,7 +155,8 @@ def _realistic_recorder(*, fail: tuple[str, str] | None = None) -> ProvenanceRec
                  "section_path": "Methods", "xpath": f".//s[@xml:id='s{n}']", "score": 3, "text": f"dolor {n}"}
                 for n in range(1, 6)
             ),
-            {"id": "f1", "type": "figure_caption", "section_path": "Results", "score": 2},  # approximate anchor
+            # approximate anchor: a page without coords (a section path alone is absent)
+            {"id": "f1", "type": "figure_caption", "page": 6, "section_path": "Results", "score": 2},
         ]
         evidence = evidence_nodes_from_items(items, source_id=source_id, run_id=run.run_id, producing_backend="grobid")
         recorder.record_evidence(evidence)

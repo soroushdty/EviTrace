@@ -50,10 +50,11 @@ _S3 = format_evidence_id(_SOURCE_ID, "S000003")
 _KNOWN = frozenset({_S1, _S2, _S3})
 
 _EXACT = SourceAnchor(precision="exact", page=3, coords=(1.0, 2.0, 3.0, 4.0))
-_APPROXIMATE = SourceAnchor(
+_APPROXIMATE = SourceAnchor(  # a page is a real locator; a section path alone would be absent
     precision="approximate",
+    page=3,
     section_path="Methods",
-    missing=("page", "coords", "char_span", "structural_path"),
+    missing=("coords", "char_span", "structural_path"),
 )
 _ABSENT = SourceAnchor(
     precision="absent",

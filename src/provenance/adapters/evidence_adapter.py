@@ -16,23 +16,40 @@ Item key            ``EvidenceNode`` field
 ``char_span``       ``anchor.char_span`` — ``[start, end]`` (4.3)
 ``xpath``           ``anchor.structural_path`` (4.3)
 ``score``           ``rank_score``
+``text``            never copied; a ``str`` yields ``parser_metadata``
+                    ``text_sha256`` and ``text_chars`` (content rule)
+``annotations``     never copied (content rule)
+``source_pdf``      never copied (content rule)
 any other key       ``parser_metadata``, copied verbatim (10.2)
 ==================  ==========================================================
 
 The producing backend is supplied by the caller (4.6): the items do not name it.
 
-Anchor precision (4.4, 4.5):
+Anchor precision — the single rule (4.4, 4.5):
 
-- ``exact`` — ``page`` and ``coords`` both usable;
-- ``approximate`` — not exact, but at least one anchor is usable: a page or a
-  section path without coordinates, or only a structural path — whether the
-  weak ``.//{tag}`` fallback or an ``xml:id`` path, neither of which places the
-  item on the page;
-- ``absent`` — no usable anchor at all.
+- ``exact`` — ``page`` **and** ``coords`` both usable;
+- ``approximate`` — not exact, but at least one *real locator* is usable: a
+  ``page``, a ``char_span``, or a structural path that addresses one element by
+  ``xml:id`` (exactly the ``//*[@xml:id='…']`` form the evidence index emits);
+- ``absent`` — no real locator. A ``section_path``, a weak ``.//{tag}``
+  structural path (or any other path form), or ``coords`` without a page are
+  still recorded on the anchor as hints, but never make it usable by
+  themselves.
 
 Whenever precision is not ``exact``, ``anchor.missing`` names every anchor
-kind (``SourceAnchor`` field name) that is absent, in ``SourceAnchor`` field
-order (4.4).
+kind (``SourceAnchor`` field name) that has no value, in ``SourceAnchor``
+field order (4.4); a recorded hint is a value, so it is not listed.
+
+Content rule (10.2, design "Security Considerations"). The evidence node is
+content-free: the deny-list ``text`` / ``annotations`` / ``source_pdf`` never
+enters ``parser_metadata`` — ``text`` and ``annotations`` carry document
+content, and ``source_pdf`` (an absolute path) leaks the operator's
+filesystem while being redundant with the source node. When ``text`` is a
+``str`` the adapter adds ``text_sha256`` — computed by
+:func:`provenance.identity.derive_text_digest`, so hashing stays in the
+identity module — and ``text_chars`` (``len(text)``), letting a reader verify
+text recovered from the evidence cache. The adapter owns those two keys: an
+item's own ``text_sha256`` / ``text_chars`` values are never copied.
 
 Totality. A malformed item never raises: an anchor value of the wrong shape is
 treated as absent, and an unknown or non-string ``type`` falls back to
@@ -53,7 +70,7 @@ WARNING with the counts and the ``source_id`` (design "Monitoring":
 individual issues at DEBUG, no per-item WARNING).
 
 Every node carries :data:`~provenance.privacy_carrier.UNKNOWN_PRIVACY` and no
-extensions. The module computes no fingerprint or digest.
+extensions. The module computes no fingerprint or digest itself.
 """
 
 from __future__ import annotations
@@ -62,7 +79,7 @@ import math
 from collections.abc import Mapping, Sequence
 from typing import Any, get_args
 
-from provenance.identity import InvalidIdentifierError, format_evidence_id
+from provenance.identity import InvalidIdentifierError, derive_text_digest, format_evidence_id
 from provenance.models import EvidenceKind, EvidenceNode, SourceAnchor
 from provenance.privacy_carrier import UNKNOWN_PRIVACY
 from utils.logging_utils import get_logger
@@ -93,6 +110,22 @@ _RECOGNIZED_KEYS = frozenset(
         _SCORE_KEY,
     }
 )
+
+_TEXT_KEY = "text"
+_TEXT_DIGEST_KEY = "text_sha256"
+_TEXT_CHARS_KEY = "text_chars"
+
+_CONTENT_DENY_LIST = frozenset({_TEXT_KEY, "annotations", "source_pdf"})
+"""Content-bearing item keys that never enter ``parser_metadata`` (content rule)."""
+
+_ADAPTER_OWNED_KEYS = frozenset({_TEXT_DIGEST_KEY, _TEXT_CHARS_KEY})
+"""``parser_metadata`` keys only the adapter writes, derived from ``text``."""
+
+_NOT_COPIED_KEYS = _RECOGNIZED_KEYS | _CONTENT_DENY_LIST | _ADAPTER_OWNED_KEYS
+
+# The one structural-path form that addresses a single element (``_tei_xpath``).
+_XML_ID_PATH_PREFIX = "//*[@xml:id='"
+_XML_ID_PATH_SUFFIX = "']"
 
 _EVIDENCE_KINDS: frozenset[str] = frozenset(get_args(EvidenceKind))
 _FALLBACK_EVIDENCE_KIND: EvidenceKind = "sentence"
@@ -201,6 +234,16 @@ _ANCHOR_PARSERS = (
 # ---------------------------------------------------------------------------
 
 
+def _addresses_one_element(structural_path: str | None) -> bool:
+    """Whether *structural_path* is the ``//*[@xml:id='<id>']`` form, with a non-empty id."""
+    if structural_path is None or not (
+        structural_path.startswith(_XML_ID_PATH_PREFIX) and structural_path.endswith(_XML_ID_PATH_SUFFIX)
+    ):
+        return False
+    xml_id = structural_path[len(_XML_ID_PATH_PREFIX) : -len(_XML_ID_PATH_SUFFIX)]
+    return bool(xml_id) and "'" not in xml_id
+
+
 def _anchor(item: Mapping[Any, Any], parser_metadata: dict[Any, Any]) -> SourceAnchor:
     """Build the anchor, deriving precision and the missing anchor kinds (4.3–4.5)."""
     fields: dict[str, Any] = {}
@@ -214,8 +257,21 @@ def _anchor(item: Mapping[Any, Any], parser_metadata: dict[Any, Any]) -> SourceA
     if fields["page"] is not None and fields["coords"] is not None:
         return SourceAnchor(precision="exact", **fields)
     missing = tuple(kind for kind in _ANCHOR_KINDS if fields[kind] is None)
-    precision = "absent" if len(missing) == len(_ANCHOR_KINDS) else "approximate"
+    has_real_locator = (
+        fields["page"] is not None
+        or fields["char_span"] is not None
+        or _addresses_one_element(fields["structural_path"])
+    )
+    precision = "approximate" if has_real_locator else "absent"
     return SourceAnchor(precision=precision, missing=missing, **fields)
+
+
+def _content_metadata(item: Mapping[Any, Any]) -> dict[str, Any]:
+    """``text_sha256`` / ``text_chars`` when the item's ``text`` is a string, else nothing."""
+    text = item.get(_TEXT_KEY)
+    if not isinstance(text, str):
+        return {}
+    return {_TEXT_DIGEST_KEY: derive_text_digest(text), _TEXT_CHARS_KEY: len(text)}
 
 
 # ---------------------------------------------------------------------------
@@ -247,7 +303,8 @@ def _convert(
         raise InvalidIdentifierError(f"evidence item {_ID_KEY!r} must be a non-empty string, got {local_id!r}")
     node_id = format_evidence_id(source_id, local_id)  # rejects "" and "#"
 
-    parser_metadata: dict[Any, Any] = {key: value for key, value in item.items() if key not in _RECOGNIZED_KEYS}
+    parser_metadata: dict[Any, Any] = {key: value for key, value in item.items() if key not in _NOT_COPIED_KEYS}
+    parser_metadata.update(_content_metadata(item))
 
     raw_type = item.get(_TYPE_KEY)
     evidence_kind, kind_coerced = _parse_kind(raw_type)
