@@ -10,8 +10,10 @@ This is the package's public surface. Its re-exports (models, recorder, graph,
 reports) are added here by the tasks that create those modules.
 """
 
+from provenance import graph as _graph
 from provenance import models as _models
+from provenance.graph import *  # noqa: F401,F403 -- re-exported public surface
 from provenance.models import *  # noqa: F401,F403 -- re-exported public surface
 from provenance.recorder import ProvenanceRecorder
 
-__all__: list[str] = [*_models.__all__, "ProvenanceRecorder"]
+__all__: list[str] = [*_models.__all__, "ProvenanceRecorder", *_graph.__all__]
