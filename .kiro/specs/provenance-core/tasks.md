@@ -58,7 +58,7 @@
 
 - [ ] 3. Emission layer: append-only recorder and pipeline adapters
 
-- [ ] 3.1 Implement the append-only provenance recorder
+- [x] 3.1 Implement the append-only provenance recorder
   - Provide record methods for source, evidence, claim, derivation, and validation records, plus issue recording and per-stage complete and failed marks; expose no update or delete method.
   - Make duplicate recording of an identical record a no-op and duplicate recording of a conflicting record produce a duplicate-identity finding while keeping the first record.
   - Expose an issue-sink callable suitable for the chunk validator, and an immutable snapshot that returns equal values on repeated calls.
@@ -283,3 +283,6 @@
 - 2.4 → 6.5/4.5: validation records are attached after the snapshot, so `chain_validation` reads `not_run` unless 6.5 marks it complete and passes a post-validation snapshot, or 4.5 checks graph content. Never treat `not_run` as missing.
 - 2.4 → 6.4: `metadata_prefill` commits 6.4 to emit a `prefill` DerivationStep (stage="metadata_prefill", outputs = prefilled claim ids) and mark the stage complete.
 - 2.4 → 3.4/4.5 (design gap): prefilled fields 1–2 always have `location=[]`, so they classify `unsupported` and would make every document incomplete (document state = worst claim). 3.4/4.5 must decide how prefill-origin claims count — flag to human if the design gives no answer.
+- 3.1 → 6.1/6.4: issue sink is `(code, message, details)`; the claim is named only via `details["node_id"]`. The validator has no source_id, so 6.4 must wrap the sink per document and inject `node_id = derive_claim_id(source_id, field_index)` (else 5.4 "naming the claim" fails on the real path). Unknown codes raise ValueError even when disabled — 6.1 must pass only dangling_reference / duplicate_reference / ambiguous_reference, with a test.
+- 3.1 → 4.5: stage status is run-wide and escalate-only (not_run < complete < failed); one document's failure marks the stage failed for the run. `RecordedRun` also carries `stage_failure_reasons`. 6.5 must catch `UnknownStageError` (raised in both modes) and pass a real bool for `enabled`.
+- 3.1 → 7.1: `import provenance` pulls in `utils.logging_utils` → `utils.path_utils`, which reads configs/config.yaml and imports yaml at import time (allowed: design lists utils.logging_utils as a recorder dependency).
