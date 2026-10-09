@@ -47,7 +47,7 @@
   - _Depends: 2.2_
   - _Boundary: IdentityService_
 
-- [ ] 2.4 (P) Implement the stage-contract declaration table and stage ordering
+- [x] 2.4 (P) Implement the stage-contract declaration table and stage ordering
   - Declare, as data, the record kinds each pipeline stage must emit and the artifact scope each stage covers.
   - Declare the deterministic stage ordering used later by the event-log projection.
   - Document, alongside the table, that downstream specs introducing new pipeline stages extend both the contract table and the ordering in place and continue to route records through the recorder, rather than bypassing the recorder or suppressing the unknown-stage error; keep the vocabulary closed and the drift test in force.
@@ -278,3 +278,8 @@
 - 2.2: mapping fields are frozen recursively (`_FrozenDict`, read-only list) for hashability; JSON returns nested tuples as lists, so 5.1 must re-tuple typed tuple fields for round-trip equality. Vocabulary membership, node kind/class agreement and non-empty node_id are NOT checked at construction — adapters (3.x), GraphBuilder (4.1) and readers (5.1) must do it.
 - 2.3: valid source ids are `src:` + non-empty fingerprint with no `#` and no whitespace; format/parse/derive_claim_id enforce it (7.2's round-trip strategy must generate such ids). `derive_run_id` takes `Mapping[str, str]` only — the 3.2 identity adapter must stringify `model_ids` before digesting.
 - 2.3 (follow-up): evidence-routing and multiagent-extraction designs call `provenance.format_evidence_id`, but `__init__.py` re-exports only models (design re-export list: models, recorder, graph, reports). Either re-export identity when the surface is finalized or downstream specs must use `provenance.identity.format_evidence_id`.
+- 2.4 (NEEDS HUMAN CONFIRMATION): no provenance-core document names any stage, so `contracts.py` declares 7 chosen stages in order: document_extraction(source)/document, quality_control(derivation)/document, evidence_index(evidence)/document, metadata_prefill(claim,derivation)/claim, extraction_chunk(claim,derivation)/claim, synthesis(claim,derivation)/claim, chain_validation(validation)/run. Five match cost-and-run-reporting `KNOWN_STAGE_ORDER` and pdf_processor labels; `metadata_prefill` and `chain_validation` have no spec source. `UnknownStageError`/`require_declared_stage` live in contracts.py — 3.1 must call it (only DerivationStep carries `stage`).
+- 2.4 → 4.5: ClaimNode has no `stage`; tie each claim to the stage whose DerivationStep.output_ids contain it (do not require every claim-scoped stage for every claim). Check only stages whose status is `complete`; skip `not_run` (num_chunks=1 yields no extraction_chunk).
+- 2.4 → 6.5/4.5: validation records are attached after the snapshot, so `chain_validation` reads `not_run` unless 6.5 marks it complete and passes a post-validation snapshot, or 4.5 checks graph content. Never treat `not_run` as missing.
+- 2.4 → 6.4: `metadata_prefill` commits 6.4 to emit a `prefill` DerivationStep (stage="metadata_prefill", outputs = prefilled claim ids) and mark the stage complete.
+- 2.4 → 3.4/4.5 (design gap): prefilled fields 1–2 always have `location=[]`, so they classify `unsupported` and would make every document incomplete (document state = worst claim). 3.4/4.5 must decide how prefill-origin claims count — flag to human if the design gives no answer.
