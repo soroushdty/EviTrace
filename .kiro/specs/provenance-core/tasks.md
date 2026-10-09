@@ -27,7 +27,7 @@
   - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5, 9.6_
   - _Boundary: PrivacyCarrierModule_
 
-- [ ] 2.2 Implement the provenance record models and closed vocabularies
+- [x] 2.2 Implement the provenance record models and closed vocabularies
   - Define the closed vocabularies for node kind, edge kind, evidence kind, anchor precision, derivation kind, determinism, severity, completeness state, claim support, and claim origin.
   - Define the frozen record types for source anchor, base node, source node, evidence node, claim node, derivation step, validation record, edge, and run identity, each embedding the privacy carrier.
   - Define every cross-layer type, that is, every type consumed by a layer other than the one that produces it: validation finding, the default severity table, missing segment, stage contract, artifact completeness, the immutable recorded-run snapshot, the chain-validation report, and the completeness report. The two reports belong here because the graph container carries them while sitting earlier in the dependency order than the modules that compute them.
@@ -273,3 +273,6 @@
 - 1.1: the 8 provenance dependency tests call `_assert_source_package_exists` so a missing/renamed package fails instead of passing vacuously. `tests/src/provenance/.gitkeep` can be removed once a test module lands there.
 - 1.2: design names both `PROVENANCE_DIR = resolve_run_output_path("provenance")` (hard-coded) and `provenance.output_subdir` (read by Serialization) without saying which wins. 5.2 should resolve the artifact dir via `resolve_run_output_path(cfg["output_subdir"])` (PROVENANCE_DIR = default only) so the key is not dead; 6.5 must pass the merged provenance settings down. `load_provenance_config` does no value validation (per design): consumers should tolerate `severity_overrides: null`.
 - 2.1: carrier input shape is pinned to exactly {`label` (required str), `decision` (optional str/None)}; extra keys and decision-without-label are rejected (fails closed; compatible with privacy-core `carrier_input_from`). Stored values keep object identity. `PrivacyCarrier` has no `__post_init__` so deserialization can construct it directly.
+- 2.2 (NEEDS HUMAN CONFIRMATION): `duplicate_identity` is named by the recorder design but absent from the ChainValidator default-severity table; `DEFAULT_SEVERITIES` sets it to `warning` (same as `duplicate_reference`). Confirm or change, and fix the design table.
+- 2.2: extension keys must full-match `x-[a-z][a-z0-9]*-[A-Za-z0-9_][A-Za-z0-9_-]*` (`is_extension_key`); all downstream `x-multiagent-*` keys pass. 5.1's "preserve unknown keys into extensions" needs a fallback for JSON keys outside that charset.
+- 2.2: mapping fields are frozen recursively (`_FrozenDict`, read-only list) for hashability; JSON returns nested tuples as lists, so 5.1 must re-tuple typed tuple fields for round-trip equality. Vocabulary membership, node kind/class agreement and non-empty node_id are NOT checked at construction — adapters (3.x), GraphBuilder (4.1) and readers (5.1) must do it.
