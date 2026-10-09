@@ -55,6 +55,12 @@ Reference and structural checks
     ``dangling_reference``; ``details["candidates"]`` lists the candidates.
 ``unsupported_claim`` (5.2, 5.3)
     A claim whose support is ``unsupported`` or that cites no evidence.
+``prefill_unsupported`` (5.7)
+    Reported **instead of** ``unsupported_claim`` for such a claim whose
+    ``origin`` is ``prefill`` — a prefilled value that came from a fallback
+    and so cites nothing. A dedicated code so its severity is overridable on
+    its own; a prefill claim citing only anchorless header metadata is
+    signalled by ``missing_anchor`` on the cited node, not by this code.
 
 Every finding names the node and/or edge involved and stamps the default
 severity from :data:`~provenance.models.DEFAULT_SEVERITIES`. Graph-derived
@@ -209,6 +215,8 @@ _PRIVACY_INVALID = "privacy_carrier_invalid"
 _DUPLICATE = "duplicate_reference"
 _AMBIGUOUS = "ambiguous_reference"
 _UNSUPPORTED = "unsupported_claim"
+_PREFILL_UNSUPPORTED = "prefill_unsupported"
+_PREFILL_ORIGIN = "prefill"
 _CYCLE = "graph_cycle"
 _ORPHAN = "orphan_node"
 _INCONSISTENT = "inconsistent_derivation"
@@ -688,7 +696,7 @@ def _check_duplicate_references(ctx: _Context) -> list[ValidationFinding]:
 
 
 def _check_unsupported_claims(ctx: _Context) -> list[ValidationFinding]:
-    """5.2, 5.3: a claim with no evidence reference is unsupported."""
+    """5.2, 5.3, 5.7: a claim with no evidence reference is unsupported; a prefilled one gets its own code."""
     findings: list[ValidationFinding] = []
     edge_targets: dict[str, set[str]] = {}
     for edge in ctx.edges_of(_CITES):
@@ -697,12 +705,16 @@ def _check_unsupported_claims(ctx: _Context) -> list[ValidationFinding]:
         cited = {target for target in node.cited_evidence_ids if _is_reference(target)}
         cited |= edge_targets.get(node.node_id, set())
         if node.support == "unsupported" or not cited:
+            prefilled = node.origin == _PREFILL_ORIGIN
             findings.append(
                 _finding(
-                    _UNSUPPORTED,
+                    _PREFILL_UNSUPPORTED if prefilled else _UNSUPPORTED,
                     node_id=node.node_id,
                     edge_id=None,
-                    message=f"claim {node.node_id} is not supported by any evidence reference",
+                    message=(
+                        f"{'prefilled ' if prefilled else ''}claim {node.node_id} "
+                        "is not supported by any evidence reference"
+                    ),
                     details={"support": node.support, "cited_count": len(cited), "origin": node.origin},
                 )
             )

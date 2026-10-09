@@ -155,6 +155,7 @@ def _claim(
     support: str | None = None,
     node_id: str | None = None,
     privacy: PrivacyCarrier = UNKNOWN_PRIVACY,
+    origin: str = "model",
 ) -> ClaimNode:
     return ClaimNode(
         node_id=node_id if node_id is not None else derive_claim_id(source_id, field_index),
@@ -166,7 +167,7 @@ def _claim(
         field_index=field_index,
         field_name="sample_size",
         value_digest="0123456789abcdef",
-        origin="model",
+        origin=origin,  # type: ignore[arg-type]
         support=support if support is not None else ("supported" if cited else "unsupported"),
         cited_evidence_ids=cited,
         confidence="high",
@@ -460,6 +461,70 @@ def test_unsupported_claim_for_claim_without_references() -> None:
     assert findings[0].severity == DEFAULT_SEVERITIES["unsupported_claim"]
 
 
+def test_unsupported_prefill_claim_yields_one_prefill_unsupported_warning_instead_of_unsupported_claim() -> None:
+    """5.7 / design ChainValidator: a fallback prefilled value citing nothing gets the dedicated code, not both."""
+    prefilled = _claim((), field_index=2, origin="prefill")
+    graph = _graph(_source(), _evidence("e1"), prefilled)
+
+    report = validate_chain(graph)
+
+    findings = _only(report, "prefill_unsupported")
+    assert [(f.node_id, f.severity) for f in findings] == [(prefilled.node_id, "warning")]
+    assert findings[0].finding_id == f"finding:prefill_unsupported:chain:{prefilled.node_id}"
+    assert findings[0].details["origin"] == "prefill"
+    assert "unsupported_claim" not in _codes(report)
+    assert report.counts_by_severity == {"warning": 1}
+    assert report.completed is True
+
+
+def test_prefill_and_model_claims_each_get_their_own_unsupported_code() -> None:
+    prefilled = _claim((), field_index=1, origin="prefill")
+    modelled = _claim((), field_index=8)
+    graph = _graph(_source(), _evidence("e1"), prefilled, modelled)
+
+    report = validate_chain(graph)
+
+    assert [f.node_id for f in _only(report, "prefill_unsupported")] == [prefilled.node_id]
+    assert [f.node_id for f in _only(report, "unsupported_claim")] == [modelled.node_id]
+
+
+@pytest.mark.parametrize("origin", ["human", "import"])
+def test_other_non_model_origins_keep_the_unsupported_claim_code(origin: str) -> None:
+    claim = _claim((), field_index=8, origin=origin)
+    graph = _graph(_source(), _evidence("e1"), claim)
+
+    report = validate_chain(graph)
+
+    assert [f.node_id for f in _only(report, "unsupported_claim")] == [claim.node_id]
+    assert "prefill_unsupported" not in _codes(report)
+
+
+def test_supported_or_anchorless_prefill_claim_gets_no_prefill_unsupported_finding() -> None:
+    """A TEI-header prefill citing an anchorless header node is signalled by missing_anchor on that node only."""
+    header = _evidence("M-first-author", precision="absent")
+    anchorless = _claim((header.node_id,), field_index=1, origin="prefill", support="missing_anchor")
+    supported = _claim((_E1,), field_index=2, origin="prefill")
+    graph = _graph(_source(), _evidence("e1"), header, anchorless, supported, edges=[*_cites(anchorless), *_cites(supported)])
+
+    report = validate_chain(graph)
+
+    assert "prefill_unsupported" not in _codes(report)
+    assert "unsupported_claim" not in _codes(report)
+    assert [f.node_id for f in _only(report, "missing_anchor")] == [header.node_id]
+
+
+def test_override_of_prefill_unsupported_leaves_unsupported_claim_untouched() -> None:
+    graph = _graph(_source(), _evidence("e1"), _claim((), field_index=1, origin="prefill"), _claim((), field_index=8))
+
+    report = validate_chain(graph, severity_overrides={"prefill_unsupported": "info"})
+
+    assert {(f.code, f.severity) for f in report.findings} == {
+        ("prefill_unsupported", "info"),
+        ("unsupported_claim", "warning"),
+    }
+    assert report.counts_by_severity == {"warning": 1, "info": 1}
+
+
 # ---------------------------------------------------------------------------
 # Not-completed path (8.6)
 # ---------------------------------------------------------------------------
@@ -517,14 +582,15 @@ def test_recorder_findings_reach_the_report_and_are_counted() -> None:
 
     assert report.completed is True
     assert recorded.findings[0] in report.findings
-    assert report.counts_by_severity == {"warning": 1}
+    assert recorded.findings[0].severity == "error"
+    assert report.counts_by_severity == {"error": 1}
 
 
 def test_recorded_findings_are_deduplicated_by_finding_id() -> None:
     finding = ValidationFinding(
         finding_id="finding:duplicate_identity:x:1",
         code="duplicate_identity",
-        severity="warning",
+        severity="error",
         node_id=None,
         edge_id=None,
         message="m",
@@ -534,7 +600,7 @@ def test_recorded_findings_are_deduplicated_by_finding_id() -> None:
     report = validate_chain(_clean_graph(), recorded_findings=(finding, finding))
 
     assert report.findings == (finding,)
-    assert report.counts_by_severity == {"warning": 1}
+    assert report.counts_by_severity == {"error": 1}
 
 
 def test_issue_sink_and_claim_adapter_report_one_reference_problem_once() -> None:
@@ -776,13 +842,13 @@ _DOCUMENTED_SEVERITIES: dict[str, str] = {
     "evidence_out_of_run_context": "error",
     "inconsistent_derivation": "error",
     "privacy_carrier_invalid": "error",
+    "duplicate_identity": "error",  # recorder-only code; arrives through recorded_findings
     "unsupported_claim": "warning",
+    "prefill_unsupported": "warning",
     "missing_anchor": "warning",
     "duplicate_reference": "warning",
     "ambiguous_reference": "warning",
     "orphan_node": "info",
-    # recorder-only code; severity set in models.py (tasks.md 2.2 note)
-    "duplicate_identity": "warning",
 }
 _RANK = {"critical": 0, "error": 1, "warning": 2, "info": 3}
 
@@ -1234,6 +1300,11 @@ def _g_unsupported() -> ProvenanceGraph:
     return _graph(_source(), _evidence("e1"), _claim((), field_index=8))
 
 
+@_trigger("prefill_unsupported")
+def _g_prefill_unsupported() -> ProvenanceGraph:
+    return _graph(_source(), _evidence("e1"), _claim((), field_index=2, origin="prefill"))
+
+
 @_trigger("missing_anchor")
 def _g_anchor() -> ProvenanceGraph:
     return _graph(_source(), _evidence("e3", precision="absent"))
@@ -1287,8 +1358,16 @@ def _recorded_finding(code: str, severity: str, n: int = 0) -> ValidationFinding
 def test_recorded_known_code_is_stamped_with_its_default_severity() -> None:
     report = validate_chain(_clean_graph(), recorded_findings=[_recorded_finding("duplicate_identity", "info")])
 
-    assert [(f.code, f.severity) for f in report.findings] == [("duplicate_identity", "warning")]
-    assert report.counts_by_severity == {"warning": 1}
+    assert [(f.code, f.severity) for f in report.findings] == [("duplicate_identity", "error")]
+    assert report.counts_by_severity == {"error": 1}
+
+
+def test_recorded_duplicate_identity_stamped_warning_is_restamped_to_error() -> None:
+    """A finding recorded under the old ``warning`` default reports at the current ``error`` default."""
+    report = validate_chain(_clean_graph(), recorded_findings=[_recorded_finding("duplicate_identity", "warning")])
+
+    assert [(f.code, f.severity) for f in report.findings] == [("duplicate_identity", "error")]
+    assert report.counts_by_severity == {"error": 1}
 
 
 def test_recorded_unknown_code_keeps_its_own_severity_and_is_reported() -> None:

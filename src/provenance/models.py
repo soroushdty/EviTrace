@@ -382,15 +382,20 @@ DEFAULT_SEVERITIES: Mapping[str, Severity] = _FrozenDict(
         "evidence_out_of_run_context": "error",
         "inconsistent_derivation": "error",
         "privacy_carrier_invalid": "error",
+        # Recorded by ProvenanceRecorder when one node_id is recorded twice with
+        # differing content; the first record is kept. ``error`` because two
+        # same-content PDFs collide on one source id and the second record is
+        # dropped while completeness would otherwise read complete.
+        "duplicate_identity": "error",
         # warning
         "unsupported_claim": "warning",
+        # Emitted instead of ``unsupported_claim`` for an unsupported claim of
+        # ``origin="prefill"`` (a fallback value citing nothing, 5.7); a code of
+        # its own so the policy is overridable on its own.
+        "prefill_unsupported": "warning",
         "missing_anchor": "warning",
         "duplicate_reference": "warning",
         "ambiguous_reference": "warning",
-        # Recorded by ProvenanceRecorder when one node_id is recorded twice with
-        # differing content; the first record is kept. Not in the ChainValidator
-        # table of design.md, so its severity is set here.
-        "duplicate_identity": "warning",
         # info
         "orphan_node": "info",
     }

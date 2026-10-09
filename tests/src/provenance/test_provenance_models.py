@@ -601,8 +601,9 @@ def test_extension_check_applies_to_direct_base_construction() -> None:
 # ---------------------------------------------------------------------------
 
 # Every finding code named anywhere in design.md: the ChainValidator check set
-# and default table, the privacy-carrier rejection path, and the recorder's
-# duplicate-identity finding.
+# and default table (which, since the 2026-10-09 amendment, includes the
+# recorder's duplicate-identity finding and the prefill-unsupported finding),
+# and the privacy-carrier rejection path.
 _DESIGN_FINDING_CODES = {
     "dangling_reference": "critical",
     "graph_cycle": "critical",
@@ -611,7 +612,9 @@ _DESIGN_FINDING_CODES = {
     "evidence_out_of_run_context": "error",
     "inconsistent_derivation": "error",
     "privacy_carrier_invalid": "error",
+    "duplicate_identity": "error",
     "unsupported_claim": "warning",
+    "prefill_unsupported": "warning",
     "missing_anchor": "warning",
     "duplicate_reference": "warning",
     "ambiguous_reference": "warning",
@@ -624,12 +627,18 @@ def test_default_severity_table_matches_the_design_table(code: str) -> None:
     assert DEFAULT_SEVERITIES[code] == _DESIGN_FINDING_CODES[code]
 
 
-def test_default_severity_table_covers_the_recorder_duplicate_identity_finding() -> None:
-    assert DEFAULT_SEVERITIES["duplicate_identity"] in get_args(Severity)
+def test_duplicate_identity_defaults_to_error() -> None:
+    """Decision A3 (2026-10-09): same-content PDFs collide on one source id and the second record is dropped."""
+    assert DEFAULT_SEVERITIES["duplicate_identity"] == "error"
+
+
+def test_prefill_unsupported_is_its_own_warning_code() -> None:
+    """5.7: an unsupported prefilled value has a dedicated, separately overridable code."""
+    assert DEFAULT_SEVERITIES["prefill_unsupported"] == "warning"
 
 
 def test_default_severity_table_has_no_undeclared_codes() -> None:
-    assert set(DEFAULT_SEVERITIES) == set(_DESIGN_FINDING_CODES) | {"duplicate_identity"}
+    assert set(DEFAULT_SEVERITIES) == set(_DESIGN_FINDING_CODES)
 
 
 def test_every_default_severity_is_a_severity_member() -> None:

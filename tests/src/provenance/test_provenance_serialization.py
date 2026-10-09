@@ -602,6 +602,17 @@ def test_edge_order_is_preserved_even_when_not_sorted() -> None:
     assert restored == graph
 
 
+def test_a_prefill_unsupported_finding_round_trips_as_a_free_string_code() -> None:
+    """Task 4.8: adding a finding code needs no schema change; the finding survives the artifact unchanged."""
+    graph = _graph(_source(), _evidence(), _claim(1, origin="prefill", support="unsupported"))
+    validated = attach_validation(graph, validate_chain(graph))
+    assert "prefill_unsupported" in {finding.code for finding in validated.validation.findings}
+
+    restored = graph_from_dict(_json_round_trip(graph_to_dict(validated)))
+
+    assert restored == validated
+
+
 def test_a_graph_without_reports_round_trips_with_null_reports() -> None:
     graph = _small_graph()
     payload = graph_to_dict(graph)

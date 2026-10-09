@@ -19,6 +19,9 @@ requirements 2.1–2.6):
   per-document mark — so a failure marked for one document leaves only that
   document and the claims its segment covers undetermined, and an empty run is
   undetermined (task 4.6);
+- the prefill policy (5.7, task 4.8): an ``unsupported`` or ``missing_anchor``
+  prefill-origin claim is incomplete at claim level only and does not make its
+  document or the run incomplete; other gaps aggregate normally;
 - both ``stage_contracts_strict`` behaviours;
 - data only: no file, no rendered output, attachment via ``attach_completeness`` (2.6);
 - a realistic run (real adapters + recorder + ``build_graph``) is
@@ -151,7 +154,14 @@ def _evidence(local_id: str, *, source_id: str = _SRC, precision: str = "exact")
     )
 
 
-def _claim(cited: tuple[str, ...], *, field_index: int = 7, source_id: str = _SRC, support: str = "supported") -> ClaimNode:
+def _claim(
+    cited: tuple[str, ...],
+    *,
+    field_index: int = 7,
+    source_id: str = _SRC,
+    support: str = "supported",
+    origin: str = "model",
+) -> ClaimNode:
     return ClaimNode(
         node_id=derive_claim_id(source_id, field_index),
         kind="claim",
@@ -162,7 +172,7 @@ def _claim(cited: tuple[str, ...], *, field_index: int = 7, source_id: str = _SR
         field_index=field_index,
         field_name="sample_size",
         value_digest="0123456789abcdef",
-        origin="model",
+        origin=origin,  # type: ignore[arg-type]
         support=support,  # type: ignore[arg-type]
         cited_evidence_ids=cited,
         confidence="high",
@@ -917,6 +927,106 @@ def test_unattributed_missing_segment_makes_the_run_undetermined_and_is_not_an_u
     assert report.run.state == "undetermined"
     assert report.run.responsible_stages == ("unattributed",)
     assert "not declared" not in (report.run.reason or "")
+
+
+# ---------------------------------------------------------------------------
+# Prefill policy (5.7, task 4.8): an incomplete prefill claim is reported at claim level only
+# ---------------------------------------------------------------------------
+
+_HEADER = format_evidence_id(_SRC, "M-first-author")
+_PREFILL_STATUS = {**_BASE_STATUS, "metadata_prefill": "complete"}
+
+
+def _prefill_gap_nodes(origin: str) -> tuple[list[ProvenanceNode], ClaimNode, ClaimNode]:
+    """One traced model claim plus two prefilled-style claims: one citing an anchorless header node, one citing nothing."""
+    anchorless = _claim((_HEADER,), field_index=1, support="missing_anchor", origin=origin)
+    bare = _claim((), field_index=2, support="unsupported", origin=origin)
+    nodes: list[ProvenanceNode] = [
+        *_minimal_nodes(),
+        _evidence("M-first-author", precision="absent"),
+        anchorless,
+        bare,
+        _step((_HEADER,), (anchorless.node_id, bare.node_id), stage="metadata_prefill", kind="prefill"),
+    ]
+    return nodes, anchorless, bare
+
+
+def test_document_whose_only_gaps_are_unsupported_and_missing_anchor_prefill_claims_is_complete() -> None:
+    nodes, anchorless, bare = _prefill_gap_nodes("prefill")
+    _, report = _compute(_recorded(nodes, edges=_with_edges(nodes), status=_PREFILL_STATUS))
+
+    header_claim = report.claims[anchorless.node_id]
+    fallback_claim = report.claims[bare.node_id]
+    assert (header_claim.state, header_claim.reason) == ("incomplete", "missing_anchor")
+    assert header_claim.missing_record_kinds == ("anchor",)
+    assert (fallback_claim.state, fallback_claim.reason) == ("incomplete", "unsupported")
+    assert fallback_claim.missing_record_kinds == ("evidence",)
+    assert fallback_claim.responsible_stages == ("metadata_prefill",)
+    assert report.documents[_SRC] == _COMPLETE
+    assert report.run == _COMPLETE
+
+
+def test_the_same_gaps_on_model_claims_make_the_document_and_run_incomplete() -> None:
+    nodes, _, _ = _prefill_gap_nodes("model")
+    _, report = _compute(_recorded(nodes, edges=_with_edges(nodes), status=_PREFILL_STATUS))
+
+    assert report.documents[_SRC].state == "incomplete"
+    assert report.documents[_SRC].reason == "missing_anchor; unsupported"
+    assert report.run.state == "incomplete"
+
+
+def test_an_undetermined_prefill_claim_follows_the_normal_aggregation() -> None:
+    broken = dataclasses.replace(_evidence("e3"), anchor=_anchor("bogus"))
+    lost = _claim((format_evidence_id(_SRC, "e3"),), field_index=1, origin="prefill")
+    nodes: list[ProvenanceNode] = [
+        *_minimal_nodes(),
+        broken,
+        lost,
+        _step((_E1,), (lost.node_id,), stage="metadata_prefill", kind="prefill"),
+    ]
+    _, report = _compute(_recorded(nodes, edges=_with_edges(nodes), status=_PREFILL_STATUS))
+
+    assert report.claims[lost.node_id].state == "undetermined"
+    assert report.documents[_SRC].state == "undetermined"
+    assert report.run.state == "undetermined"
+
+
+def test_a_prefill_claim_missing_its_derivation_still_makes_the_document_incomplete() -> None:
+    """Only the support gaps (unsupported, missing_anchor) are claim-level only; missing records are not."""
+    produced = _claim((_E1,), field_index=1, origin="prefill")
+    orphaned = _claim((), field_index=2, support="unsupported", origin="prefill")
+    nodes: list[ProvenanceNode] = [
+        *_minimal_nodes(),
+        produced,
+        orphaned,
+        _step((_E1,), (produced.node_id,), stage="metadata_prefill", kind="prefill"),
+    ]
+    _, report = _compute(_recorded(nodes, edges=_with_edges(nodes), status=_PREFILL_STATUS))
+
+    assert report.claims[orphaned.node_id].state == "incomplete"
+    assert report.claims[orphaned.node_id].reason == "missing_records; unsupported"
+    document = report.documents[_SRC]
+    assert (document.state, document.reason) == ("incomplete", "missing_records")
+    assert document.missing_record_kinds == ("derivation",)
+    assert report.run.state == "incomplete"
+
+
+def test_prefill_policy_end_to_end_with_validation_attached() -> None:
+    """validate_chain reports the prefill gap as a warning while completeness keeps the run complete."""
+    nodes, anchorless, bare = _prefill_gap_nodes("prefill")
+    recorded = _recorded(nodes, edges=_with_edges(nodes), status=_PREFILL_STATUS)
+    graph = build_graph(recorded)
+    validation = validate_chain(graph)
+
+    report = compute_completeness(attach_validation(graph, validation), recorded)
+
+    assert [f.node_id for f in validation.findings if f.code == "prefill_unsupported"] == [bare.node_id]
+    assert "unsupported_claim" not in {f.code for f in validation.findings}
+    assert _HEADER in {f.node_id for f in validation.findings if f.code == "missing_anchor"}
+    assert report.claims[anchorless.node_id].state == "incomplete"
+    assert report.claims[bare.node_id].state == "incomplete"
+    assert report.documents[_SRC] == _COMPLETE
+    assert report.run == _COMPLETE
 
 
 def test_document_state_is_the_worst_claim_and_undetermined_outranks_incomplete() -> None:

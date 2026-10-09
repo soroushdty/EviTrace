@@ -62,7 +62,18 @@ Claim support (2.4)
     the stage that produced the claim), never merged. Stage responsibility
     uses the event-log projection's rule: the earliest declared stage among
     non-in-place producing steps, else the sole contract stage for the kind,
-    else ``"unattributed"``. Prefill-origin claims get no exemption.
+    else ``"unattributed"``.
+
+Prefill policy (5.7)
+    A claim of ``origin="prefill"`` is classified like any other claim, and
+    its ``unsupported`` (a fallback value citing nothing) or
+    ``missing_anchor`` (a TEI-header value citing a header metadata node that
+    GROBID gives no coordinates or ``xml:id``) gap is reported on the claim.
+    Those two gaps are reported **at claim level only**: they do not by
+    themselves make the claim's document or the run incomplete (the signal is
+    the ``prefill_unsupported`` and ``missing_anchor`` validation findings).
+    Every other contribution of a prefill claim — ``missing_records``,
+    ``undetermined`` — and every claim of another origin aggregates normally.
 
 Undetermined (2.5)
     - *Run-wide failed stage* (``source_id=None``). The failure covers every
@@ -109,9 +120,9 @@ Undetermined (2.5)
     failure is honoured in both modes.
 
 Aggregation (2.2)
-    A document's state is the most severe of its own findings and its claims;
-    the run's is the most severe of its own findings and its documents;
-    ``undetermined`` outranks ``incomplete``. An aggregated artifact carries
+    A document's state is the most severe of its own findings and its claims
+    (subject to the prefill policy); the run's is the most severe of its own
+    findings and its documents; ``undetermined`` outranks ``incomplete``. An aggregated artifact carries
     the reasons, missing kinds and responsible stages of the contributions at
     its own (most severe) state; reasons are joined with ``"; "`` in sorted
     order, kinds are sorted, stages follow the declared stage order.
@@ -170,6 +181,9 @@ _SCOPES = frozenset({"run", "document", "claim"})
 _REASON_UNSUPPORTED = "unsupported"
 _REASON_MISSING_ANCHOR = "missing_anchor"
 _REASON_MISSING_RECORDS = "missing_records"
+_PREFILL_ORIGIN = "prefill"
+_CLAIM_LEVEL_ONLY_REASONS = frozenset({_REASON_UNSUPPORTED, _REASON_MISSING_ANCHOR})
+"""Support gaps of a prefill-origin claim that are reported on the claim but not aggregated (5.7)."""
 _ANCHOR_KIND = "anchor"
 _REASON_SEPARATOR = "; "
 
@@ -713,16 +727,34 @@ class _Analysis:
     # Assembly
     # ------------------------------------------------------------------
 
+    def aggregated_claim_state(self, claim_id: str, state: ArtifactCompleteness) -> ArtifactCompleteness:
+        """The claim state its document (or the run) aggregates: ``state``, except under the prefill policy.
+
+        For a prefill-origin claim the ``incomplete`` support gaps
+        (``unsupported``, ``missing_anchor``) are dropped before combining, so
+        they stay on the claim alone; its other contributions still count.
+        """
+        node = self.nodes.get(claim_id)
+        if not isinstance(node, ClaimNode) or node.origin != _PREFILL_ORIGIN:
+            return state
+        kept = [
+            contribution
+            for contribution in self.claims[claim_id]
+            if not (contribution[0] == _INCOMPLETE and contribution[1] and contribution[1] <= _CLAIM_LEVEL_ONLY_REASONS)
+        ]
+        return _combine(kept)
+
     def result(self) -> CompletenessReport:
         claims = {claim_id: _combine(self.claims[claim_id]) for claim_id in sorted(self.claims)}
 
         per_doc: dict[str, list[_Contribution]] = {doc: list(self.docs.get(doc, ())) for doc in self.documents}
         for claim_id, state in claims.items():
+            lifted = _lift(self.aggregated_claim_state(claim_id, state))
             doc = self.claim_doc.get(claim_id)
             if doc:
-                per_doc.setdefault(doc, []).append(_lift(state))
+                per_doc.setdefault(doc, []).append(lifted)
             else:
-                self.run.append(_lift(state))
+                self.run.append(lifted)
 
         has_records = {doc for docs in self.stage_docs.values() for doc in docs}
         has_records.update(doc for doc in self.claim_doc.values() if doc)
