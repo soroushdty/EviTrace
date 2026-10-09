@@ -69,7 +69,7 @@
   - _Depends: 2.3, 2.4_
   - _Boundary: ProvenanceRecorder_
 
-- [ ] 3.2 (P) Implement the source and run identity adapter
+- [x] 3.2 (P) Implement the source and run identity adapter
   - Convert a checkpoint-identity mapping into a source node carrying the document fingerprint, source format, source label, configuration fingerprint, schema fingerprint, and model identifiers.
   - Build the run identity from the per-document identity mappings, computing no fingerprints of its own.
   - Produce a valid source identity from content fingerprints alone when descriptive metadata is absent, and copy source metadata without evaluating disclosure.
@@ -286,3 +286,5 @@
 - 3.1 → 6.1/6.4: issue sink is `(code, message, details)`; the claim is named only via `details["node_id"]`. The validator has no source_id, so 6.4 must wrap the sink per document and inject `node_id = derive_claim_id(source_id, field_index)` (else 5.4 "naming the claim" fails on the real path). Unknown codes raise ValueError even when disabled — 6.1 must pass only dangling_reference / duplicate_reference / ambiguous_reference, with a test.
 - 3.1 → 4.5: stage status is run-wide and escalate-only (not_run < complete < failed); one document's failure marks the stage failed for the run. `RecordedRun` also carries `stage_failure_reasons`. 6.5 must catch `UnknownStageError` (raised in both modes) and pass a real bool for `enabled`.
 - 3.1 → 7.1: `import provenance` pulls in `utils.logging_utils` → `utils.path_utils`, which reads configs/config.yaml and imports yaml at import time (allowed: design lists utils.logging_utils as a recorder dependency).
+- 3.2 (NEEDS HUMAN CONFIRMATION): the identity adapter tolerates but drops `schema_version`, `output_path` and unknown ManifestIdentity keys (SourceNode has no passthrough field; extensions need an `x-<ns>-` key), whereas the shared adapter precondition says "preserved". run_id digests config/schema fingerprints + model ids only (not schema_version, document fingerprints or created_at), so same-config runs share a run_id; created_at distinguishes them.
+- 3.2 → 6.3/6.5: manifest sentinels `"nohash"` / `"no_extraction_map"` are taken verbatim as fingerprints (all unreadable PDFs → `src:nohash`); 6.3 should treat them as missing. `run_identity_from_identities` raises InvalidIdentifierError on disagreeing run-wide fingerprints or empty input — 6.5 must catch and degrade, never abort extraction.

@@ -6,3 +6,4 @@ Each adapter module appends exactly one re-export here when it is created.
 """
 
 __all__: list[str] = []
+from provenance.adapters.identity_adapter import run_identity_from_identities, source_node_from_identity  # noqa: E402,F401
