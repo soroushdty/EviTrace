@@ -645,6 +645,60 @@ def test_failed_stage_in_the_recorded_run_counts_even_without_a_graph_segment() 
     assert "boom" in (report.claims[derive_claim_id(_SRC, 7)].reason or "")
 
 
+@pytest.mark.parametrize("stage", ["document_extraction", "evidence_index"])
+def test_run_wide_failure_of_a_stage_with_no_derivation_steps_makes_the_run_undetermined(stage: str) -> None:
+    """Task 4.9: the stage left records for every document but no step, so nothing else would catch it."""
+    nodes = _minimal_nodes()
+    assert not any(isinstance(n, DerivationStep) and n.stage == stage for n in nodes)
+    recorded = _recorded(
+        nodes,
+        edges=_with_edges(nodes),
+        status={**_BASE_STATUS, stage: "failed"},
+        reasons={stage: "lorem outage"},
+    )
+
+    _, report = _compute(recorded)
+
+    assert report.run.state == "undetermined"
+    assert "lorem outage" in (report.run.reason or "")
+    assert stage in report.run.responsible_stages
+    # Documents keep the pre-4.9 run-wide rule: no step of the stage covers them, and they hold its records.
+    assert report.documents[_SRC] == _COMPLETE
+
+
+def test_run_wide_failure_of_a_stage_with_no_records_at_all_makes_the_run_undetermined() -> None:
+    nodes = _minimal_nodes()
+    recorded = _recorded(
+        nodes, edges=_with_edges(nodes), status={**_BASE_STATUS, "quality_control": "failed"}
+    )
+
+    _, report = _compute(recorded)
+
+    assert report.run.state == "undetermined"
+    assert "quality_control" in (report.run.reason or "")
+    assert report.documents[_SRC].state == "undetermined"  # the likely failing document, as before
+
+
+def test_per_document_failure_of_a_stage_with_no_steps_leaves_the_run_rule_unchanged() -> None:
+    """Only a run-wide mark gains the run contribution; a per-document one stays scoped to its document."""
+    nodes = [*_minimal_nodes(), _source(_FP2), _evidence("e1", source_id=_SRC2)]
+    recorded = _recorded(
+        nodes,
+        edges=_with_edges(nodes),
+        status={"document_extraction": "complete", "evidence_index": "complete"},
+        fingerprints=(_FP, _FP2),
+        doc_status={_SRC2: {"evidence_index": "failed"}},
+        doc_reasons={_SRC2: {"evidence_index": ("lorem outage",)}},
+    )
+
+    _, report = _compute(recorded)
+
+    assert report.documents[_SRC] == _COMPLETE
+    assert report.documents[_SRC2].state == "undetermined"
+    assert report.run.state == "undetermined"
+    assert report.run.reason == report.documents[_SRC2].reason
+
+
 # ---------------------------------------------------------------------------
 # Stage status scoped to individual documents (task 4.6; 2.1, 2.2, 2.5)
 # ---------------------------------------------------------------------------

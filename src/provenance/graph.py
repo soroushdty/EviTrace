@@ -14,13 +14,15 @@ Partial preservation (1.6, 7.4)
     fails any check — or is not a record at all — becomes one
     :class:`~provenance.models.MissingSegment` naming the stage, the record
     kind, a non-empty reason and the affected identifiers, and the rest of the
-    graph is still produced. A stage the snapshot marks ``failed`` is reported
-    as a further segment (``record_kind="stage"``) carrying the recorded
-    failure reason (2.5): a run-wide failure yields one segment whose
-    ``affected_ids`` are all of that stage's derivation-step IDs; a failure
-    marked for one document yields one segment per ``(stage, source_id)``
-    whose ``affected_ids`` are the source ID followed by that document's
-    steps of the stage (a step belongs to the documents its input and output
+    graph is still produced. The segment's stage is :func:`attribute_stage`
+    of the record (an edge takes the stage of the materialized node it
+    leaves), so it matches the event log and the completeness entry. A stage
+    the snapshot marks ``failed`` is reported as a further segment
+    (``record_kind="stage"``) carrying the recorded failure reason (2.5): a
+    run-wide failure yields one segment whose ``affected_ids`` are all of
+    that stage's derivation-step IDs; a failure marked for one document
+    yields one segment per ``(stage, source_id)`` whose ``affected_ids`` are
+    the source ID followed by that document's steps of the stage (a step belongs to the documents its input and output
     identifiers belong to) and whose reason lists every recorded reason. A
     stage that emitted nothing simply contributes no nodes.
     :func:`build_graph` never raises for a ``RecordedRun``.
@@ -50,6 +52,35 @@ Attachments (8.7)
     idempotent: attaching the same report twice yields an equal graph, and
     attaching a different report replaces the earlier one.
 
+Shared attribution rules (single owner)
+    This module owns the only implementations of the two attribution rules;
+    :func:`build_graph`, :mod:`provenance.projection`,
+    :mod:`provenance.completeness` and :mod:`provenance.validation` call
+    these public functions and keep no copy. An import guard (no identifier
+    shape constant or parser, no ``STAGE_ORDER`` in those modules) and a
+    generated agreement test enforce it:
+
+    - **document attribution** — :func:`document_of` (the source ID an
+      identifier belongs to: a source node is its own document; an evidence or
+      claim node's ``source_id``, else the ``src:`` scope of its identifier;
+      derivation steps and validation records belong to no single document),
+      :func:`step_documents` (the documents a derivation step's input and
+      output identifiers belong to), :func:`stage_segment_document` (the
+      document a per-document ``record_kind="stage"`` segment names first),
+      :func:`is_claim_identifier` and :func:`evidence_id_parts` (the source
+      and local part of an evidence identifier). :mod:`provenance.projection`,
+      :mod:`provenance.completeness` and :mod:`provenance.validation` never
+      interpret an identifier's shape themselves;
+    - **stage attribution** — :func:`attribute_stage` returns ``(stage,
+      basis)``: ``own`` (a derivation step's own ``stage``); else
+      ``producing_step`` (the earliest stage, by :func:`stage_sort_key`, among
+      the derivation steps that list the node in ``output_ids`` — a step that
+      also lists it in ``input_ids`` is an in-place transform and does not
+      produce it; see :func:`producing_stages`); else ``stage_contract`` (the
+      sole declared stage whose contract requires the node's kind, see
+      :func:`sole_contract_stage`); else ``none`` with stage
+      :data:`UNATTRIBUTED_STAGE`.
+
 Evidence text is never copied onto claim nodes; the graph holds references
 only (1.3). Imports only the standard library, ``provenance.models``,
 ``provenance.identity``, ``provenance.contracts`` and ``utils.logging_utils``.
@@ -59,7 +90,7 @@ from __future__ import annotations
 
 import dataclasses
 import typing
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -68,7 +99,9 @@ from provenance.identity import (
     CLAIM_ID_PREFIX,
     EVIDENCE_SCOPE_SEPARATOR,
     SOURCE_ID_PREFIX,
+    InvalidIdentifierError,
     derive_validation_id,
+    parse_evidence_id,
 )
 from provenance.models import (
     UNKNOWN_PRIVACY,
@@ -93,6 +126,7 @@ from provenance.models import (
     RunIdentity,
     SourceAnchor,
     SourceNode,
+    StageContract,
     ValidationRecord,
     _Record,  # the shared mapping-freezing mixin; ProvenanceGraph is a provenance dataclass too
 )
@@ -102,10 +136,20 @@ __all__ = [
     "PROVENANCE_SCHEMA_ID",
     "PROVENANCE_SCHEMA_VERSION",
     "VALIDATION_CHECK_NAME",
+    "UNATTRIBUTED_STAGE",
     "ProvenanceGraph",
     "build_graph",
     "attach_validation",
     "attach_completeness",
+    "document_of",
+    "step_documents",
+    "stage_segment_document",
+    "is_claim_identifier",
+    "evidence_id_parts",
+    "stage_sort_key",
+    "producing_stages",
+    "sole_contract_stage",
+    "attribute_stage",
 ]
 
 logger = get_logger(__name__)
@@ -119,7 +163,11 @@ PROVENANCE_SCHEMA_VERSION = "1.0.0"
 VALIDATION_CHECK_NAME = "chain_validation"
 """``check_name`` of the validation record :func:`attach_validation` adds."""
 
-_UNATTRIBUTED = "unattributed"
+UNATTRIBUTED_STAGE = "unattributed"
+"""Stage of a record no derivation step produced and no single stage contract claims.
+
+Not a declared stage."""
+
 _STAGE_RECORD_KIND = "stage"
 _EDGE_RECORD_KIND = "edge"
 _NODE_RECORD_KIND = "node"
@@ -296,7 +344,180 @@ def _reason(exc: BaseException) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Stage and kind attribution for missing segments
+# Shared attribution rules (single owner; see the module docstring)
+# ---------------------------------------------------------------------------
+
+
+def _identifiers(value: object) -> tuple[str, ...]:
+    """The non-empty string identifiers of an ``input_ids`` / ``output_ids`` value."""
+    if not isinstance(value, (tuple, list)):
+        return ()
+    return tuple(item for item in value if _non_empty_str(item))
+
+
+def _scope_of(identifier: str) -> str | None:
+    """The ``src:`` scope of a source, evidence or claim identifier, if it has one."""
+    text = identifier[len(CLAIM_ID_PREFIX) :] if identifier.startswith(CLAIM_ID_PREFIX) else identifier
+    if not text.startswith(SOURCE_ID_PREFIX):
+        return None
+    source = text.partition(EVIDENCE_SCOPE_SEPARATOR)[0]
+    return source if len(source) > len(SOURCE_ID_PREFIX) else None
+
+
+def document_of(identifier: str, nodes: Mapping[str, ProvenanceNode]) -> str | None:
+    """The source ID ``identifier`` belongs to, or ``None`` when it belongs to no single document.
+
+    A source node is its own document; an evidence or claim node belongs to
+    its ``source_id``, else to the ``src:`` scope of its identifier;
+    derivation steps and validation records belong to no single document. An
+    identifier that is not a node is attributed by its shape (``src:<fp>``,
+    ``src:<fp>#<local>``, ``claim:src:<fp>#f<n>``). Never raises.
+    """
+    if not _non_empty_str(identifier):
+        return None
+    node = nodes.get(identifier)
+    if isinstance(node, SourceNode):
+        return node.node_id
+    if isinstance(node, (EvidenceNode, ClaimNode)) and _non_empty_str(node.source_id):
+        return node.source_id
+    if node is not None and not isinstance(node, (EvidenceNode, ClaimNode)):
+        return None  # derivation steps and validation records belong to no single document
+    return _scope_of(identifier)
+
+
+def step_documents(step: DerivationStep, nodes: Mapping[str, ProvenanceNode]) -> frozenset[str]:
+    """The documents a derivation step touches: those of its input and output identifiers."""
+    identifiers = (*_identifiers(getattr(step, "input_ids", ())), *_identifiers(getattr(step, "output_ids", ())))
+    return frozenset(document for document in (document_of(i, nodes) for i in identifiers) if document)
+
+
+def stage_segment_document(segment: MissingSegment) -> str | None:
+    """The source ID a per-document ``record_kind="stage"`` segment names first; ``None`` otherwise.
+
+    :func:`build_graph` lists the source ID first in a per-document stage
+    segment and only step IDs in a run-wide one, so a run-wide segment (or any
+    other segment) yields ``None``.
+    """
+    if not isinstance(segment, MissingSegment) or segment.record_kind != _STAGE_RECORD_KIND:
+        return None
+    ids = _identifiers(segment.affected_ids)
+    if ids and EVIDENCE_SCOPE_SEPARATOR not in ids[0] and _scope_of(ids[0]) == ids[0]:
+        return ids[0]
+    return None
+
+
+def is_claim_identifier(identifier: str, nodes: Mapping[str, ProvenanceNode]) -> bool:
+    """Whether ``identifier`` is a claim: a claim node, or (not being a node) a ``claim:`` identifier."""
+    if not _non_empty_str(identifier):
+        return False
+    node = nodes.get(identifier)
+    return isinstance(node, ClaimNode) or (node is None and identifier.startswith(CLAIM_ID_PREFIX))
+
+
+def evidence_id_parts(identifier: str) -> tuple[str, str] | None:
+    """``(source_id, local_id)`` of an evidence identifier ``<source_id>#<local_id>``; ``None`` otherwise.
+
+    The never-raising form of :func:`provenance.identity.parse_evidence_id`.
+    """
+    if not _non_empty_str(identifier):
+        return None
+    try:
+        return parse_evidence_id(identifier)
+    except InvalidIdentifierError:
+        return None
+
+
+def stage_sort_key(stage: str) -> tuple[int, str]:
+    """Declared stages in ``STAGE_ORDER`` first, then undeclared stages by name, ``"unattributed"`` last."""
+    if stage in STAGE_ORDER:
+        return (STAGE_ORDER.index(stage), stage)
+    return (len(STAGE_ORDER) + (1 if stage == UNATTRIBUTED_STAGE else 0), stage)
+
+
+def producing_stages(nodes: Mapping[str, ProvenanceNode]) -> dict[str, frozenset[str]]:
+    """``node_id -> stages`` of the derivation steps that produce it.
+
+    A step produces each identifier in its ``output_ids`` that is not also in
+    its ``input_ids``; a step listing an identifier on both sides is an
+    in-place transform (filter, annotate, ...) and produces nothing. Steps
+    without a non-empty ``stage`` are ignored. Pass the result to
+    :func:`attribute_stage`.
+    """
+    produced: dict[str, set[str]] = {}
+    for node in nodes.values():
+        if not isinstance(node, DerivationStep) or not _non_empty_str(node.stage):
+            continue
+        inputs = set(_identifiers(node.input_ids))
+        for output_id in _identifiers(node.output_ids):
+            if output_id not in inputs:
+                produced.setdefault(output_id, set()).add(node.stage)
+    return {node_id: frozenset(stages) for node_id, stages in produced.items()}
+
+
+def sole_contract_stage(
+    kind: str, contracts: Mapping[str, StageContract] = STAGE_CONTRACTS
+) -> str | None:
+    """The one stage in ``contracts`` whose contract requires ``kind``, if exactly one does."""
+    if not isinstance(kind, str) or not isinstance(contracts, Mapping):
+        return None
+    stages = [
+        stage
+        for stage, contract in contracts.items()
+        if isinstance(getattr(contract, "required_record_kinds", None), tuple) and kind in contract.required_record_kinds
+    ]
+    return stages[0] if len(stages) == 1 else None
+
+
+def attribute_stage(
+    record: object,
+    producers: Mapping[str, Collection[str]],
+    *,
+    identifiers: Iterable[str] | None = None,
+    kind: str | None = None,
+    contracts: Mapping[str, StageContract] = STAGE_CONTRACTS,
+) -> tuple[str, str]:
+    """``(stage, basis)`` of a record — the shared stage-attribution rule.
+
+    ``record`` is a node, a node identifier, or a value that failed to
+    materialize. ``producers`` is :func:`producing_stages` of the graph's
+    nodes. ``identifiers`` defaults to the node's ``node_id`` (or the
+    identifier itself) and ``kind`` to the node's ``kind``; pass them for a
+    value that is not a well-formed node. The first rule that applies wins:
+
+    1. ``own`` — a derivation step's own non-empty ``stage``;
+    2. ``producing_step`` — the earliest stage (:func:`stage_sort_key`) among
+       the producing steps of any of ``identifiers`` (in-place steps excluded);
+    3. ``stage_contract`` — :func:`sole_contract_stage` of ``kind``;
+    4. ``none`` — :data:`UNATTRIBUTED_STAGE`.
+    """
+    if isinstance(record, DerivationStep) and _non_empty_str(record.stage):
+        return record.stage, "own"
+    if identifiers is None:
+        if isinstance(record, str):
+            identifiers = (record,)
+        elif isinstance(record, ProvenanceNode):
+            identifiers = (record.node_id,)
+        else:
+            identifiers = ()
+    if kind is None and isinstance(record, ProvenanceNode):
+        kind = record.kind
+    stages = {
+        stage
+        for identifier in identifiers
+        if _non_empty_str(identifier)
+        for stage in producers.get(identifier, ())
+        if _non_empty_str(stage)
+    }
+    if stages:
+        return min(stages, key=stage_sort_key), "producing_step"
+    contract = sole_contract_stage(kind, contracts) if isinstance(kind, str) else None
+    if contract is not None:
+        return contract, "stage_contract"
+    return UNATTRIBUTED_STAGE, "none"
+
+
+# ---------------------------------------------------------------------------
+# Stage and kind of a record that failed to materialize
 # ---------------------------------------------------------------------------
 
 
@@ -311,30 +532,15 @@ def _record_kind(value: object) -> str:
     return _NODE_RECORD_KIND
 
 
-def _sole_stage_for_kind(record_kind: str) -> str | None:
-    """The one declared stage that must emit ``record_kind``, if exactly one does."""
-    stages = [stage for stage in STAGE_ORDER if record_kind in STAGE_CONTRACTS[stage].required_record_kinds]
-    return stages[0] if len(stages) == 1 else None
-
-
-def _attribute_stage(value: object, record_kind: str, producers: Mapping[str, str], ids: Iterable[str]) -> str:
-    """The stage a record belongs to: its own, its producing step's, or its kind's sole stage."""
-    own = getattr(value, "stage", None) if isinstance(value, DerivationStep) else None
-    if _non_empty_str(own):
-        return own  # type: ignore[return-value]
-    for identifier in ids:
-        if identifier in producers:
-            return producers[identifier]
-    return _sole_stage_for_kind(record_kind) or _UNATTRIBUTED
-
-
-def _edge_stage(edge: object, nodes: Mapping[str, ProvenanceNode], producers: Mapping[str, str]) -> str:
+def _edge_stage(
+    edge: object, nodes: Mapping[str, ProvenanceNode], producers: Mapping[str, Collection[str]]
+) -> str:
     """An edge belongs to the stage of the node it leaves, when that node materialized."""
     from_id = getattr(edge, "from_id", None) if isinstance(edge, ProvenanceEdge) else None
     from_node = nodes.get(from_id) if _non_empty_str(from_id) else None  # type: ignore[arg-type]
     if from_node is None:
-        return _UNATTRIBUTED
-    return _attribute_stage(from_node, from_node.kind, producers, (from_node.node_id,))
+        return UNATTRIBUTED_STAGE
+    return attribute_stage(from_node, producers)[0]
 
 
 def _ids_of(*candidates: object) -> tuple[str, ...]:
@@ -397,18 +603,6 @@ def _sort_edges(edges: Iterable[ProvenanceEdge]) -> tuple[ProvenanceEdge, ...]:
     return tuple(sorted(edges, key=lambda edge: edge.edge_id))
 
 
-def _producing_stages(nodes: Mapping[str, ProvenanceNode]) -> dict[str, str]:
-    """``output_id -> stage`` from the derivation steps that did materialize (``node_id`` order)."""
-    producers: dict[str, str] = {}
-    for node_id in sorted(nodes):
-        node = nodes[node_id]
-        if isinstance(node, DerivationStep) and isinstance(node.output_ids, (tuple, list)):
-            for output_id in node.output_ids:
-                if _non_empty_str(output_id):
-                    producers.setdefault(output_id, node.stage)
-    return producers
-
-
 def _materialize_nodes(
     recorded: RecordedRun, segments: list[MissingSegment]
 ) -> dict[str, ProvenanceNode]:
@@ -416,7 +610,7 @@ def _materialize_nodes(
     if items is None:
         segments.append(
             MissingSegment(
-                stage=_UNATTRIBUTED,
+                stage=UNATTRIBUTED_STAGE,
                 record_kind=_NODE_RECORD_KIND,
                 reason=f"snapshot nodes is not a mapping: {type(recorded.nodes).__name__}",
                 affected_ids=(),
@@ -434,11 +628,13 @@ def _materialize_nodes(
             continue
         nodes[node.node_id] = node
 
-    producers = _producing_stages(nodes)
+    producers = producing_stages(nodes)
     for key, value, reason in rejected:
         record_kind = _record_kind(value)
         affected = _ids_of(key, getattr(value, "node_id", None) if isinstance(value, ProvenanceNode) else None)
-        stage = _safe(lambda: _attribute_stage(value, record_kind, producers, affected), _UNATTRIBUTED)
+        stage = _safe(
+            lambda: attribute_stage(value, producers, identifiers=affected, kind=record_kind)[0], UNATTRIBUTED_STAGE
+        )
         segments.append(MissingSegment(stage=stage, record_kind=record_kind, reason=reason, affected_ids=affected))
     return nodes
 
@@ -449,12 +645,12 @@ def _materialize_edges(
     segments: list[MissingSegment],
 ) -> dict[str, ProvenanceEdge]:
     edges: dict[str, ProvenanceEdge] = {}
-    producers = _producing_stages(nodes)
+    producers = producing_stages(nodes)
     recorded_edges = _sequence(recorded.edges)
     if recorded_edges is None:
         segments.append(
             MissingSegment(
-                stage=_UNATTRIBUTED,
+                stage=UNATTRIBUTED_STAGE,
                 record_kind=_EDGE_RECORD_KIND,
                 reason=f"snapshot edges is not a sequence: {type(recorded.edges).__name__}",
                 affected_ids=(),
@@ -472,7 +668,7 @@ def _materialize_edges(
             affected = _ids_of(getattr(value, "edge_id", None) if isinstance(value, ProvenanceEdge) else None)
             if not affected and isinstance(value, ProvenanceEdge):
                 affected = _ids_of(value.from_id, value.to_id)
-            stage = _safe(lambda: _edge_stage(value, nodes, producers), _UNATTRIBUTED)
+            stage = _safe(lambda: _edge_stage(value, nodes, producers), UNATTRIBUTED_STAGE)
             segments.append(
                 MissingSegment(stage=stage, record_kind=_EDGE_RECORD_KIND, reason=_reason(exc), affected_ids=affected)
             )
@@ -483,36 +679,6 @@ def _materialize_edges(
         for edge in _structural_edges(node):
             edges.setdefault(edge.edge_id, edge)
     return edges
-
-
-def _document_of(identifier: str, nodes: Mapping[str, ProvenanceNode]) -> str | None:
-    """The source ID an identifier belongs to: from its node when materialized, else from its shape."""
-    node = nodes.get(identifier)
-    if isinstance(node, SourceNode):
-        return node.node_id
-    if isinstance(node, (EvidenceNode, ClaimNode)) and _non_empty_str(node.source_id):
-        return node.source_id
-    if node is not None and not isinstance(node, (EvidenceNode, ClaimNode)):
-        return None  # derivation steps and validation records belong to no single document
-    text = identifier[len(CLAIM_ID_PREFIX) :] if identifier.startswith(CLAIM_ID_PREFIX) else identifier
-    if not text.startswith(SOURCE_ID_PREFIX):
-        return None
-    source = text.partition(EVIDENCE_SCOPE_SEPARATOR)[0]
-    return source if len(source) > len(SOURCE_ID_PREFIX) else None
-
-
-def _step_documents(step: DerivationStep, nodes: Mapping[str, ProvenanceNode]) -> set[str]:
-    """The documents a derivation step's input and output identifiers belong to."""
-    documents: set[str] = set()
-    for ids in (step.input_ids, step.output_ids):
-        if not isinstance(ids, (tuple, list)):
-            continue
-        for identifier in ids:
-            if _non_empty_str(identifier):
-                document = _document_of(identifier, nodes)
-                if document:
-                    documents.add(document)
-    return documents
 
 
 def _failure_details(raw: object) -> list[str]:
@@ -546,7 +712,7 @@ def _failed_stage_segments(
     document_statuses = _items(recorded.document_stage_status) or []
     raw_document_reasons = recorded.document_stage_failure_reasons
     document_reasons = raw_document_reasons if isinstance(raw_document_reasons, Mapping) else {}
-    step_documents = {step.node_id: _step_documents(step, nodes) for step in steps}
+    documents_of_step = {step.node_id: step_documents(step, nodes) for step in steps}
     for source_id, by_stage in document_statuses:
         if not _non_empty_str(source_id):
             continue
@@ -562,7 +728,7 @@ def _failed_stage_segments(
                 else f"stage {stage!r} failed for document {source_id!r} (no reason recorded)"
             )
             affected = tuple(
-                sorted(step.node_id for step in steps if step.stage == stage and source_id in step_documents[step.node_id])
+                sorted(step.node_id for step in steps if step.stage == stage and source_id in documents_of_step[step.node_id])
             )
             segments.append(
                 MissingSegment(

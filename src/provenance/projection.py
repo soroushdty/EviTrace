@@ -9,11 +9,10 @@ This module reads nothing and writes nothing.
 
 Stage attribution
     Only :class:`~provenance.models.DerivationStep` carries a ``stage``. Every
-    other node takes a stage derived from the graph alone. The rule
-    deliberately differs from :mod:`provenance.graph`'s missing-segment
-    attribution, which takes the first producing step in ``node_id`` order and
-    counts in-place steps as producers; the two can therefore attribute the
-    same node to different stages. Here:
+    other node takes a stage derived from the graph alone, by the shared rule
+    :func:`provenance.graph.attribute_stage` — the same rule the graph builder
+    uses for missing segments and the completeness computation for
+    responsible stages, so the three always agree:
 
     1. ``own`` — a derivation step's own ``stage``;
     2. ``producing_step`` — the earliest stage (in the ordering below) of a
@@ -30,7 +29,8 @@ Stage attribution
 
 Ordering
     Events sort on ``(stage position, stage, node-kind rank, node_id)`` and are
-    numbered ``1..n`` in that order. A declared stage's position is its index
+    numbered ``1..n`` in that order; ``(stage position, stage)`` is
+    :func:`provenance.graph.stage_sort_key`. A declared stage's position is its index
     in ``STAGE_ORDER``; a stage name a derivation step carries but
     ``STAGE_ORDER`` does not declare sorts after every declared stage (by
     name), and ``"unattributed"`` sorts last. For declared stages this is
@@ -48,8 +48,8 @@ Event fields
     and attached reports are not nodes and produce no event; an attached
     validation report appears through its ``ValidationRecord`` node.
 
-Imports only the standard library (no I/O, clock or randomness module), ``provenance.models``,
-``provenance.contracts`` and ``provenance.graph``.
+Imports only the standard library (no I/O, clock or randomness module), ``provenance.models``
+and ``provenance.graph``.
 """
 
 from __future__ import annotations
@@ -60,8 +60,13 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any
 
-from provenance.contracts import STAGE_CONTRACTS, STAGE_ORDER
-from provenance.graph import ProvenanceGraph
+from provenance.graph import (
+    UNATTRIBUTED_STAGE,
+    ProvenanceGraph,
+    attribute_stage,
+    producing_stages,
+    stage_sort_key,
+)
 from provenance.models import (
     ClaimNode,
     DerivationStep,
@@ -78,9 +83,6 @@ __all__ = [
     "ProvenanceEvent",
     "project_event_log",
 ]
-
-UNATTRIBUTED_STAGE = "unattributed"
-"""Stage of a node no derivation step produced and no single stage contract claims."""
 
 _NODE_KIND_RANK: Mapping[str, int] = MappingProxyType(
     {kind: rank for rank, kind in enumerate(typing.get_args(NodeKind))}
@@ -126,68 +128,6 @@ class ProvenanceEvent(_Record):
     summary: Mapping[str, Any]
 
 
-def _stage_position(stage: str) -> int:
-    if stage in STAGE_ORDER:
-        return STAGE_ORDER.index(stage)
-    return len(STAGE_ORDER) + (1 if stage == UNATTRIBUTED_STAGE else 0)
-
-
-def _stage_key(stage: str) -> tuple[int, str]:
-    return (_stage_position(stage), stage)
-
-
-def _contract_stage(kind: str) -> str | None:
-    """The one declared stage whose contract requires ``kind``, if exactly one does."""
-    stages = [
-        stage
-        for stage in STAGE_ORDER
-        if stage in STAGE_CONTRACTS and kind in STAGE_CONTRACTS[stage].required_record_kinds
-    ]
-    return stages[0] if len(stages) == 1 else None
-
-
-def _ids(value: object) -> tuple[str, ...]:
-    if not isinstance(value, (tuple, list)):
-        return ()
-    return tuple(item for item in value if isinstance(item, str) and item)
-
-
-def _own_stage(node: ProvenanceNode) -> str | None:
-    stage = getattr(node, "stage", None) if isinstance(node, DerivationStep) else None
-    return stage if isinstance(stage, str) and stage else None
-
-
-def _producer_stages(nodes: Mapping[str, ProvenanceNode]) -> dict[str, str]:
-    """``node_id -> earliest stage`` of the derivation steps that produce it (in-place steps excluded)."""
-    earliest: dict[str, str] = {}
-    for node in nodes.values():
-        stage = _own_stage(node)
-        if stage is None:
-            continue
-        inputs = set(_ids(getattr(node, "input_ids", ())))
-        for output_id in _ids(getattr(node, "output_ids", ())):
-            if output_id in inputs:
-                continue  # in-place transform: the step kept one of its inputs
-            current = earliest.get(output_id)
-            if current is None or _stage_key(stage) < _stage_key(current):
-                earliest[output_id] = stage
-    return earliest
-
-
-def _attribute(node: ProvenanceNode, producers: Mapping[str, str]) -> tuple[str, str]:
-    """``(stage, stage_basis)`` for *node*, from the graph alone."""
-    own = _own_stage(node)
-    if own is not None:
-        return own, "own"
-    produced = producers.get(node.node_id)
-    if produced is not None:
-        return produced, "producing_step"
-    contract = _contract_stage(node.kind) if isinstance(node.kind, str) else None
-    if contract is not None:
-        return contract, "stage_contract"
-    return UNATTRIBUTED_STAGE, "none"
-
-
 def _event_kind(node: ProvenanceNode) -> str:
     if isinstance(node, DerivationStep):
         return f"derivation_{node.derivation_kind}"
@@ -218,13 +158,13 @@ def project_event_log(graph: ProvenanceGraph) -> tuple[ProvenanceEvent, ...]:
         for node_id, node in graph.nodes.items()
         if isinstance(node_id, str) and isinstance(node, ProvenanceNode)
     }
-    producers = _producer_stages(nodes)
+    producers = producing_stages(nodes)
 
     unordered = []
     for node_id, node in nodes.items():
-        stage, basis = _attribute(node, producers)
+        stage, basis = attribute_stage(node, producers)
         rank = _NODE_KIND_RANK.get(node.kind, len(_NODE_KIND_RANK))
-        unordered.append(((*_stage_key(stage), rank, node_id), node_id, stage, node, basis))
+        unordered.append(((*stage_sort_key(stage), rank, node_id), node_id, stage, node, basis))
     unordered.sort(key=lambda entry: entry[0])
 
     return tuple(

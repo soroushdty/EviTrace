@@ -21,14 +21,16 @@ Reference and structural checks
     re-reported; a live node pointing at such a record *is* reported, with
     ``details["covered_by_missing_segment"]`` set.
 ``source_not_represented`` (8.2)
-    An evidence or claim node's ``source_id`` (or a ``belongs_to_source``
-    edge) does not name a source node of the graph. Reported instead of, not
+    An evidence or claim node's document (:func:`provenance.graph.document_of`,
+    i.e. its ``source_id``; or a ``belongs_to_source`` edge) is not a source
+    node of the graph. Reported instead of, not
     in addition to, ``dangling_reference``.
 ``evidence_out_of_run_context`` (8.3)
     A claim cites a node that exists but is outside its run context:
     ``details["reasons"]`` lists ``not_evidence`` (the target is not an
     evidence node), ``foreign_run`` (its ``run_id`` is not the graph's run) and
-    ``foreign_source`` (it belongs to another document than the claim).
+    ``foreign_source`` (it belongs to another document than the claim; both
+    documents come from the shared rule :func:`provenance.graph.document_of`).
 ``missing_anchor`` (8.4)
     An evidence node whose anchor precision is ``absent``. ``approximate``
     anchors are usable and not reported.
@@ -160,6 +162,12 @@ visible. Findings are ordered deterministically by ``(severity_rank, code,
 node_id)`` — ``critical`` first, a missing ``node_id`` before any other — with
 ``edge_id`` and ``finding_id`` as tie-breakers.
 
+Which document a claim, evidence node or reference belongs to is never
+decided here: it comes from the shared attribution functions of
+:mod:`provenance.graph` (``document_of``, ``is_claim_identifier``,
+``evidence_id_parts``), so the validator, the graph builder and the
+completeness computation cannot disagree.
+
 Validation is read-only with respect to the graph. Imports only the standard
 library, ``provenance.models``, ``provenance.identity``,
 ``provenance.privacy_carrier``, ``provenance.graph`` and ``utils.logging_utils``.
@@ -173,18 +181,20 @@ from collections import Counter
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from typing import Any
 
-from provenance.graph import ProvenanceGraph
+from provenance.graph import (
+    VALIDATION_CHECK_NAME,
+    ProvenanceGraph,
+    document_of,
+    evidence_id_parts,
+    is_claim_identifier,
+)
 from provenance.identity import (
-    CLAIM_ID_PREFIX,
-    EVIDENCE_SCOPE_SEPARATOR,
-    RUN_ID_PREFIX,
     InvalidIdentifierError,
     derive_claim_id,
     derive_derivation_id,
     derive_source_id,
     derive_validation_id,
     format_evidence_id,
-    parse_evidence_id,
 )
 from provenance.models import (
     DEFAULT_SEVERITIES,
@@ -321,17 +331,17 @@ class _Context:
 
     def ambiguity_candidates(self, reference: str) -> list[str]:
         """Evidence node IDs of the reference's source equal to it up to whitespace and case of the local ID."""
-        try:
-            source_id, local_id = parse_evidence_id(reference)
-        except InvalidIdentifierError:
+        parts = evidence_id_parts(reference)
+        if parts is None:
             return []
+        source_id, local_id = parts
         if self._folded is None:
             folded: dict[tuple[str, str], list[str]] = {}
             for node in self.nodes_of(EvidenceNode):
-                try:
-                    node_source, node_local = parse_evidence_id(node.node_id)
-                except InvalidIdentifierError:
+                node_parts = evidence_id_parts(node.node_id)
+                if node_parts is None:
                     continue
+                node_source, node_local = node_parts
                 folded.setdefault((node_source, node_local.strip().casefold()), []).append(node.node_id)
             self._folded = folded
         return sorted(c for c in self._folded.get((source_id, local_id.strip().casefold()), []) if c != reference)
@@ -468,8 +478,10 @@ def _check_evidence_references(ctx: _Context) -> list[ValidationFinding]:
         else:
             if target_node.run_id != ctx.run_id:
                 reasons.append("foreign_run")
-            citing_source = getattr(node, "source_id", None)
-            if isinstance(node, (ClaimNode, EvidenceNode)) and target_node.source_id != citing_source:
+            # Both sides are placed by the shared document rule (graph.document_of).
+            if isinstance(node, (ClaimNode, EvidenceNode)) and document_of(target, ctx.nodes) != document_of(
+                node.node_id, ctx.nodes
+            ):
                 reasons.append("foreign_source")
         if reasons:
             findings.append(
@@ -485,16 +497,21 @@ def _check_evidence_references(ctx: _Context) -> list[ValidationFinding]:
     return findings
 
 
-def _source_of(node: ProvenanceNode) -> Sequence[str]:
-    if isinstance(node, (EvidenceNode, ClaimNode)):
-        return (node.source_id,) if isinstance(node.source_id, str) and node.source_id else ()
-    return ()
+def _names_a_source(node: ProvenanceNode) -> bool:
+    """Whether an evidence or claim node's ``source_id`` field is a usable string at all."""
+    return isinstance(node, (EvidenceNode, ClaimNode)) and isinstance(node.source_id, str) and bool(node.source_id)
 
 
 def _check_sources(ctx: _Context) -> list[ValidationFinding]:
     """8.2: every evidence and claim node belongs to a source node of the graph."""
+
+    def source_of(node: ProvenanceNode) -> Sequence[str]:
+        # The document comes from the shared rule; a node naming no usable source is reported below instead.
+        document = document_of(node.node_id, ctx.nodes) if _names_a_source(node) else None
+        return (document,) if document else ()
+
     findings: list[ValidationFinding] = []
-    for node, target, edge_id in ctx.references(_BELONGS, _source_of):
+    for node, target, edge_id in ctx.references(_BELONGS, source_of):
         target_node = ctx.nodes.get(target)
         if isinstance(target_node, SourceNode):
             continue
@@ -511,7 +528,7 @@ def _check_sources(ctx: _Context) -> list[ValidationFinding]:
         )
     # A source_id that is not a usable string names no source at all.
     for node in ctx.nodes.values():
-        if isinstance(node, (EvidenceNode, ClaimNode)) and not (isinstance(node.source_id, str) and node.source_id):
+        if isinstance(node, (EvidenceNode, ClaimNode)) and not _names_a_source(node):
             findings.append(
                 _finding(
                     _SOURCE_NOT_REPRESENTED,
@@ -572,18 +589,28 @@ def _claim_identifier_problem(node: ClaimNode) -> str | None:
     return f"node_id does not match {base!r} or a revision of it ({base}@r<n>)"
 
 
+def _run_identifier_problem(run_id: object) -> str | None:
+    """Why ``run_id`` is not a run identifier, judged by the identity service; ``None`` when it is one."""
+    if not isinstance(run_id, str):
+        return f"not a string: {type(run_id).__name__}"
+    try:
+        derive_validation_id(run_id, VALIDATION_CHECK_NAME)
+    except InvalidIdentifierError as exc:
+        return str(exc)
+    return None
+
+
 def _check_identifiers(ctx: _Context) -> list[ValidationFinding]:
     """8.4: node, edge and run identifiers follow the identity service's shapes."""
     findings: list[ValidationFinding] = []
-    if not (
-        isinstance(ctx.run_id, str) and ctx.run_id.startswith(RUN_ID_PREFIX) and len(ctx.run_id) > len(RUN_ID_PREFIX)
-    ):
+    run_problem = _run_identifier_problem(ctx.run_id)
+    if run_problem is not None:
         findings.append(
             _finding(
                 _INVALID_IDENTIFIER,
                 node_id=None,
                 edge_id=None,
-                message=f"run identifier {_short_repr(ctx.run_id)} is not {RUN_ID_PREFIX!r} plus a digest",
+                message=f"run identifier {_short_repr(ctx.run_id)} is invalid: {run_problem}",
                 details={"reference": ctx.run_id, "reason": "malformed run identifier"},
             )
         )
@@ -919,24 +946,25 @@ def _well_formed(finding: object) -> bool:
     )
 
 
-def _claim_source(node_id: str) -> str | None:
-    """The source ID inside a claim ID ``claim:<source_id>#f<n>[@r<k>]``, if *node_id* is one."""
-    if not node_id.startswith(CLAIM_ID_PREFIX):
-        return None
-    source_id, separator, _ = node_id[len(CLAIM_ID_PREFIX) :].partition(EVIDENCE_SCOPE_SEPARATOR)
-    return source_id if separator and source_id else None
+def _problem_key(finding: ValidationFinding, nodes: Mapping[str, ProvenanceNode]) -> tuple[Any, ...]:
+    """The de-duplication key of *finding*: its reference problem, else its ``finding_id``.
 
-
-def _problem_key(finding: ValidationFinding) -> tuple[Any, ...]:
-    """The de-duplication key of *finding*: its reference problem, else its ``finding_id``."""
+    A local evidence reference (not a full evidence identifier) of a claim is
+    scoped to the claim's document by the shared rule (``graph.document_of``).
+    """
     reference = finding.details.get("reference")
     if not isinstance(reference, str) or not reference:
         return ("id", finding.finding_id)
     kind = finding.details.get("reference_kind", _EVIDENCE_REFERENCE)
     kind = kind if isinstance(kind, str) else _EVIDENCE_REFERENCE
     normalized = reference
-    if kind == _EVIDENCE_REFERENCE and EVIDENCE_SCOPE_SEPARATOR not in reference and finding.node_id:
-        source_id = _claim_source(finding.node_id)
+    if (
+        kind == _EVIDENCE_REFERENCE
+        and evidence_id_parts(reference) is None
+        and isinstance(finding.node_id, str)
+        and is_claim_identifier(finding.node_id, nodes)
+    ):
+        source_id = document_of(finding.node_id, nodes)
         if source_id is not None:
             try:
                 normalized = format_evidence_id(source_id, reference)
@@ -945,14 +973,14 @@ def _problem_key(finding: ValidationFinding) -> tuple[Any, ...]:
     return ("reference", finding.code, finding.node_id, normalized, kind)
 
 
-def _merge(findings: Iterable[ValidationFinding]) -> list[ValidationFinding]:
+def _merge(findings: Iterable[ValidationFinding], nodes: Mapping[str, ProvenanceNode]) -> list[ValidationFinding]:
     """De-duplicate by ``finding_id`` (first kept), then by reference problem (smallest ID kept)."""
     by_id: dict[str, ValidationFinding] = {}
     for finding in findings:
         by_id.setdefault(finding.finding_id, finding)
     groups: dict[tuple[Any, ...], list[ValidationFinding]] = {}
     for finding in by_id.values():
-        groups.setdefault(_problem_key(finding), []).append(finding)
+        groups.setdefault(_problem_key(finding, nodes), []).append(finding)
     merged: list[ValidationFinding] = []
     for group in groups.values():
         group.sort(key=lambda f: f.finding_id)
@@ -1044,8 +1072,10 @@ def _report(
     findings: Iterable[ValidationFinding],
     problems: Sequence[str],
     policy: Mapping[str, Severity],
+    nodes: Mapping[str, ProvenanceNode] | None = None,
 ) -> ChainValidationReport:
-    ordered = tuple(sorted((_classify(finding, policy) for finding in _merge(findings)), key=_order_key))
+    merged = _merge(findings, nodes if nodes is not None else {})
+    ordered = tuple(sorted((_classify(finding, policy) for finding in merged), key=_order_key))
     counts = Counter(finding.severity for finding in ordered)
     report = ChainValidationReport(
         completed=not problems,
@@ -1119,7 +1149,7 @@ def validate_chain(
                 continue
             graph_findings.extend(produced)
         # Graph-derived findings first, so a recorded finding never displaces one with the same ID.
-        return _report([*graph_findings, *findings], problems, policy)
+        return _report([*graph_findings, *findings], problems, policy, ctx.nodes)
     except Exception as exc:  # noqa: BLE001 — validate_chain never raises
         logger.warning("provenance chain validation failed unexpectedly: %s", exc)
         return ChainValidationReport(

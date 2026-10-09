@@ -33,8 +33,12 @@ Stage-contract diff (2.1)
       effectively complete has a node of kind *K* that counts toward *S*,
       else that document is ``incomplete``.
 
-    A derivation step counts toward its own ``stage`` and toward each document
-    its input and output identifiers belong to. Any other node counts toward
+    Document and stage attribution are the shared rules owned by
+    :mod:`provenance.graph` (``document_of``, ``step_documents``,
+    ``producing_stages``, ``sole_contract_stage``, ``attribute_stage``); this
+    module keeps no copy of either. A derivation step counts toward its own
+    ``stage`` and toward each document its input and output identifiers
+    belong to. Any other node counts toward
     every stage of a derivation step that *produces* it (lists it in
     ``output_ids`` but not in ``input_ids`` — an in-place filter or annotate
     step produces nothing), and, when no step produces it, toward the one
@@ -59,10 +63,11 @@ Claim support (2.4)
     two failures are reported with the distinct reasons ``"missing_anchor"``
     (missing kind ``anchor``, responsible: the stage of the anchorless
     evidence) and ``"unsupported"`` (missing kind ``evidence``, responsible:
-    the stage that produced the claim), never merged. Stage responsibility
-    uses the event-log projection's rule: the earliest declared stage among
-    non-in-place producing steps, else the sole contract stage for the kind,
-    else ``"unattributed"``.
+    the stage that produced the claim), never merged. The responsible stage is
+    :func:`provenance.graph.attribute_stage` — the rule the event-log
+    projection and the graph builder's missing segments use too: the earliest
+    declared stage among non-in-place producing steps, else the sole contract
+    stage for the kind, else ``"unattributed"``.
 
 Prefill policy (5.7)
     A claim of ``origin="prefill"`` is classified like any other claim, and
@@ -83,8 +88,11 @@ Undetermined (2.5)
       their identifiers belong to become ``undetermined`` with the recorded
       reason. A document for which the failed stage recorded nothing at all is
       ``undetermined`` too, with a reason suffix that marks it as the likely
-      failing one. A failed run-scoped or undeclared stage makes the run
-      ``undetermined``.
+      failing one. A run-wide failure **always** makes the run
+      ``undetermined`` with the recorded reason — whatever the stage's scope,
+      and including a stage that recorded no derivation steps (e.g.
+      ``document_extraction``, or ``evidence_index`` with only evidence
+      nodes), whose records may cover every document.
     - *Per-document failed stage.* A failure marked for one document (its
       per-document missing segment names the source ID first, then that
       document's steps of the stage; the recorded per-document status is
@@ -137,14 +145,21 @@ from __future__ import annotations
 import typing
 from collections.abc import Iterable, Mapping
 
-from provenance.contracts import STAGE_CONTRACTS, STAGE_ORDER
-from provenance.graph import VALIDATION_CHECK_NAME, ProvenanceGraph
-from provenance.identity import (
-    CLAIM_ID_PREFIX,
-    EVIDENCE_SCOPE_SEPARATOR,
-    SOURCE_ID_PREFIX,
-    derive_source_id,
+from provenance.contracts import STAGE_CONTRACTS
+from provenance.graph import (
+    UNATTRIBUTED_STAGE,
+    VALIDATION_CHECK_NAME,
+    ProvenanceGraph,
+    attribute_stage,
+    document_of,
+    is_claim_identifier,
+    producing_stages,
+    sole_contract_stage,
+    stage_segment_document,
+    stage_sort_key,
+    step_documents,
 )
+from provenance.identity import derive_source_id
 from provenance.models import (
     ArtifactCompleteness,
     ChainValidationReport,
@@ -174,7 +189,6 @@ _STATE_RANK: Mapping[str, int] = {_COMPLETE: 0, _INCOMPLETE: 1, _UNDETERMINED: 2
 _FAILED = "failed"
 _NOT_RUN = "not_run"
 _STATUS_RANK: Mapping[str, int] = {_NOT_RUN: 0, _COMPLETE: 1, _FAILED: 2}
-_UNATTRIBUTED = "unattributed"
 _STAGE_SEGMENT_KIND = "stage"
 _SCOPES = frozenset({"run", "document", "claim"})
 
@@ -210,22 +224,6 @@ def _ids(value: object) -> tuple[str, ...]:
     return tuple(item for item in value if _text(item))
 
 
-def _stage_key(stage: str) -> tuple[int, str]:
-    """Declared order first, then undeclared stages by name, ``"unattributed"`` last."""
-    if stage in STAGE_ORDER:
-        return (STAGE_ORDER.index(stage), stage)
-    return (len(STAGE_ORDER) + (1 if stage == _UNATTRIBUTED else 0), stage)
-
-
-def _doc_from_identifier(identifier: str) -> str | None:
-    """The source ID a source, evidence or claim identifier is scoped by, if it has one."""
-    text = identifier[len(CLAIM_ID_PREFIX):] if identifier.startswith(CLAIM_ID_PREFIX) else identifier
-    if not text.startswith(SOURCE_ID_PREFIX):
-        return None
-    source = text.partition(EVIDENCE_SCOPE_SEPARATOR)[0]
-    return source if len(source) > len(SOURCE_ID_PREFIX) else None
-
-
 def _edge_ends(identifier: str) -> tuple[str, str] | None:
     """``(from_id, to_id)`` of an ``<kind>:<from>-><to>`` edge identifier."""
     for kind in _EDGE_KINDS:
@@ -245,7 +243,7 @@ def _combine(contributions: Iterable[_Contribution]) -> ArtifactCompleteness:
     chosen = [c for c in chosen if c[0] == worst]
     reasons = sorted(set().union(*(c[1] for c in chosen)))
     kinds = sorted(set().union(*(c[2] for c in chosen)))
-    stages = sorted(set().union(*(c[3] for c in chosen)), key=_stage_key)
+    stages = sorted(set().union(*(c[3] for c in chosen)), key=stage_sort_key)
     return ArtifactCompleteness(
         state=worst,  # type: ignore[arg-type]
         reason=_REASON_SEPARATOR.join(reasons),
@@ -295,18 +293,11 @@ class _Analysis:
         self.status, self.failure_reasons = self._normalize_status()
         self.doc_status, self.doc_failure_reasons = self._normalize_document_status()
 
-        # Producing stages (in-place steps excluded) and per-step document coverage.
-        self.producers: dict[str, set[str]] = {}
-        self.step_docs: dict[str, set[str]] = {}
-        for step in self.steps:
-            inputs = _ids(step.input_ids)
-            outputs = _ids(step.output_ids)
-            for output_id in outputs:
-                if output_id not in inputs:
-                    self.producers.setdefault(output_id, set()).add(step.stage)
-            self.step_docs[step.node_id] = {
-                doc for doc in (self.doc_of(identifier) for identifier in (*inputs, *outputs)) if doc
-            }
+        # Producing stages (in-place steps excluded) and per-step document coverage: shared rules.
+        self.producers: dict[str, frozenset[str]] = producing_stages(self.nodes)
+        self.step_docs: dict[str, frozenset[str]] = {
+            step.node_id: step_documents(step, self.nodes) for step in self.steps
+        }
 
         # Which documents (and whether anything, run-wide) carry records of each (stage, kind).
         self.present_docs: dict[tuple[str, str], set[str]] = {}
@@ -315,7 +306,7 @@ class _Analysis:
         for node in self.nodes.values():
             if isinstance(node, DerivationStep):
                 stages = {node.stage} if _text(node.stage) else set()
-                docs = self.step_docs.get(node.node_id, set())
+                docs = self.step_docs.get(node.node_id, frozenset())
             else:
                 stages = self.stages_of(node)
                 doc = self.doc_of(node.node_id)
@@ -346,7 +337,7 @@ class _Analysis:
             ):
                 accepted[stage] = contract
             else:
-                name = stage if _text(stage) else _UNATTRIBUTED
+                name = stage if _text(stage) else UNATTRIBUTED_STAGE
                 self.run.append(
                     _contribution(_UNDETERMINED, f"stage contract for {stage!r} is malformed", stages=(name,))
                 )
@@ -401,39 +392,28 @@ class _Analysis:
     # ------------------------------------------------------------------
 
     def doc_of(self, identifier: str) -> str | None:
-        node = self.nodes.get(identifier)
-        if isinstance(node, SourceNode):
-            return node.node_id
-        if isinstance(node, (EvidenceNode, ClaimNode)):
-            return node.source_id if _text(node.source_id) else _doc_from_identifier(identifier)
-        if node is not None:
-            return None  # derivation steps and validation records belong to no single document
-        return _doc_from_identifier(identifier)
-
-    def _sole_contract_stage(self, kind: str) -> str | None:
-        stages = [stage for stage, contract in self.contracts.items() if kind in contract.required_record_kinds]
-        return stages[0] if len(stages) == 1 else None
+        """The shared document-attribution rule (:func:`provenance.graph.document_of`)."""
+        return document_of(identifier, self.nodes)
 
     def stages_of(self, node: ProvenanceNode) -> set[str]:
-        """Every stage a non-derivation node's presence counts toward."""
+        """Every stage a non-derivation node's presence counts toward.
+
+        Every stage that produces it (shared :func:`~provenance.graph.producing_stages`),
+        else the sole contract stage for its kind; unlike the responsible
+        stage, presence counts toward *each* producing stage.
+        """
         produced = self.producers.get(node.node_id)
         if produced:
             return set(produced)
-        sole = self._sole_contract_stage(node.kind) if isinstance(node.kind, str) else None
+        sole = sole_contract_stage(node.kind, self.contracts)
         return {sole} if sole else set()
 
     def responsible(self, identifier: str) -> str:
-        """The projection's attribution rule: earliest producing stage, sole contract stage, unattributed."""
-        produced = self.producers.get(identifier)
-        if produced:
-            return min(produced, key=_stage_key)
-        node = self.nodes.get(identifier)
-        sole = self._sole_contract_stage(node.kind) if node is not None and isinstance(node.kind, str) else None
-        return sole or _UNATTRIBUTED
+        """The shared stage-attribution rule (:func:`provenance.graph.attribute_stage`)."""
+        return attribute_stage(self.nodes.get(identifier, identifier), self.producers, contracts=self.contracts)[0]
 
     def is_claim(self, identifier: str) -> bool:
-        node = self.nodes.get(identifier)
-        return isinstance(node, ClaimNode) or (node is None and identifier.startswith(CLAIM_ID_PREFIX))
+        return is_claim_identifier(identifier, self.nodes)
 
     def _collect_documents(self) -> set[str]:
         documents: set[str] = set()
@@ -507,12 +487,12 @@ class _Analysis:
             stages.update(by_stage)
         stages.update(step.stage for step in self.steps)
         stages.update(
-            segment.stage for segment in self.segments if _text(segment.stage) and segment.stage != _UNATTRIBUTED
+            segment.stage for segment in self.segments if _text(segment.stage) and segment.stage != UNATTRIBUTED_STAGE
         )
         return stages
 
     def check_undeclared_stages(self) -> None:
-        for stage in sorted(self.recorded_stages() - set(self.contracts), key=_stage_key):
+        for stage in sorted(self.recorded_stages() - set(self.contracts), key=stage_sort_key):
             if not self.strict:
                 logger.debug("completeness: ignoring recorded stage %r absent from the contract table", stage)
                 continue
@@ -525,14 +505,6 @@ class _Analysis:
             self.run.append(contribution)
             self.cover_steps((step.node_id for step in self.steps if step.stage == stage), contribution)
 
-    @staticmethod
-    def segment_document(segment: MissingSegment) -> str | None:
-        """The source ID a per-document stage segment names first; ``None`` for a run-wide one."""
-        ids = _ids(segment.affected_ids)
-        if ids and ids[0].startswith(SOURCE_ID_PREFIX) and EVIDENCE_SCOPE_SEPARATOR not in ids[0]:
-            return ids[0]
-        return None
-
     def failed_stages(self) -> dict[str, tuple[str, set[str]]]:
         """Run-wide failures: ``stage -> (reason, affected ids)``."""
         failed: dict[str, tuple[str, set[str]]] = {}
@@ -540,7 +512,7 @@ class _Analysis:
             if (
                 segment.record_kind == _STAGE_SEGMENT_KIND
                 and _text(segment.stage)
-                and self.segment_document(segment) is None
+                and stage_segment_document(segment) is None
             ):
                 reason = segment.reason if _text(segment.reason) else f"stage {segment.stage!r} failed"
                 failed.setdefault(segment.stage, (reason, set(_ids(segment.affected_ids))))
@@ -555,7 +527,7 @@ class _Analysis:
         """Per-document failures: ``(source_id, stage) -> (reason, affected step ids)``."""
         failed: dict[tuple[str, str], tuple[str, set[str]]] = {}
         for segment in self.segments:
-            doc = self.segment_document(segment)
+            doc = stage_segment_document(segment)
             if segment.record_kind != _STAGE_SEGMENT_KIND or not _text(segment.stage) or doc is None:
                 continue
             reason = segment.reason if _text(segment.reason) else f"stage {segment.stage!r} failed for document {doc!r}"
@@ -575,7 +547,7 @@ class _Analysis:
 
     def check_document_failures(self) -> None:
         """A per-document failure makes only that document and the claims its steps output undetermined."""
-        failures = sorted(self.document_failures().items(), key=lambda item: (item[0][0], _stage_key(item[0][1])))
+        failures = sorted(self.document_failures().items(), key=lambda item: (item[0][0], stage_sort_key(item[0][1])))
         for (doc, stage), (reason, affected) in failures:
             contribution = _contribution(_UNDETERMINED, reason, stages=(stage,))
             self.add_doc(doc, contribution)
@@ -605,14 +577,15 @@ class _Analysis:
     def check_failed_stages(self) -> None:
         self.check_document_failures()
         self.check_document_marks_have_sources()
-        for stage, (reason, affected) in sorted(self.failed_stages().items(), key=lambda item: _stage_key(item[0])):
+        for stage, (reason, affected) in sorted(self.failed_stages().items(), key=lambda item: stage_sort_key(item[0])):
             contribution = _contribution(_UNDETERMINED, reason, stages=(stage,))
             step_ids = {step.node_id for step in self.steps if step.stage == stage} | affected
             self.cover_steps(sorted(step_ids), contribution)
             self.cover((i for i in sorted(affected) if not isinstance(self.nodes.get(i), DerivationStep)), contribution)
+            # A run-wide failure always reaches the run, even when the stage recorded no steps (4.9).
+            self.run.append(contribution)
             contract = self.contracts.get(stage)
             if contract is None or contract.scope == "run":
-                self.run.append(contribution)
                 continue
             covered = self.stage_docs.get(stage, set())
             silent = _contribution(
@@ -627,7 +600,7 @@ class _Analysis:
         for segment in self.segments:
             if segment.record_kind == _STAGE_SEGMENT_KIND:
                 continue
-            stage = segment.stage if _text(segment.stage) else _UNATTRIBUTED
+            stage = segment.stage if _text(segment.stage) else UNATTRIBUTED_STAGE
             kind = segment.record_kind if _text(segment.record_kind) else "node"
             contribution = _contribution(_UNDETERMINED, self.segment_reason(segment), kinds=(kind,), stages=(stage,))
             placed = False
@@ -648,7 +621,7 @@ class _Analysis:
 
     def check_contracts(self) -> None:
         # not_run is never missing; failed is handled as undetermined.
-        for stage in sorted(self.contracts, key=_stage_key):
+        for stage in sorted(self.contracts, key=stage_sort_key):
             contract = self.contracts[stage]
             if contract.scope == "run":
                 if self.status.get(stage) != _COMPLETE:
@@ -672,7 +645,7 @@ class _Analysis:
         """Claim-emitting stages effectively complete for ``doc`` (run-wide status when ``doc`` is unknown)."""
         return [
             stage
-            for stage in sorted(self.contracts, key=_stage_key)
+            for stage in sorted(self.contracts, key=stage_sort_key)
             if {"claim", "derivation"} <= set(self.contracts[stage].required_record_kinds)
             and self.effective(doc, stage) == _COMPLETE
         ]
@@ -701,7 +674,7 @@ class _Analysis:
             if lost:
                 segments = [segment for i in lost for segment in unmaterialized[i]]
                 reason = _REASON_SEPARATOR.join(sorted({self.segment_reason(s) for s in segments}))
-                stages = {s.stage if _text(s.stage) else _UNATTRIBUTED for s in segments}
+                stages = {s.stage if _text(s.stage) else UNATTRIBUTED_STAGE for s in segments}
                 self.add_claim(claim_id, _contribution(_UNDETERMINED, reason, ("evidence",), stages))
             elif evidence:
                 stages = {self.responsible(i) for i in evidence}
