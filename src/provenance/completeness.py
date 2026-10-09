@@ -87,8 +87,9 @@ Undetermined (2.5)
       without a segment): the claims those steps output and the documents
       their identifiers belong to become ``undetermined`` with the recorded
       reason. A document for which the failed stage recorded nothing at all is
-      ``undetermined`` too, with a reason suffix that marks it as the likely
-      failing one. A run-wide failure **always** makes the run
+      ``undetermined`` too, with an extra reason fragment ("stage … recorded
+      nothing for this document") that marks it as the likely failing one;
+      that fragment stays on the document and is not repeated in the run. A run-wide failure **always** makes the run
       ``undetermined`` with the recorded reason — whatever the stage's scope,
       and including a stage that recorded no derivation steps (e.g.
       ``document_extraction``, or ``evidence_index`` with only evidence
@@ -133,7 +134,9 @@ Aggregation (2.2)
     findings and its documents; ``undetermined`` outranks ``incomplete``. An aggregated artifact carries
     the reasons, missing kinds and responsible stages of the contributions at
     its own (most severe) state; reasons are joined with ``"; "`` in sorted
-    order, kinds are sorted, stages follow the declared stage order.
+    order with each fragment listed once (a parent combines its children's
+    fragments, not their joined text), kinds are sorted, stages follow the
+    declared stage order.
 
 Imports only the standard library (no I/O, clock, hashing or randomness
 module), ``provenance.models``, ``provenance.identity``,
@@ -200,6 +203,7 @@ _CLAIM_LEVEL_ONLY_REASONS = frozenset({_REASON_UNSUPPORTED, _REASON_MISSING_ANCH
 """Support gaps of a prefill-origin claim that are reported on the claim but not aggregated (5.7)."""
 _ANCHOR_KIND = "anchor"
 _REASON_SEPARATOR = "; "
+_DOCUMENT_HINT_SUFFIX = " for this document"
 
 _USABLE_PRECISIONS = frozenset({"exact", "approximate"})
 _EDGE_KINDS: tuple[str, ...] = typing.get_args(EdgeKind)
@@ -235,27 +239,42 @@ def _edge_ends(identifier: str) -> tuple[str, str] | None:
     return None
 
 
-def _combine(contributions: Iterable[_Contribution]) -> ArtifactCompleteness:
+def _aggregate(contributions: Iterable[_Contribution]) -> tuple[ArtifactCompleteness, _Contribution]:
+    """The aggregated state, and the same state as a contribution its parent can lift.
+
+    The lifted contribution carries the individual reason fragments, not the
+    joined text, so a parent combining several children lists each fragment once.
+    """
     chosen = [c for c in contributions if c[0] != _COMPLETE]
     if not chosen:
-        return ArtifactCompleteness(state=_COMPLETE, reason=None, missing_record_kinds=(), responsible_stages=())
+        complete = ArtifactCompleteness(state=_COMPLETE, reason=None, missing_record_kinds=(), responsible_stages=())
+        return complete, (_COMPLETE, frozenset(), frozenset(), frozenset())
     worst = max(chosen, key=lambda c: _STATE_RANK[c[0]])[0]
     chosen = [c for c in chosen if c[0] == worst]
-    reasons = sorted(set().union(*(c[1] for c in chosen)))
-    kinds = sorted(set().union(*(c[2] for c in chosen)))
-    stages = sorted(set().union(*(c[3] for c in chosen)), key=stage_sort_key)
-    return ArtifactCompleteness(
+    reasons = frozenset().union(*(c[1] for c in chosen))
+    kinds = frozenset().union(*(c[2] for c in chosen))
+    stages = frozenset().union(*(c[3] for c in chosen))
+    result = ArtifactCompleteness(
         state=worst,  # type: ignore[arg-type]
-        reason=_REASON_SEPARATOR.join(reasons),
-        missing_record_kinds=tuple(kinds),
-        responsible_stages=tuple(stages),
+        reason=_REASON_SEPARATOR.join(sorted(reasons)),
+        missing_record_kinds=tuple(sorted(kinds)),
+        responsible_stages=tuple(sorted(stages, key=stage_sort_key)),
     )
+    return result, (worst, reasons, kinds, stages)
 
 
-def _lift(result: ArtifactCompleteness) -> _Contribution:
-    """An aggregated child result as a contribution to its parent (its reason kept whole)."""
-    reasons = frozenset((result.reason,)) if result.reason else frozenset()
-    return (result.state, reasons, frozenset(result.missing_record_kinds), frozenset(result.responsible_stages))
+def _combine(contributions: Iterable[_Contribution]) -> ArtifactCompleteness:
+    return _aggregate(contributions)[0]
+
+
+def _document_hint(stage: str) -> str:
+    """A reason fragment that only makes sense on the document it is attached to."""
+    return f"stage {stage!r} recorded nothing{_DOCUMENT_HINT_SUFFIX}"
+
+
+def _without_document_hints(contribution: _Contribution) -> _Contribution:
+    state, reasons, kinds, stages = contribution
+    return (state, frozenset(r for r in reasons if not r.endswith(_DOCUMENT_HINT_SUFFIX)), kinds, stages)
 
 
 class _Analysis:
@@ -588,9 +607,7 @@ class _Analysis:
             if contract is None or contract.scope == "run":
                 continue
             covered = self.stage_docs.get(stage, set())
-            silent = _contribution(
-                _UNDETERMINED, f"{reason} (the stage recorded nothing for this document)", stages=(stage,)
-            )
+            silent = (_UNDETERMINED, frozenset((reason, _document_hint(stage))), frozenset(), frozenset((stage,)))
             for doc in sorted(self.documents - covered):
                 self.add_doc(doc, silent)
 
@@ -700,29 +717,31 @@ class _Analysis:
     # Assembly
     # ------------------------------------------------------------------
 
-    def aggregated_claim_state(self, claim_id: str, state: ArtifactCompleteness) -> ArtifactCompleteness:
-        """The claim state its document (or the run) aggregates: ``state``, except under the prefill policy.
+    def aggregated_claim_contribution(self, claim_id: str) -> _Contribution:
+        """What a claim contributes to its document (or the run): its own state, except under the prefill policy.
 
         For a prefill-origin claim the ``incomplete`` support gaps
         (``unsupported``, ``missing_anchor``) are dropped before combining, so
         they stay on the claim alone; its other contributions still count.
         """
+        contributions = self.claims[claim_id]
         node = self.nodes.get(claim_id)
-        if not isinstance(node, ClaimNode) or node.origin != _PREFILL_ORIGIN:
-            return state
-        kept = [
-            contribution
-            for contribution in self.claims[claim_id]
-            if not (contribution[0] == _INCOMPLETE and contribution[1] and contribution[1] <= _CLAIM_LEVEL_ONLY_REASONS)
-        ]
-        return _combine(kept)
+        if isinstance(node, ClaimNode) and node.origin == _PREFILL_ORIGIN:
+            contributions = [
+                contribution
+                for contribution in contributions
+                if not (
+                    contribution[0] == _INCOMPLETE and contribution[1] and contribution[1] <= _CLAIM_LEVEL_ONLY_REASONS
+                )
+            ]
+        return _aggregate(contributions)[1]
 
     def result(self) -> CompletenessReport:
         claims = {claim_id: _combine(self.claims[claim_id]) for claim_id in sorted(self.claims)}
 
         per_doc: dict[str, list[_Contribution]] = {doc: list(self.docs.get(doc, ())) for doc in self.documents}
-        for claim_id, state in claims.items():
-            lifted = _lift(self.aggregated_claim_state(claim_id, state))
+        for claim_id in claims:
+            lifted = self.aggregated_claim_contribution(claim_id)
             doc = self.claim_doc.get(claim_id)
             if doc:
                 per_doc.setdefault(doc, []).append(lifted)
@@ -737,10 +756,11 @@ class _Analysis:
                     _contribution(_UNDETERMINED, "no provenance records and no completed stage cover this document")
                 )
 
-        documents = {doc: _combine(per_doc[doc]) for doc in sorted(per_doc)}
+        aggregated = {doc: _aggregate(per_doc[doc]) for doc in sorted(per_doc)}
+        documents = {doc: result for doc, (result, _) in aggregated.items()}
         if not documents:
             self.run.append(_contribution(_UNDETERMINED, "no documents are recorded in the run"))
-        run = _combine([*self.run, *(_lift(state) for state in documents.values())])
+        run = _combine([*self.run, *(_without_document_hints(lifted) for _, lifted in aggregated.values())])
         return CompletenessReport(run=run, documents=documents, claims=claims)
 
 

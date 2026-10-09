@@ -1328,3 +1328,53 @@ def test_wrong_argument_types_raise_type_error() -> None:
         compute_completeness(graph, graph)  # type: ignore[arg-type]
     with pytest.raises(TypeError):
         compute_completeness(graph, recorded, stage_contracts_strict="yes")  # type: ignore[arg-type]
+
+
+def _fragments(reason: str | None) -> list[str]:
+    return (reason or "").split("; ") if reason else []
+
+
+def test_a_run_aggregating_documents_lists_each_reason_fragment_once() -> None:
+    """Document A is missing_anchor + unsupported and document B is unsupported: the run says each once."""
+    nodes, _, _ = _prefill_gap_nodes("model")
+    bare_b = _claim((), field_index=2, source_id=_SRC2, support="unsupported")
+    traced_b = _claim((format_evidence_id(_SRC2, "e1"),), source_id=_SRC2)
+    nodes += [
+        _source(_FP2),
+        _evidence("e1", source_id=_SRC2),
+        bare_b,
+        traced_b,
+        _step((format_evidence_id(_SRC2, "e1"),), (traced_b.node_id,)),
+        _step((format_evidence_id(_SRC2, "e1"),), (bare_b.node_id,), stage="metadata_prefill", kind="prefill"),
+    ]
+    _, report = _compute(
+        _recorded(nodes, edges=_with_edges(nodes), status=_PREFILL_STATUS, fingerprints=(_FP, _FP2))
+    )
+
+    assert report.documents[_SRC].reason == "missing_anchor; unsupported"
+    assert report.documents[_SRC2].reason == "unsupported"
+    assert report.run.state == "incomplete"
+    assert report.run.reason == "missing_anchor; unsupported"
+
+
+def test_a_run_wide_failure_states_its_reason_once_in_the_run() -> None:
+    """The failure reaches the run once; the per-document 'recorded nothing' hint stays on the document."""
+    nodes = _minimal_nodes()
+    recorded = _recorded(
+        nodes,
+        edges=_with_edges(nodes),
+        status={**_BASE_STATUS, "quality_control": "failed"},
+        reasons={"quality_control": "lorem outage"},
+    )
+
+    _, report = _compute(recorded)
+
+    run_fragments = _fragments(report.run.reason)
+    assert len(run_fragments) == 1, report.run.reason
+    assert "lorem outage" in run_fragments[0]
+    assert not any("for this document" in fragment for fragment in run_fragments)
+
+    document_fragments = _fragments(report.documents[_SRC].reason)
+    assert len(document_fragments) == len(set(document_fragments))
+    assert run_fragments[0] in document_fragments
+    assert any("recorded nothing for this document" in fragment for fragment in document_fragments)
