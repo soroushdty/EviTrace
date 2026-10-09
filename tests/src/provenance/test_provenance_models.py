@@ -283,6 +283,8 @@ def _recorded_run() -> RecordedRun:
         findings=(_finding(),),
         stage_status={"evidence_index": "complete", "extraction_chunk": "failed"},
         stage_failure_reasons={"extraction_chunk": "timeout"},
+        document_stage_status={source.node_id: {"synthesis": "failed"}},
+        document_stage_failure_reasons={source.node_id: {"synthesis": ("timeout", "invalid JSON")}},
     )
 
 
@@ -513,6 +515,27 @@ def test_source_anchor_defaults_record_nothing_but_precision() -> None:
     assert anchor.char_span is None
     assert anchor.structural_path is None
     assert anchor.missing == ("page", "coords")
+
+
+def test_recorded_run_per_document_stage_fields_default_to_empty() -> None:
+    """Task 4.6: a snapshot built without per-document marks behaves exactly as before."""
+    full = _recorded_run()
+    run = RecordedRun(
+        run=full.run,
+        nodes=full.nodes,
+        edges=full.edges,
+        findings=full.findings,
+        stage_status=full.stage_status,
+        stage_failure_reasons=full.stage_failure_reasons,
+    )
+    assert run.document_stage_status == {}
+    assert run.document_stage_failure_reasons == {}
+    names = [field.name for field in dataclasses.fields(RecordedRun)]
+    assert names[-2:] == ["document_stage_status", "document_stage_failure_reasons"]
+    # The default is not a shared mutable object.
+    with pytest.raises(TypeError):
+        run.document_stage_status["x"] = {}  # type: ignore[index]
+    assert full.document_stage_failure_reasons[_SRC]["synthesis"] == ("timeout", "invalid JSON")
 
 
 def test_derivation_step_removal_fields_default_to_empty() -> None:

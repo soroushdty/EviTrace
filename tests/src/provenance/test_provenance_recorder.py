@@ -11,7 +11,9 @@ Covers (provenance-core design, "Emission Layer → ProvenanceRecorder"):
 - the issue-sink callable handed to the chunk validator, which turns a bad
   ``loc`` reference into a recorded finding (5.4);
 - per-stage complete / failed marks and the ``not_run`` default, so a stage
-  that emitted nothing is visible against its contract (1.6, 2.1);
+  that emitted nothing is visible against its contract (1.6, 2.1), run-wide or
+  scoped to one document by ``source_id`` (task 4.6: escalate-only per
+  document, every distinct failure reason kept, malformed ids rejected);
 - rejection of an undeclared stage with ``UnknownStageError``;
 - the disabled mode, whose methods no-op while still returning identifiers;
 - an immutable snapshot that is equal across repeated calls;
@@ -36,6 +38,7 @@ import pytest
 from provenance import recorder as recorder_module
 from provenance.contracts import STAGE_CONTRACTS, STAGE_ORDER, UnknownStageError
 from provenance.identity import (
+    InvalidIdentifierError,
     derive_claim_id,
     derive_derivation_id,
     derive_source_id,
@@ -668,6 +671,147 @@ def test_every_stage_the_recorder_accepts_is_declared_in_both_tables():
 
 
 # ---------------------------------------------------------------------------
+# Per-document stage marks (task 4.6; 2.1, 2.5)
+# ---------------------------------------------------------------------------
+
+_SRC_A = derive_source_id(_FP_A)
+_SRC_B = derive_source_id(_FP_B)
+
+
+@pytest.mark.parametrize("method", ["mark_stage_complete", "mark_stage_failed"])
+def test_stage_marks_take_an_optional_keyword_only_source_id(method):
+    params = inspect.signature(getattr(ProvenanceRecorder, method)).parameters
+    assert "source_id" in params
+    assert params["source_id"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert params["source_id"].default is None
+
+
+def test_run_wide_marks_leave_the_per_document_status_empty():
+    rec = _recorder()
+    rec.mark_stage_complete("evidence_index")
+    rec.mark_stage_failed("synthesis", "model timeout")
+    snap = rec.snapshot()
+    assert snap.document_stage_status == {}
+    assert snap.document_stage_failure_reasons == {}
+    assert snap.stage_status["synthesis"] == "failed"
+    assert snap.stage_failure_reasons == {"synthesis": "model timeout"}
+
+
+def test_a_per_document_mark_applies_to_that_document_only_and_leaves_the_run_wide_status():
+    rec = _recorder()
+    rec.mark_stage_complete("extraction_chunk", source_id=_SRC_A)
+    rec.mark_stage_failed("synthesis", "model timeout", source_id=_SRC_B)
+    snap = rec.snapshot()
+    assert snap.document_stage_status == {
+        _SRC_A: {"extraction_chunk": "complete"},
+        _SRC_B: {"synthesis": "failed"},
+    }
+    assert snap.document_stage_failure_reasons == {_SRC_B: {"synthesis": ("model timeout",)}}
+    assert set(snap.stage_status.values()) == {"not_run"}
+    assert snap.stage_failure_reasons == {}
+
+
+def test_per_document_marks_are_escalate_only():
+    rec = _recorder()
+    rec.mark_stage_failed("synthesis", "first", source_id=_SRC_A)
+    rec.mark_stage_complete("synthesis", source_id=_SRC_A)
+    rec.mark_stage_complete("extraction_chunk", source_id=_SRC_A)
+    rec.mark_stage_failed("extraction_chunk", "late", source_id=_SRC_A)
+    status = rec.snapshot().document_stage_status[_SRC_A]
+    assert status == {"synthesis": "failed", "extraction_chunk": "failed"}
+
+
+def test_every_distinct_per_document_failure_reason_is_kept_in_recording_order():
+    rec = _recorder()
+    rec.mark_stage_failed("synthesis", "chunk 2 timed out", source_id=_SRC_A)
+    rec.mark_stage_failed("synthesis", "invalid JSON", source_id=_SRC_A)
+    rec.mark_stage_failed("synthesis", "chunk 2 timed out", source_id=_SRC_A)
+    rec.mark_stage_failed("synthesis", "other paper", source_id=_SRC_B)
+    reasons = rec.snapshot().document_stage_failure_reasons
+    assert reasons[_SRC_A] == {"synthesis": ("chunk 2 timed out", "invalid JSON")}
+    assert reasons[_SRC_B] == {"synthesis": ("other paper",)}
+
+
+def test_run_wide_and_per_document_marks_are_independent():
+    rec = _recorder()
+    rec.mark_stage_complete("synthesis")
+    rec.mark_stage_failed("synthesis", "doc-level", source_id=_SRC_A)
+    snap = rec.snapshot()
+    assert snap.stage_status["synthesis"] == "complete"
+    assert snap.stage_failure_reasons == {}
+    assert snap.document_stage_status == {_SRC_A: {"synthesis": "failed"}}
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+@pytest.mark.parametrize("bad", ["", "aaaabbbb", "src:", "src:a#b", "src:a b", "claim:src:a#f1", 3, b"src:a"])
+@pytest.mark.parametrize("mark", ["complete", "failed"])
+def test_a_malformed_source_id_is_rejected_and_records_nothing(enabled, bad, mark):
+    rec = _recorder(enabled=enabled)
+    with pytest.raises(InvalidIdentifierError):
+        if mark == "complete":
+            rec.mark_stage_complete("synthesis", source_id=bad)
+        else:
+            rec.mark_stage_failed("synthesis", "why", source_id=bad)
+    snap = rec.snapshot()
+    assert snap.document_stage_status == {}
+    assert snap.document_stage_failure_reasons == {}
+    assert set(snap.stage_status.values()) == {"not_run"}
+
+
+@pytest.mark.parametrize("mark", ["complete", "failed"])
+def test_undeclared_stage_is_rejected_on_per_document_marks(mark):
+    rec = _recorder()
+    with pytest.raises(UnknownStageError):
+        if mark == "complete":
+            rec.mark_stage_complete("rogue_stage", source_id=_SRC_A)
+        else:
+            rec.mark_stage_failed("rogue_stage", "why", source_id=_SRC_A)
+    assert rec.snapshot().document_stage_status == {}
+
+
+def test_per_document_failure_requires_a_string_reason():
+    with pytest.raises(TypeError):
+        _recorder().mark_stage_failed("synthesis", None, source_id=_SRC_A)  # type: ignore[arg-type]
+
+
+def test_disabled_mode_records_no_per_document_marks():
+    rec = _recorder(enabled=False)
+    rec.mark_stage_complete("evidence_index", source_id=_SRC_A)
+    rec.mark_stage_failed("synthesis", "boom", source_id=_SRC_A)
+    snap = rec.snapshot()
+    assert snap.document_stage_status == {}
+    assert snap.document_stage_failure_reasons == {}
+
+
+def test_per_document_snapshot_is_immutable_detached_and_stable():
+    rec = _recorder()
+    rec.mark_stage_failed("synthesis", "boom", source_id=_SRC_A)
+    snap = rec.snapshot()
+    assert rec.snapshot() == snap
+    assert hash(rec.snapshot()) == hash(snap)
+    with pytest.raises(TypeError):
+        snap.document_stage_status[_SRC_B] = {}  # type: ignore[index]
+    with pytest.raises(TypeError):
+        snap.document_stage_status[_SRC_A]["evidence_index"] = "complete"  # type: ignore[index]
+    with pytest.raises(TypeError):
+        snap.document_stage_failure_reasons[_SRC_A]["synthesis"] = ()  # type: ignore[index]
+    rec.mark_stage_failed("synthesis", "again", source_id=_SRC_A)
+    rec.mark_stage_complete("evidence_index", source_id=_SRC_B)
+    assert snap.document_stage_status == {_SRC_A: {"synthesis": "failed"}}
+    assert snap.document_stage_failure_reasons == {_SRC_A: {"synthesis": ("boom",)}}
+
+
+def test_per_document_snapshot_order_is_independent_of_marking_order():
+    first, second = _recorder(), _recorder()
+    first.mark_stage_complete("synthesis", source_id=_SRC_B)
+    first.mark_stage_complete("evidence_index", source_id=_SRC_A)
+    second.mark_stage_complete("evidence_index", source_id=_SRC_A)
+    second.mark_stage_complete("synthesis", source_id=_SRC_B)
+    a, b = first.snapshot(), second.snapshot()
+    assert list(a.document_stage_status) == list(b.document_stage_status) == [_SRC_A, _SRC_B]
+
+
+# ---------------------------------------------------------------------------
 # Snapshot: immutable and stable
 # ---------------------------------------------------------------------------
 
@@ -840,6 +984,8 @@ def _blocks_while_lock_held(rec: ProvenanceRecorder, action) -> bool:
         lambda r: r.issue_sink()("dangling_reference", "m", {}),
         lambda r: r.mark_stage_complete("synthesis"),
         lambda r: r.mark_stage_failed("synthesis", "x"),
+        lambda r: r.mark_stage_complete("synthesis", source_id=derive_source_id(_FP_A)),
+        lambda r: r.mark_stage_failed("synthesis", "x", source_id=derive_source_id(_FP_A)),
     ],
 )
 def test_mutation_and_snapshot_wait_for_the_single_lock(action):

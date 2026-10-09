@@ -429,7 +429,16 @@ class ArtifactCompleteness(_Record):
 
 @dataclass(frozen=True)
 class RecordedRun(_Record):
-    """Immutable snapshot of everything a recorder accepted during one run (1.2, 1.6)."""
+    """Immutable snapshot of everything a recorder accepted during one run (1.2, 1.6).
+
+    ``stage_status`` / ``stage_failure_reasons`` are run-wide (first failure
+    reason kept). ``document_stage_status`` (``source_id -> stage -> status``)
+    and ``document_stage_failure_reasons`` (``source_id -> stage -> every
+    distinct reason, in recording order``) hold the marks scoped to one
+    document (2.1, 2.5); both default to empty, so a run marked only run-wide
+    behaves exactly as before. The snapshot is never serialized, so these
+    fields are not a schema-version change.
+    """
 
     run: RunIdentity
     nodes: Mapping[str, ProvenanceNode]
@@ -437,6 +446,12 @@ class RecordedRun(_Record):
     findings: tuple[ValidationFinding, ...]
     stage_status: Mapping[str, Literal["complete", "failed", "not_run"]]
     stage_failure_reasons: Mapping[str, str]
+    document_stage_status: Mapping[str, Mapping[str, Literal["complete", "failed", "not_run"]]] = (
+        dataclasses.field(default_factory=dict)
+    )
+    document_stage_failure_reasons: Mapping[str, Mapping[str, tuple[str, ...]]] = dataclasses.field(
+        default_factory=dict
+    )
 
 
 @dataclass(frozen=True)

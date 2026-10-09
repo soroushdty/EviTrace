@@ -15,6 +15,10 @@ requirements 2.1–2.6):
 - ``undetermined`` with the recorded reason for artifacts covered by a failed
   stage or a missing segment, attributed per document where the graph allows
   (2.5);
+- stage status per (document, stage) — the worse of the run-wide and the
+  per-document mark — so a failure marked for one document leaves only that
+  document and the claims its segment covers undetermined, and an empty run is
+  undetermined (task 4.6);
 - both ``stage_contracts_strict`` behaviours;
 - data only: no file, no rendered output, attachment via ``attach_completeness`` (2.6);
 - a realistic run (real adapters + recorder + ``build_graph``) is
@@ -204,6 +208,8 @@ def _recorded(
     reasons: typing.Mapping[str, str] | None = None,
     fingerprints: tuple[str, ...] = (_FP,),
     raw_nodes: typing.Mapping[str, object] | None = None,
+    doc_status: typing.Mapping[str, typing.Mapping[str, str]] | None = None,
+    doc_reasons: typing.Mapping[str, typing.Mapping[str, tuple[str, ...]]] | None = None,
 ) -> RecordedRun:
     node_map: dict[str, object] = {getattr(n, "node_id"): n for n in nodes}
     node_map.update(raw_nodes or {})
@@ -216,6 +222,8 @@ def _recorded(
         findings=(),
         stage_status=full_status,  # type: ignore[arg-type]
         stage_failure_reasons=dict(reasons or {}),
+        document_stage_status=dict(doc_status or {}),  # type: ignore[arg-type]
+        document_stage_failure_reasons=dict(doc_reasons or {}),
     )
 
 
@@ -249,7 +257,9 @@ def test_minimal_traced_run_is_complete_at_all_three_levels() -> None:
     assert dict(report.claims) == {derive_claim_id(_SRC, 7): _COMPLETE}
 
 
-def _realistic_recorder(*, fail: tuple[str, str] | None = None) -> ProvenanceRecorder:
+def _realistic_recorder(
+    *, fail: tuple[str, str] | None = None, per_document: bool = False
+) -> ProvenanceRecorder:
     """Two documents through the real adapters and recorder (same shape as the validation suite)."""
     from provenance.adapters import (
         derivation_from_stage_event,
@@ -269,10 +279,11 @@ def _realistic_recorder(*, fail: tuple[str, str] | None = None) -> ProvenanceRec
         source = source_node_from_identity(identity, source_label=name, source_format="pdf", run_id=run.run_id)
         source_id = source.node_id
         recorder.record_source(source)
-        recorder.mark_stage_complete("document_extraction")
+        scope = {"source_id": source_id} if per_document else {}
+        recorder.mark_stage_complete("document_extraction", **scope)
         for step in derivations_from_qc_provenance({"branch": "grobid", "decision": "keep"}, source_id=source_id, run_id=run.run_id):
             recorder.record_derivation(step)
-        recorder.mark_stage_complete("quality_control")
+        recorder.mark_stage_complete("quality_control", **scope)
         items = [
             {"id": "title", "type": "sentence", "page": 1, "coords": [1.0, 1.0, 2.0, 2.0], "section_path": "Metadata",
              "xpath": ".//title", "score": 9},
@@ -290,7 +301,7 @@ def _realistic_recorder(*, fail: tuple[str, str] | None = None) -> ProvenanceRec
                                         outputs=evidence_ids[:-1], removal_reason="below minimum score",
                                         removed_ids=evidence_ids[-1:])
         )
-        recorder.mark_stage_complete("evidence_index")
+        recorder.mark_stage_complete("evidence_index", **scope)
         known = {node.node_id for node in evidence}
         anchors = {node.node_id: node.anchor for node in evidence}
 
@@ -336,9 +347,9 @@ def _realistic_recorder(*, fail: tuple[str, str] | None = None) -> ProvenanceRec
                                         outputs=[c.node_id for c in synthesized], model_id="gpt-x")
         )
         for stage in ("metadata_prefill", "extraction_chunk", "synthesis"):
-            recorder.mark_stage_complete(stage)
+            recorder.mark_stage_complete(stage, **scope)
         if fail is not None and name == "a.pdf":
-            recorder.mark_stage_failed(*fail)
+            recorder.mark_stage_failed(*fail, **scope)
     return recorder
 
 
@@ -622,6 +633,251 @@ def test_failed_stage_in_the_recorded_run_counts_even_without_a_graph_segment() 
 
     assert report.claims[derive_claim_id(_SRC, 7)].state == "undetermined"
     assert "boom" in (report.claims[derive_claim_id(_SRC, 7)].reason or "")
+
+
+# ---------------------------------------------------------------------------
+# Stage status scoped to individual documents (task 4.6; 2.1, 2.2, 2.5)
+# ---------------------------------------------------------------------------
+
+
+def test_realistic_run_marked_per_document_is_complete_at_all_three_levels() -> None:
+    recorded = _realistic_recorder(per_document=True).snapshot()
+    assert set(recorded.stage_status.values()) == {"not_run"}
+
+    report = compute_completeness(build_graph(recorded), recorded)
+
+    assert report.run == _COMPLETE
+    assert dict(report.documents) == {_SRC: _COMPLETE, _SRC2: _COMPLETE}
+    assert all(state == _COMPLETE for state in report.claims.values())
+
+
+def test_a_failure_for_one_document_leaves_the_other_document_determinable() -> None:
+    """Integration: recorder -> build_graph -> compute_completeness with a per-document failure."""
+    recorder = _realistic_recorder(fail=("extraction_chunk", "model call timed out"), per_document=True)
+    recorded = recorder.snapshot()
+    graph = build_graph(recorded)
+
+    report = compute_completeness(graph, recorded)
+
+    stage_segments = [s for s in graph.missing_segments if s.record_kind == "stage"]
+    assert [(s.stage, s.affected_ids[0]) for s in stage_segments] == [("extraction_chunk", _SRC)]
+
+    failed = report.documents[_SRC]
+    assert failed.state == "undetermined"
+    assert "model call timed out" in (failed.reason or "")
+    assert failed.responsible_stages == ("extraction_chunk",)
+    for index in (7, 8):
+        claim = report.claims[derive_claim_id(_SRC, index)]
+        assert claim.state == "undetermined"
+        assert "model call timed out" in (claim.reason or "")
+        assert claim.responsible_stages == ("extraction_chunk",)
+    # Claims of the failed document produced by other stages are not blindly marked.
+    assert report.claims[derive_claim_id(_SRC, 1)] == _COMPLETE
+    assert report.claims[derive_claim_id(_SRC, 7, 1)] == _COMPLETE
+
+    # The other document stays determinable — and here, complete.
+    assert report.documents[_SRC2] == _COMPLETE
+    for index, revision in ((1, 0), (7, 0), (8, 0), (7, 1)):
+        assert report.claims[derive_claim_id(_SRC2, index, revision)] == _COMPLETE
+
+    assert report.run.state == "undetermined"
+    assert "model call timed out" in (report.run.reason or "")
+
+
+def test_effective_status_is_the_worse_of_run_wide_and_per_document() -> None:
+    """Run-wide complete, failed for document A only: only A is undetermined."""
+    recorder = _realistic_recorder()  # every stage marked run-wide complete
+    recorder.mark_stage_failed("synthesis", "synthesis JSON invalid", source_id=_SRC)
+    recorded = recorder.snapshot()
+    assert recorded.stage_status["synthesis"] == "complete"
+
+    report = compute_completeness(build_graph(recorded), recorded)
+
+    assert report.documents[_SRC].state == "undetermined"
+    assert "synthesis JSON invalid" in (report.documents[_SRC].reason or "")
+    assert report.claims[derive_claim_id(_SRC, 7, 1)].state == "undetermined"
+    assert report.claims[derive_claim_id(_SRC, 7)] == _COMPLETE
+    assert report.documents[_SRC2] == _COMPLETE
+    assert report.claims[derive_claim_id(_SRC2, 7, 1)] == _COMPLETE
+
+
+def test_every_per_document_failure_reason_reaches_the_document() -> None:
+    recorder = _realistic_recorder(per_document=True)
+    recorder.mark_stage_failed("extraction_chunk", "chunk 2 timed out", source_id=_SRC2)
+    recorder.mark_stage_failed("extraction_chunk", "invalid JSON", source_id=_SRC2)
+    recorded = recorder.snapshot()
+
+    report = compute_completeness(build_graph(recorded), recorded)
+
+    reason = report.documents[_SRC2].reason or ""
+    assert "chunk 2 timed out" in reason and "invalid JSON" in reason
+    assert report.documents[_SRC] == _COMPLETE
+
+
+def test_per_document_failure_counts_from_the_recorded_status_even_without_a_graph_segment() -> None:
+    nodes = [
+        *_minimal_nodes(),
+        _source(_FP2),
+        _evidence("e1", source_id=_SRC2),
+        _claim((format_evidence_id(_SRC2, "e1"),), source_id=_SRC2),
+        _step((format_evidence_id(_SRC2, "e1"),), (derive_claim_id(_SRC2, 7),)),
+    ]
+    before = _recorded(nodes, edges=_with_edges(nodes), fingerprints=(_FP, _FP2))
+    graph = build_graph(before)
+    after = dataclasses.replace(
+        before,
+        document_stage_status={_SRC2: {"extraction_chunk": "failed"}},
+        document_stage_failure_reasons={_SRC2: {"extraction_chunk": ("boom",)}},
+    )
+
+    report = compute_completeness(graph, after)
+
+    assert report.documents[_SRC] == _COMPLETE
+    assert report.claims[derive_claim_id(_SRC, 7)] == _COMPLETE
+    assert report.documents[_SRC2].state == "undetermined"
+    assert "boom" in (report.claims[derive_claim_id(_SRC2, 7)].reason or "")
+
+
+def test_a_per_document_failure_of_a_stage_that_recorded_nothing_makes_only_that_document_undetermined() -> None:
+    """evidence_index failed for B before emitting anything; A is unaffected."""
+    nodes = [*_minimal_nodes(), _source(_FP2)]
+    status = {"document_extraction": "complete"}
+    recorded = _recorded(
+        nodes,
+        edges=_with_edges(nodes),
+        status=status,
+        fingerprints=(_FP, _FP2),
+        doc_status={
+            _SRC: {"evidence_index": "complete", "extraction_chunk": "complete"},
+            _SRC2: {"evidence_index": "failed"},
+        },
+        doc_reasons={_SRC2: {"evidence_index": ("TEI unavailable",)}},
+    )
+
+    _, report = _compute(recorded)
+
+    assert report.documents[_SRC] == _COMPLETE
+    document_b = report.documents[_SRC2]
+    assert document_b.state == "undetermined"
+    assert "TEI unavailable" in (document_b.reason or "")
+    assert document_b.responsible_stages == ("evidence_index",)
+
+
+def test_a_per_document_completion_is_diffed_against_the_contract_for_that_document_only() -> None:
+    """evidence_index complete for A only: A without evidence is incomplete; B (not_run) is not diffed."""
+    claim_a = _claim(())
+    claim_b = _claim((), source_id=_SRC2)
+    nodes: list[ProvenanceNode] = [
+        _source(),
+        claim_a,
+        _step((_SRC,), (claim_a.node_id,)),
+        _source(_FP2),
+        claim_b,
+        _step((_SRC2,), (claim_b.node_id,)),
+    ]
+    recorded = _recorded(
+        nodes,
+        status={"document_extraction": "complete"},
+        fingerprints=(_FP, _FP2),
+        doc_status={_SRC: {"evidence_index": "complete"}},
+    )
+
+    _, report = _compute(recorded)
+
+    document_a = report.documents[_SRC]
+    assert document_a.state == "incomplete"
+    assert "evidence" in document_a.missing_record_kinds
+    assert "evidence_index" in document_a.responsible_stages
+    assert "evidence_index" not in report.documents[_SRC2].responsible_stages
+
+
+def test_a_claim_stage_complete_for_one_document_requires_derivations_only_there() -> None:
+    """A claim with no producing step is incomplete only when its own document's claim stage is complete."""
+    claim_a = _claim((_E1,))
+    claim_b = _claim((format_evidence_id(_SRC2, "e1"),), source_id=_SRC2)
+    nodes: list[ProvenanceNode] = [
+        _source(), _evidence("e1"), claim_a,
+        _source(_FP2), _evidence("e1", source_id=_SRC2), claim_b,
+    ]
+    recorded = _recorded(
+        nodes,
+        edges=_with_edges(nodes),
+        status={"document_extraction": "complete", "evidence_index": "complete"},
+        fingerprints=(_FP, _FP2),
+        doc_status={_SRC: {"extraction_chunk": "complete"}},
+    )
+
+    _, report = _compute(recorded)
+
+    assert report.claims[claim_a.node_id].state == "incomplete"
+    assert report.claims[claim_a.node_id].missing_record_kinds == ("derivation",)
+    assert report.claims[claim_b.node_id] == _COMPLETE
+
+
+def test_a_per_document_status_for_a_document_without_a_source_node_makes_the_run_undetermined() -> None:
+    nodes = _minimal_nodes()
+    stranger = derive_source_id("9999888877776666")
+    recorded = _recorded(
+        nodes, edges=_with_edges(nodes), doc_status={stranger: {"synthesis": "complete"}}
+    )
+
+    _, report = _compute(recorded)
+
+    assert report.documents[_SRC] == _COMPLETE
+    assert report.run.state == "undetermined"
+    assert stranger in (report.run.reason or "")
+
+
+def test_run_wide_failure_still_makes_every_document_with_the_stage_undetermined() -> None:
+    """Run-wide marks behave exactly as before 4.6 (source_id=None)."""
+    recorded = _realistic_recorder(fail=("extraction_chunk", "provider outage")).snapshot()
+    assert recorded.document_stage_status == {}
+
+    report = compute_completeness(build_graph(recorded), recorded)
+
+    assert report.documents[_SRC].state == "undetermined"
+    assert report.documents[_SRC2].state == "undetermined"
+
+
+def test_malformed_per_document_stage_status_degrades_without_the_safety_net() -> None:
+    nodes = _minimal_nodes()
+    recorded = _recorded(nodes, edges=_with_edges(nodes))
+    graph = build_graph(recorded)
+
+    unavailable = compute_completeness(graph, dataclasses.replace(recorded, document_stage_status=None))  # type: ignore[arg-type]
+    junk = compute_completeness(
+        graph,
+        dataclasses.replace(
+            recorded,
+            document_stage_status={_SRC: None, 5: {"synthesis": "failed"}, _SRC2: {None: "failed"}},  # type: ignore[dict-item]
+            document_stage_failure_reasons={_SRC: "x", _SRC2: {"synthesis": (3, None)}},  # type: ignore[dict-item]
+        ),
+    )
+
+    assert unavailable.run.state == "undetermined"
+    assert "per-document" in (unavailable.run.reason or "")
+    assert unavailable.documents[_SRC] == _COMPLETE
+    assert junk.documents[_SRC] == _COMPLETE
+    # _SRC2 carries a (malformed) per-document entry but has no source node.
+    assert junk.run.state == "undetermined"
+    assert _SRC2 in (junk.run.reason or "")
+
+
+def test_empty_run_with_chain_validation_complete_is_undetermined() -> None:
+    """Every document resumed: no documents recorded, chain validation ran and passed."""
+    run = _run_identity()
+    recorder = ProvenanceRecorder(run)
+    graph = build_graph(recorder.snapshot())
+    validation = validate_chain(graph)
+    validated = attach_validation(graph, validation)
+    recorder.mark_stage_complete("chain_validation")
+
+    report = compute_completeness(validated, recorder.snapshot(), validation)
+
+    assert run.document_fingerprints == {}
+    assert dict(report.documents) == {}
+    assert report.run.state == "undetermined"
+    assert "no documents" in (report.run.reason or "")
 
 
 def test_claim_citing_unmaterialized_evidence_is_undetermined_with_the_segment_reason() -> None:

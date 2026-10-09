@@ -32,9 +32,17 @@ Stages
     Every stage in ``STAGE_ORDER`` reads ``not_run`` until marked, so a stage
     that emitted nothing stays visible against its contract (1.6, 2.1). Status
     only escalates (``not_run`` → ``complete`` → ``failed``): a failure is
-    never erased by a later completion, and the first failure reason is kept.
-    Only ``DerivationStep`` carries a ``stage``, so ``record_derivation`` and
-    the ``mark_stage_*`` methods reject an undeclared stage with
+    never erased by a later completion. A mark is run-wide by default
+    (``source_id=None``: ``stage_status`` / ``stage_failure_reasons``, first
+    failure reason kept) — used for ``chain_validation`` and for failures
+    before any document is known. With a ``source_id`` it applies to that one
+    document only (``document_stage_status`` /
+    ``document_stage_failure_reasons``) and leaves the run-wide status
+    unchanged; per document and stage every distinct failure reason is kept,
+    in recording order (2.5). A malformed ``source_id`` raises
+    :class:`~provenance.identity.InvalidIdentifierError`. Only
+    ``DerivationStep`` carries a ``stage``, so ``record_derivation`` and the
+    ``mark_stage_*`` methods reject an undeclared stage with
     :class:`~provenance.contracts.UnknownStageError` — in both modes, so
     contract drift is caught whether provenance is on or off.
 Disabled mode
@@ -51,7 +59,7 @@ The recorder performs no file or network access (1.5) and is constructed once
 per run and passed explicitly — there is no module-level instance.
 
 Imports only the standard library, ``provenance.models``,
-``provenance.contracts`` and ``utils.logging_utils``.
+``provenance.contracts``, ``provenance.identity`` and ``utils.logging_utils``.
 """
 
 from __future__ import annotations
@@ -62,6 +70,7 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Literal
 
 from provenance.contracts import STAGE_ORDER, require_declared_stage
+from provenance.identity import SOURCE_ID_PREFIX, InvalidIdentifierError, derive_source_id
 from provenance.models import (
     DEFAULT_SEVERITIES,
     ClaimNode,
@@ -122,6 +131,20 @@ def _finding_key(finding: ValidationFinding) -> tuple[Any, ...] | None:
     return key
 
 
+def _check_source_id(source_id: object) -> str | None:
+    """Return ``source_id`` when it is ``None`` or a well-formed ``src:<fingerprint>``, else raise."""
+    if source_id is None:
+        return None
+    if not isinstance(source_id, str) or not source_id.startswith(SOURCE_ID_PREFIX):
+        raise InvalidIdentifierError(f"source_id must be {SOURCE_ID_PREFIX!r} plus a fingerprint, got {source_id!r}")
+    try:
+        # derive_source_id validates the fingerprint (non-empty, no '#', no whitespace).
+        derive_source_id(source_id[len(SOURCE_ID_PREFIX) :])
+    except InvalidIdentifierError as exc:
+        raise InvalidIdentifierError(f"malformed source_id {source_id!r}: {exc}") from exc
+    return source_id
+
+
 def _optional_id(details: Mapping[str, Any], key: str) -> str | None:
     value = details.get(key)
     return value if isinstance(value, str) and value else None
@@ -144,6 +167,8 @@ class ProvenanceRecorder:
         self._finding_ordinals: dict[tuple[str, str], int] = {}
         self._stage_status: dict[str, StageStatus] = {}
         self._stage_failure_reasons: dict[str, str] = {}
+        self._document_stage_status: dict[str, dict[str, StageStatus]] = {}
+        self._document_stage_failure_reasons: dict[str, dict[str, list[str]]] = {}
 
     # ------------------------------------------------------------------
     # Record methods
@@ -212,24 +237,31 @@ class ProvenanceRecorder:
     # Stage marks
     # ------------------------------------------------------------------
 
-    def mark_stage_complete(self, stage: str) -> None:
-        """Mark a declared stage complete; never overrides an earlier failure."""
+    def mark_stage_complete(self, stage: str, *, source_id: str | None = None) -> None:
+        """Mark a declared stage complete, run-wide or for one document; never overrides a failure."""
         require_declared_stage(stage)
+        source_id = _check_source_id(source_id)
         if not self._enabled:
             return
         with self._lock:
-            self._escalate_locked(stage, "complete")
+            self._escalate_locked(stage, "complete", source_id)
 
-    def mark_stage_failed(self, stage: str, reason: str) -> None:
-        """Mark a declared stage failed; the first failure reason is kept."""
+    def mark_stage_failed(self, stage: str, reason: str, *, source_id: str | None = None) -> None:
+        """Mark a declared stage failed, run-wide (first reason kept) or for one document (every reason kept)."""
         require_declared_stage(stage)
         if not isinstance(reason, str):
             raise TypeError(f"reason must be a str, got {type(reason).__name__}")
+        source_id = _check_source_id(source_id)
         if not self._enabled:
             return
         with self._lock:
-            self._escalate_locked(stage, "failed")
-            self._stage_failure_reasons.setdefault(stage, reason)
+            self._escalate_locked(stage, "failed", source_id)
+            if source_id is None:
+                self._stage_failure_reasons.setdefault(stage, reason)
+                return
+            reasons = self._document_stage_failure_reasons.setdefault(source_id, {}).setdefault(stage, [])
+            if reason not in reasons:
+                reasons.append(reason)
 
     # ------------------------------------------------------------------
     # Snapshot
@@ -243,6 +275,16 @@ class ProvenanceRecorder:
             findings = tuple(self._findings.values())
             stage_status = {stage: self._stage_status.get(stage, "not_run") for stage in STAGE_ORDER}
             reasons = dict(self._stage_failure_reasons)
+            # Documents in source-id order and stages in declared order, so equal marks
+            # give equal snapshots whatever order concurrent tasks marked them in.
+            document_status = {
+                source_id: {stage: by_stage[stage] for stage in STAGE_ORDER if stage in by_stage}
+                for source_id, by_stage in sorted(self._document_stage_status.items())
+            }
+            document_reasons = {
+                source_id: {stage: tuple(by_stage[stage]) for stage in STAGE_ORDER if stage in by_stage}
+                for source_id, by_stage in sorted(self._document_stage_failure_reasons.items())
+            }
         return RecordedRun(
             run=self._run,
             nodes=nodes,
@@ -250,6 +292,8 @@ class ProvenanceRecorder:
             findings=findings,
             stage_status=stage_status,
             stage_failure_reasons=reasons,
+            document_stage_status=document_status,
+            document_stage_failure_reasons=document_reasons,
         )
 
     # ------------------------------------------------------------------
@@ -370,10 +414,16 @@ class ProvenanceRecorder:
             self._generated_keys[key] = finding_id
         return recorded
 
-    def _escalate_locked(self, stage: str, status: StageStatus) -> None:
-        current = self._stage_status.get(stage, "not_run")
+    def _escalate_locked(self, stage: str, status: StageStatus, source_id: str | None) -> None:
+        """Raise the run-wide (``source_id=None``) or per-document status; caller holds the lock."""
+        target = (
+            self._stage_status
+            if source_id is None
+            else self._document_stage_status.setdefault(source_id, {})
+        )
+        current = target.get(stage, "not_run")
         if _STATUS_RANK[status] > _STATUS_RANK[current]:
-            self._stage_status[stage] = status
+            target[stage] = status
 
     @staticmethod
     def _log_findings(findings: Sequence[ValidationFinding]) -> None:

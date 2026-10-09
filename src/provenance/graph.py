@@ -15,8 +15,14 @@ Partial preservation (1.6, 7.4)
     :class:`~provenance.models.MissingSegment` naming the stage, the record
     kind, a non-empty reason and the affected identifiers, and the rest of the
     graph is still produced. A stage the snapshot marks ``failed`` is reported
-    as one further segment (``record_kind="stage"``) carrying the recorded
-    failure reason. A stage that emitted nothing simply contributes no nodes.
+    as a further segment (``record_kind="stage"``) carrying the recorded
+    failure reason (2.5): a run-wide failure yields one segment whose
+    ``affected_ids`` are all of that stage's derivation-step IDs; a failure
+    marked for one document yields one segment per ``(stage, source_id)``
+    whose ``affected_ids`` are the source ID followed by that document's
+    steps of the stage (a step belongs to the documents its input and output
+    identifiers belong to) and whose reason lists every recorded reason. A
+    stage that emitted nothing simply contributes no nodes.
     :func:`build_graph` never raises for a ``RecordedRun``.
 
 Edges
@@ -58,7 +64,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from provenance.contracts import STAGE_CONTRACTS, STAGE_ORDER
-from provenance.identity import derive_validation_id
+from provenance.identity import (
+    CLAIM_ID_PREFIX,
+    EVIDENCE_SCOPE_SEPARATOR,
+    SOURCE_ID_PREFIX,
+    derive_validation_id,
+)
 from provenance.models import (
     UNKNOWN_PRIVACY,
     AnchorPrecision,
@@ -474,22 +485,90 @@ def _materialize_edges(
     return edges
 
 
+def _document_of(identifier: str, nodes: Mapping[str, ProvenanceNode]) -> str | None:
+    """The source ID an identifier belongs to: from its node when materialized, else from its shape."""
+    node = nodes.get(identifier)
+    if isinstance(node, SourceNode):
+        return node.node_id
+    if isinstance(node, (EvidenceNode, ClaimNode)) and _non_empty_str(node.source_id):
+        return node.source_id
+    if node is not None and not isinstance(node, (EvidenceNode, ClaimNode)):
+        return None  # derivation steps and validation records belong to no single document
+    text = identifier[len(CLAIM_ID_PREFIX) :] if identifier.startswith(CLAIM_ID_PREFIX) else identifier
+    if not text.startswith(SOURCE_ID_PREFIX):
+        return None
+    source = text.partition(EVIDENCE_SCOPE_SEPARATOR)[0]
+    return source if len(source) > len(SOURCE_ID_PREFIX) else None
+
+
+def _step_documents(step: DerivationStep, nodes: Mapping[str, ProvenanceNode]) -> set[str]:
+    """The documents a derivation step's input and output identifiers belong to."""
+    documents: set[str] = set()
+    for ids in (step.input_ids, step.output_ids):
+        if not isinstance(ids, (tuple, list)):
+            continue
+        for identifier in ids:
+            if _non_empty_str(identifier):
+                document = _document_of(identifier, nodes)
+                if document:
+                    documents.add(document)
+    return documents
+
+
+def _failure_details(raw: object) -> list[str]:
+    """Distinct non-blank recorded reasons, in recording order."""
+    if isinstance(raw, str):
+        raw = (raw,)
+    if not isinstance(raw, (tuple, list)):
+        return []
+    return list(dict.fromkeys(item.strip() for item in raw if isinstance(item, str) and item.strip()))
+
+
 def _failed_stage_segments(
     recorded: RecordedRun, nodes: Mapping[str, ProvenanceNode]
 ) -> list[MissingSegment]:
+    steps = [node for node in nodes.values() if isinstance(node, DerivationStep)]
+    segments: list[MissingSegment] = []
+
+    # Run-wide failures: one segment listing every step of the stage.
     statuses = _items(recorded.stage_status) or []
     reasons = recorded.stage_failure_reasons if isinstance(recorded.stage_failure_reasons, Mapping) else {}
-    segments: list[MissingSegment] = []
     for stage, status in statuses:
         if not _non_empty_str(stage) or status != "failed":
             continue
         recorded_reason = reasons.get(stage)
         detail = recorded_reason.strip() if isinstance(recorded_reason, str) else ""
         reason = f"stage {stage!r} failed: {detail}" if detail else f"stage {stage!r} failed (no reason recorded)"
-        affected = tuple(
-            sorted(node.node_id for node in nodes.values() if isinstance(node, DerivationStep) and node.stage == stage)
-        )
+        affected = tuple(sorted(step.node_id for step in steps if step.stage == stage))
         segments.append(MissingSegment(stage=stage, record_kind=_STAGE_RECORD_KIND, reason=reason, affected_ids=affected))
+
+    # Per-document failures: one segment per (stage, source_id), naming the document first.
+    document_statuses = _items(recorded.document_stage_status) or []
+    raw_document_reasons = recorded.document_stage_failure_reasons
+    document_reasons = raw_document_reasons if isinstance(raw_document_reasons, Mapping) else {}
+    step_documents = {step.node_id: _step_documents(step, nodes) for step in steps}
+    for source_id, by_stage in document_statuses:
+        if not _non_empty_str(source_id):
+            continue
+        stage_reasons = document_reasons.get(source_id)
+        stage_reasons = stage_reasons if isinstance(stage_reasons, Mapping) else {}
+        for stage, status in _items(by_stage) or []:
+            if not _non_empty_str(stage) or status != "failed":
+                continue
+            details = _failure_details(stage_reasons.get(stage))
+            reason = (
+                f"stage {stage!r} failed for document {source_id!r}: {'; '.join(details)}"
+                if details
+                else f"stage {stage!r} failed for document {source_id!r} (no reason recorded)"
+            )
+            affected = tuple(
+                sorted(step.node_id for step in steps if step.stage == stage and source_id in step_documents[step.node_id])
+            )
+            segments.append(
+                MissingSegment(
+                    stage=stage, record_kind=_STAGE_RECORD_KIND, reason=reason, affected_ids=(source_id, *affected)
+                )
+            )
     return segments
 
 

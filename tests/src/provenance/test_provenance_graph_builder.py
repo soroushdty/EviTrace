@@ -10,6 +10,9 @@ Covers (provenance-core design, "Assembly Layer → GraphBuilder"):
   :class:`MissingSegment` naming stage, record kind, a non-empty reason and the
   affected identifiers, while the rest of the graph is still produced (7.4);
 - a stage that emitted nothing does not abort assembly (1.6);
+- a failed stage becomes a ``record_kind="stage"`` missing segment: one for a
+  run-wide failure, one per ``(stage, document)`` for a per-document failure,
+  naming the document and that document's steps of the stage (task 4.6; 2.5);
 - lookup by node kind, outgoing-edge lookup and the claim → evidence → source
   traversal (1.4), none of which raises;
 - ``attach_validation`` / ``attach_completeness``: new graphs carrying the
@@ -364,6 +367,154 @@ def test_a_failed_stage_is_reported_as_a_missing_segment_and_other_stages_surviv
     assert len(segments) == 1
     assert segments[0].record_kind == "stage"
     assert "lorem ipsum timeout" in segments[0].reason
+
+
+# ---------------------------------------------------------------------------
+# Failed stages scoped to one document (task 4.6; 2.5, 7.4)
+# ---------------------------------------------------------------------------
+
+_FP2 = "eeeeffff00001111"
+_SRC2 = derive_source_id(_FP2)
+
+
+def _two_document_recorder() -> tuple[ProvenanceRecorder, dict[str, list[str]]]:
+    """Two documents, each with a source, two evidence nodes, a claim and one extraction_chunk step.
+
+    Returns the recorder and ``source_id -> [extraction_chunk step ids]``.
+    """
+    identity = dataclasses.replace(_run_identity(), document_fingerprints={_SRC: _FP, _SRC2: _FP2})
+    recorder = ProvenanceRecorder(identity)
+    steps: dict[str, list[str]] = {}
+    for fp in (_FP, _FP2):
+        source = source_node_from_identity(
+            {"pdf_content_hash": fp, "config_hash": "cfg123", "extraction_map_hash": "sch456", "model_id": "gpt-x"},
+            source_label=f"{fp}.pdf",
+            source_format="pdf",
+            run_id=_RUN,
+        )
+        source_id = source.node_id
+        recorder.record_source(source)
+        evidence = [
+            evidence_node_from_item(
+                {"id": f"s{n}", "type": "sentence", "page": n, "coords": [1.0, 2.0, 3.0, 4.0],
+                 "xpath": f".//s[@xml:id='s{n}']", "score": 3},
+                source_id=source_id,
+                run_id=_RUN,
+                producing_backend="grobid",
+            )
+            for n in (1, 2)
+        ]
+        recorder.record_evidence(evidence)
+        claims, edges, _ = claim_nodes_from_fields(
+            [{"field_index": 7, "field_name": "sample_size", "extracted_value": "42", "location": ["s1"]}],
+            source_id=source_id,
+            run_id=_RUN,
+            known_evidence_ids={node.node_id for node in evidence},
+            origin="model",
+            evidence_anchors={node.node_id: node.anchor for node in evidence},
+        )
+        recorder.record_claim(claims[0], edges)
+        step = derivation_from_stage_event(
+            "extraction_chunk", "extract", run_id=_RUN,
+            inputs=[evidence[0].node_id], outputs=[claims[0].node_id], model_id="gpt-x",
+        )
+        steps[source_id] = [recorder.record_derivation(step)]
+        recorder.mark_stage_complete("extraction_chunk", source_id=source_id)
+    return recorder, steps
+
+
+def _stage_segments(graph: ProvenanceGraph) -> list[MissingSegment]:
+    return [segment for segment in graph.missing_segments if segment.record_kind == "stage"]
+
+
+def test_a_per_document_failure_yields_one_segment_naming_the_document_and_its_steps() -> None:
+    recorder, steps = _two_document_recorder()
+    recorder.mark_stage_failed("extraction_chunk", "model call timed out", source_id=_SRC)
+    recorded = recorder.snapshot()
+
+    graph = build_graph(recorded)
+
+    assert set(graph.nodes) == set(recorded.nodes)
+    segments = _stage_segments(graph)
+    assert len(segments) == 1
+    segment = segments[0]
+    assert segment.stage == "extraction_chunk"
+    assert segment.affected_ids == (_SRC, *sorted(steps[_SRC]))
+    assert not set(steps[_SRC2]) & set(segment.affected_ids)
+    assert _SRC in segment.reason
+    assert "model call timed out" in segment.reason
+
+
+def test_one_segment_per_failed_document_and_stage_carrying_every_reason() -> None:
+    recorder, steps = _two_document_recorder()
+    recorder.mark_stage_failed("extraction_chunk", "chunk 2 timed out", source_id=_SRC)
+    recorder.mark_stage_failed("extraction_chunk", "invalid JSON", source_id=_SRC)
+    recorder.mark_stage_failed("extraction_chunk", "rate limited", source_id=_SRC2)
+    recorder.mark_stage_failed("synthesis", "never ran", source_id=_SRC2)
+
+    graph = build_graph(recorder.snapshot())
+
+    by_key = {(segment.stage, segment.affected_ids[0]): segment for segment in _stage_segments(graph)}
+    assert sorted(by_key) == [("extraction_chunk", _SRC), ("extraction_chunk", _SRC2), ("synthesis", _SRC2)]
+    first = by_key[("extraction_chunk", _SRC)]
+    assert "chunk 2 timed out" in first.reason and "invalid JSON" in first.reason
+    assert first.reason.index("chunk 2 timed out") < first.reason.index("invalid JSON")
+    assert by_key[("extraction_chunk", _SRC2)].affected_ids == (_SRC2, *steps[_SRC2])
+    assert "rate limited" in by_key[("extraction_chunk", _SRC2)].reason
+    # A failed stage that recorded no step for the document still names the document.
+    assert by_key[("synthesis", _SRC2)].affected_ids == (_SRC2,)
+
+
+def test_a_run_wide_failure_keeps_its_single_segment_listing_every_step_of_the_stage() -> None:
+    recorder, steps = _two_document_recorder()
+    recorder.mark_stage_failed("extraction_chunk", "provider outage")
+
+    graph = build_graph(recorder.snapshot())
+
+    segments = _stage_segments(graph)
+    assert len(segments) == 1
+    assert segments[0].affected_ids == tuple(sorted([*steps[_SRC], *steps[_SRC2]]))
+    assert "provider outage" in segments[0].reason
+
+
+def test_run_wide_and_per_document_failures_of_one_stage_both_yield_segments() -> None:
+    recorder, _ = _two_document_recorder()
+    recorder.mark_stage_failed("extraction_chunk", "provider outage")
+    recorder.mark_stage_failed("extraction_chunk", "bad JSON", source_id=_SRC2)
+
+    segments = _stage_segments(build_graph(recorder.snapshot()))
+
+    assert len(segments) == 2
+    assert sum(1 for segment in segments if segment.affected_ids[:1] == (_SRC2,)) == 1
+
+
+def test_per_document_completion_alone_yields_no_segment() -> None:
+    recorder, _ = _two_document_recorder()
+
+    assert build_graph(recorder.snapshot()).missing_segments == ()
+
+
+def test_build_graph_never_raises_on_malformed_per_document_status() -> None:
+    for status, reasons in (
+        (None, None),
+        ({_SRC: None, 5: {"synthesis": "failed"}}, {_SRC: "x"}),
+        ({_SRC: {"synthesis": "failed", None: "failed"}}, {_SRC: {"synthesis": ("a", 3, None)}}),
+        ({"": {"synthesis": "failed"}}, {}),
+    ):
+        malformed = dataclasses.replace(
+            _base_run(), document_stage_status=status, document_stage_failure_reasons=reasons  # type: ignore[arg-type]
+        )
+        graph = build_graph(malformed)
+        assert all(segment.reason.strip() for segment in graph.missing_segments)
+    graph = build_graph(
+        dataclasses.replace(
+            _base_run(),
+            document_stage_status={_SRC: {"synthesis": "failed", None: "failed"}},  # type: ignore[dict-item]
+            document_stage_failure_reasons={_SRC: {"synthesis": ("a", 3, None)}},  # type: ignore[dict-item]
+        )
+    )
+    assert [(segment.stage, segment.affected_ids) for segment in _stage_segments(graph)] == [("synthesis", (_SRC,))]
+    assert graph.missing_segments[0].reason.endswith(": a")
 
 
 # ---------------------------------------------------------------------------
