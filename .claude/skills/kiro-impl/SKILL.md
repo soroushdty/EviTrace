@@ -121,7 +121,9 @@ For each task (one at a time):
 - Stage only the files actually changed for this task, plus tasks.md
 - **NEVER** use `git add -A` or `git add .`
 - Use `git add <file1> <file2> ...` with explicit file paths
-- Commit message format: `feat(<feature-name>): <task description>`
+- Commit message format: `<type>(<feature-name>): <task-id> <task description>` — e.g. `feat(user-auth): 2.1 add token refresh`; `<type>` is `feat`, `fix`, `refactor`, `test`, `docs` or `chore`. One task tick per commit.
+- If the task's work already landed in an earlier task's commit, the tick-only commit must cite it: `chore(<feature-name>): <task-id> mark <task> complete (delivered in <task-ids>)`
+- Enforced by `tests/steering/test_spec_task_traceability.py` (convention: `.kiro/steering/testing.md` → "Spec-Task Traceability")
 
 **f) Record learnings**:
 - If this task revealed cross-cutting insights, append a one-line note to the `## Implementation Notes` section at the bottom of tasks.md

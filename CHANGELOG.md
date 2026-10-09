@@ -5,6 +5,19 @@ and should never be deleted. Add a brief entry whenever a spec is implemented,
 steering docs change, README files change, or any other significant code change
 occurs.
 
+## [2026-09] — Spec-task traceability test
+
+A mechanical check that every ticked task in an active Kiro spec has a commit behind it, replacing
+an uncommitted ad-hoc script whose history heuristics mostly produced false positives.
+
+- Added `tests/steering/test_spec_task_traceability.py`: tick commits must be named
+  `<type>(<spec>): <task-id> …` (one tick per commit); tick-only commits must cite
+  `delivered in <task-ids>` pointing at earlier commits that changed real files; leaf tasks'
+  `_Requirements:_` must resolve in `requirements.md`, `(P)` tasks need `_Boundary:_`,
+  `_Depends:_` ids must exist. History checks skip on shallow clones.
+- `.claude/skills/kiro-impl/SKILL.md` commit format now includes the task id (matching practice);
+  convention documented in `.kiro/steering/testing.md` → "Spec-Task Traceability".
+
 ## [2026-09] — Resolve the `risk-remediation` 10.1 validation finding by rewording (`risk-remediation`)
 
 Requirement 10.1 ("≥60% evidence coverage for a 30,000-char paper") was unsatisfiable as worded

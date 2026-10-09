@@ -223,6 +223,34 @@ Rules:
 
 ---
 
+## Spec-Task Traceability
+
+`tests/steering/test_spec_task_traceability.py` checks, without judgment, that every `[x]` in an
+active spec's `tasks.md` (any spec directory directly under `.kiro/specs/`, never `archive/`) has
+a commit behind it. It complements the per-task reviewer and `/kiro-validate-impl`, which judge
+whether the work is good.
+
+Commit convention it enforces (from git history, oldest first):
+
+- **One tick per commit, named in the subject.** A commit that flips a leaf task `[ ]` → `[x]` has
+  the subject `<type>(<spec>): <task-id> <description>`, e.g.
+  `feat(risk-remediation): 11.2 persist page classification beside the TEI cache`.
+- **Tick-only commits cite their evidence.** A tick commit that changes nothing outside
+  `.kiro/specs/<spec>/` must say `delivered in <task-ids>`, and every cited task must have been
+  ticked earlier by a commit that changed files outside the spec directory, e.g.
+  `chore(risk-remediation): 8.2 mark figure-attribution tests complete (delivered in 8.1)`.
+- A `tasks.md` created with boxes already ticked fails the first rule.
+
+Checks on the current tree: every leaf task has `_Requirements:_` whose ids exist in the spec's
+`requirements.md` (`N` for a `### Requirement N` heading, `N.M` for its numbered criteria);
+`(P)` tasks carry `_Boundary:_`; `_Depends:_` ids exist; a ticked group task has no open
+sub-task. A group task (`1.`) with sub-tasks is a header; one without sub-tasks is a work item.
+
+History checks skip when git or full history is unavailable (no `.git`, shallow clone). The
+commit format is also stated in `.claude/skills/kiro-impl/SKILL.md` step (e); change both together.
+
+---
+
 ## What Is and Isn't Tested
 
 | Area | Coverage |
@@ -237,7 +265,7 @@ Rules:
 | `src/agents/openai/` | `api_client` (async + cache key), prompts builders, prompts PBT |
 | `src/utils/` | `config_utils`, `logging_utils`, source resolution, sentence processor |
 | `src/text_processing/` | ABC enforcement, normalizers (example + PBT), tokenizers, matchers (example + PBT), embedding (mark slow), import isolation, deleted legacy paths |
-| `tests/steering/` | QC/TextProcessor separation enforcement (AST-based) |
+| `tests/steering/` | QC/TextProcessor separation enforcement (AST-based); spec-task traceability (tasks.md annotations + tick commits in git history) |
 | `tests/` root | Dependency direction enforcement, migration regression tests |
 | `src/pipeline/orchestrator.py` (full integration) | No dedicated integration test — exercised via end-to-end runs |
 
