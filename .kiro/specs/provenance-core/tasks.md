@@ -37,7 +37,7 @@
   - _Depends: 2.1_
   - _Boundary: ProvenanceModels_
 
-- [ ] 2.3 Implement identifier derivation and parsing
+- [x] 2.3 Implement identifier derivation and parsing
   - Implement derivation of source identifiers from a supplied document fingerprint, run identifiers from the supplied identity fields, claim identifiers scoped by source and field index with a revision suffix, and validation identifiers.
   - Implement evidence identifier formatting that scopes the pipeline-assigned local identifier by source without altering it, plus total round-trip parsing back to source and local identifier.
   - Implement content-addressed derivation-step identifiers over stage, kind, and sorted input and output identifiers, and raise a dedicated invalid-identifier error for malformed input.
@@ -276,3 +276,5 @@
 - 2.2 (NEEDS HUMAN CONFIRMATION): `duplicate_identity` is named by the recorder design but absent from the ChainValidator default-severity table; `DEFAULT_SEVERITIES` sets it to `warning` (same as `duplicate_reference`). Confirm or change, and fix the design table.
 - 2.2: extension keys must full-match `x-[a-z][a-z0-9]*-[A-Za-z0-9_][A-Za-z0-9_-]*` (`is_extension_key`); all downstream `x-multiagent-*` keys pass. 5.1's "preserve unknown keys into extensions" needs a fallback for JSON keys outside that charset.
 - 2.2: mapping fields are frozen recursively (`_FrozenDict`, read-only list) for hashability; JSON returns nested tuples as lists, so 5.1 must re-tuple typed tuple fields for round-trip equality. Vocabulary membership, node kind/class agreement and non-empty node_id are NOT checked at construction — adapters (3.x), GraphBuilder (4.1) and readers (5.1) must do it.
+- 2.3: valid source ids are `src:` + non-empty fingerprint with no `#` and no whitespace; format/parse/derive_claim_id enforce it (7.2's round-trip strategy must generate such ids). `derive_run_id` takes `Mapping[str, str]` only — the 3.2 identity adapter must stringify `model_ids` before digesting.
+- 2.3 (follow-up): evidence-routing and multiagent-extraction designs call `provenance.format_evidence_id`, but `__init__.py` re-exports only models (design re-export list: models, recorder, graph, reports). Either re-export identity when the surface is finalized or downstream specs must use `provenance.identity.format_evidence_id`.
