@@ -8,8 +8,8 @@ the design's "Artifact schema"::
     {"schema_id", "schema_version", "run", "nodes", "edges",
      "missing_segments", "validation", "completeness"}
 
-This module performs no I/O; writing and reading the run artifact belongs to
-the write/read path built on top of these two functions.
+:func:`write_graph` and :func:`read_graph` (task 5.2) put that mapping on disk
+as the run's single artifact and read it back; see "Run artifact" below.
 
 Write direction
     :func:`graph_to_dict` takes the graph as its only data argument: the
@@ -76,6 +76,34 @@ Unknown keys of a compatible version (10.4, 10.5)
     are therefore not materialized; every such key is named, by path, in one
     WARNING per read.
 
+Run artifact (1.3, 7.7)
+    :func:`write_graph` writes exactly one file per run,
+    ``<directory>/`` :data:`ARTIFACT_FILENAME` (``provenance_graph.json``),
+    into the directory its caller passes — it reads no configuration; the
+    pipeline resolves the directory. The directory is created when missing.
+    The graph is encoded in full *before* the directory or any file is
+    touched, then written to a temporary file next to the target and moved
+    over it with ``os.replace`` (the ``save_manifest`` pattern, so a reader
+    sees the previous artifact or the new one, never a partial file). Any
+    failure removes the temporary file and leaves an existing artifact
+    untouched. The artifact is strict JSON — ``allow_nan=False``; a NaN or
+    infinite float raises ``ValueError`` naming its path, and a set or other
+    unrepresentable value raises ``TypeError`` (see Write direction) — and is
+    UTF-8, two-space indented, ``ensure_ascii=False``, ``\\n`` line endings with
+    one trailing newline. ``sort_keys`` is *not* used: :func:`graph_to_dict`
+    already sorts free-form mappings and keeps the schema's key order, and a
+    global sort would reorder the top-level keys and record fields. The same
+    graph therefore always yields the same bytes. The artifact is the
+    package's own storage format: no interoperable or external export format
+    and no query language is defined here (7.7).
+
+    :func:`read_graph` takes the artifact file, or a directory holding
+    ``provenance_graph.json``. A missing file raises ``FileNotFoundError``;
+    content that is not UTF-8 JSON, contains a ``NaN``/``Infinity`` constant,
+    or is not a JSON object raises :class:`MalformedProvenanceArtifactError`;
+    everything else is :func:`graph_from_dict`'s verdict, including
+    :class:`UnrecognizedSchemaVersionError` for an incompatible major.
+
 Imports only the standard library, ``provenance.models``,
 ``provenance.privacy_carrier``, ``provenance.graph`` and
 ``utils.logging_utils``.
@@ -85,10 +113,14 @@ from __future__ import annotations
 
 import dataclasses
 import functools
+import json
+import math
+import os
 import re
 import types
 import typing
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from pathlib import Path
 from typing import Any, Literal, Union
 
 from provenance.graph import PROVENANCE_SCHEMA_ID, PROVENANCE_SCHEMA_VERSION, ProvenanceGraph
@@ -106,15 +138,21 @@ from provenance.models import (
 from utils.logging_utils import get_logger
 
 __all__ = [
+    "ARTIFACT_FILENAME",
     "COMPAT_UNKNOWN_KEY",
     "SUPPORTED_SCHEMA_MAJORS",
     "UnrecognizedSchemaVersionError",
     "MalformedProvenanceArtifactError",
     "graph_to_dict",
     "graph_from_dict",
+    "write_graph",
+    "read_graph",
 ]
 
 logger = get_logger(__name__)
+
+ARTIFACT_FILENAME = "provenance_graph.json"
+"""Name of the run's single artifact file inside the directory passed to :func:`write_graph`."""
 
 COMPAT_UNKNOWN_KEY = "x-compat-unknown"
 """Reserved extension key under which unknown keys of a compatible artifact are preserved."""
@@ -535,3 +573,92 @@ def graph_from_dict(payload: Mapping[str, Any]) -> ProvenanceGraph:
             ", ".join(decoder.dropped),
         )
     return graph
+
+
+# ---------------------------------------------------------------------------
+# Run artifact: write and read (1.3, 7.7)
+# ---------------------------------------------------------------------------
+
+
+def _non_finite_paths(value: Any, path: str) -> Iterator[tuple[str, float]]:
+    """Yield ``(path, value)`` for every NaN or infinite float in an encoded artifact."""
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            yield path, value
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            yield from _non_finite_paths(item, _key_path(path, key) if path else str(key))
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            yield from _non_finite_paths(item, _index_path(path, index))
+
+
+def _encode_artifact(graph: ProvenanceGraph) -> bytes:
+    """The artifact bytes of ``graph``: strict, deterministic UTF-8 JSON with a trailing newline."""
+    payload = graph_to_dict(graph)
+    for path, value in _non_finite_paths(payload, ""):
+        raise ValueError(f"{path}: non-finite float {value!r} is not valid JSON; the artifact was not written")
+    text = json.dumps(payload, indent=2, ensure_ascii=False, allow_nan=False)
+    return (text + "\n").encode("utf-8")
+
+
+def write_graph(graph: ProvenanceGraph, path: Path) -> Path:
+    """Write ``graph`` as the run's single artifact into directory ``path``; return the file written.
+
+    ``path`` is the directory (created when missing); the file is
+    ``path / ARTIFACT_FILENAME``. The write is atomic: a temporary file in the
+    same directory is replaced over the target with ``os.replace``, and is
+    removed on any failure, so an existing artifact is never clobbered or
+    half-written. Rewriting an identical graph produces a byte-identical file.
+
+    Raises ``TypeError`` for a non-graph or a value JSON cannot represent (a
+    set, a non-string key), ``ValueError`` for a NaN or infinite float, and
+    ``OSError`` for a filesystem failure; none of them leaves a file behind.
+    """
+    data = _encode_artifact(graph)  # everything that can fail on content fails before the filesystem is touched
+    directory = Path(path)
+    directory.mkdir(parents=True, exist_ok=True)
+    target = directory / ARTIFACT_FILENAME
+    tmp_path = target.with_suffix(target.suffix + ".tmp")
+    try:
+        with open(tmp_path, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_path, target)
+    except BaseException:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
+    logger.info("wrote provenance artifact %s (%d bytes)", target, len(data))
+    return target
+
+
+def _reject_constant(name: str) -> Any:
+    raise ValueError(f"non-finite JSON constant {name} is not allowed")
+
+
+def read_graph(path: Path) -> ProvenanceGraph:
+    """Read the run artifact at ``path`` — the artifact file, or the directory that holds it.
+
+    A missing file raises ``FileNotFoundError``. Content that is not UTF-8
+    JSON, uses a ``NaN``/``Infinity`` constant, or is not a JSON object raises
+    :class:`MalformedProvenanceArtifactError`; the schema checks are those of
+    :func:`graph_from_dict` (so an incompatible major raises
+    :class:`UnrecognizedSchemaVersionError`, and nothing is materialized).
+    """
+    target = Path(path)
+    if target.is_dir():
+        target = target / ARTIFACT_FILENAME
+    raw = target.read_bytes()
+    try:
+        payload = json.loads(raw.decode("utf-8"), parse_constant=_reject_constant)
+    except (UnicodeDecodeError, ValueError) as exc:  # JSONDecodeError is a ValueError
+        raise MalformedProvenanceArtifactError(f"{target}: not a valid UTF-8 JSON provenance artifact: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise MalformedProvenanceArtifactError(
+            f"{target}: a provenance artifact must be a JSON object, got {type(payload).__name__}"
+        )
+    return graph_from_dict(payload)

@@ -24,6 +24,11 @@ Covers task 5.1 of provenance-core (design "Persistence Layer → Serialization"
   field raises ``MalformedProvenanceArtifactError`` (readers validate the
   artifact against the closed unions).
 
+Task 5.2 (the run artifact write and read path, requirements 1.3 and 7.7) is
+covered by the final section: ``write_graph`` / ``read_graph`` round trip,
+byte-identical rewrite, atomic temp-file replace, strict JSON, and no export
+format.
+
 Synthetic identifiers and lorem text only.
 """
 
@@ -34,8 +39,10 @@ import dataclasses
 import inspect
 import json
 import logging
+import os
 import typing
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -87,11 +94,14 @@ from provenance.models import (
 from provenance.privacy_carrier import PrivacyState, attach_privacy
 from provenance.recorder import ProvenanceRecorder
 from provenance.serialization import (
+    ARTIFACT_FILENAME,
     COMPAT_UNKNOWN_KEY,
     MalformedProvenanceArtifactError,
     UnrecognizedSchemaVersionError,
     graph_from_dict,
     graph_to_dict,
+    read_graph,
+    write_graph,
 )
 from provenance.validation import validate_chain
 
@@ -952,3 +962,297 @@ def test_malformed_artifact_error_is_a_value_error_naming_the_path() -> None:
 
     with pytest.raises(ValueError, match=r"nodes\[\d+\]\.origin"):
         graph_from_dict(payload)
+
+
+# ---------------------------------------------------------------------------
+# Run artifact write and read path (task 5.2; 1.3, 7.7)
+# ---------------------------------------------------------------------------
+
+
+def _files(directory: Path) -> list[str]:
+    return sorted(entry.name for entry in directory.iterdir())
+
+
+def test_artifact_file_name_is_the_designed_one() -> None:
+    assert ARTIFACT_FILENAME == "provenance_graph.json"
+
+
+def test_write_then_read_returns_an_equal_graph(realistic_graph: ProvenanceGraph, tmp_path: Path) -> None:
+    written = write_graph(realistic_graph, tmp_path)
+
+    assert written == tmp_path / ARTIFACT_FILENAME
+    assert read_graph(written) == realistic_graph
+
+
+def test_read_accepts_the_directory_that_holds_the_artifact(realistic_graph: ProvenanceGraph, tmp_path: Path) -> None:
+    write_graph(realistic_graph, tmp_path)
+
+    assert read_graph(tmp_path) == realistic_graph
+
+
+def test_a_graph_with_failures_extensions_and_reports_round_trips_on_disk(tmp_path: Path) -> None:
+    graph = _realistic_graph(fail=("synthesis", "lorem timeout"))
+
+    assert read_graph(write_graph(graph, tmp_path)) == graph
+
+
+def test_round_trip_preserves_tuple_fields_edge_order_and_free_form_mappings(tmp_path: Path) -> None:
+    extensions = {"x-test-b": {"z": [1, 2], "a": {"q": 1.5, "p": None}}, "x-test-a": "ü ≥ 1"}
+    graph = _graph(
+        _source(**extensions),
+        _evidence(),
+        _claim(),
+        edges=(_edge(from_id="C-z"), _edge(from_id="C-a"), _edge(from_id="C-m")),
+    )
+
+    restored = read_graph(write_graph(graph, tmp_path))
+
+    assert restored == graph
+    assert [edge.from_id for edge in restored.edges] == ["C-z", "C-a", "C-m"]
+
+
+def test_rewriting_an_identical_graph_gives_a_byte_identical_file(realistic_graph: ProvenanceGraph, tmp_path: Path) -> None:
+    path = write_graph(realistic_graph, tmp_path)
+    first = path.read_bytes()
+
+    again = write_graph(realistic_graph, tmp_path)
+
+    assert again == path
+    assert path.read_bytes() == first
+
+
+def test_an_equal_graph_rebuilt_from_scratch_writes_the_same_bytes(tmp_path: Path) -> None:
+    first_dir, second_dir = tmp_path / "one", tmp_path / "two"
+    first = _realistic_graph()
+    second = _realistic_graph()
+    assert first is not second and first == second
+
+    first_bytes = write_graph(first, first_dir).read_bytes()
+    second_bytes = write_graph(second, second_dir).read_bytes()
+
+    assert first_bytes == second_bytes
+
+
+def test_a_graph_read_back_rewrites_to_the_same_bytes(realistic_graph: ProvenanceGraph, tmp_path: Path) -> None:
+    path = write_graph(realistic_graph, tmp_path / "a")
+    reread = read_graph(path)
+
+    assert write_graph(reread, tmp_path / "b").read_bytes() == path.read_bytes()
+
+
+def test_mapping_insertion_order_does_not_change_the_bytes(tmp_path: Path) -> None:
+    first = _graph(_source(**{"x-a-one": 1, "x-b-two": {"q": 1, "p": 2}}), _evidence())
+    second = _graph(_evidence(), _source(**{"x-b-two": {"p": 2, "q": 1}, "x-a-one": 1}))
+
+    assert write_graph(first, tmp_path / "a").read_bytes() == write_graph(second, tmp_path / "b").read_bytes()
+
+
+def test_the_file_is_utf_8_json_with_a_trailing_newline_and_unescaped_text(tmp_path: Path) -> None:
+    graph = _graph(_source(**{"x-test-note": "naïve ≥ café"}), _evidence())
+
+    raw = write_graph(graph, tmp_path).read_bytes()
+
+    assert raw.endswith(b"\n") and not raw.endswith(b"\n\n")
+    assert b"\r" not in raw
+    text = raw.decode("utf-8")
+    assert "naïve ≥ café" in text
+    assert json.loads(text) == _json_round_trip(graph_to_dict(graph))
+
+
+def test_top_level_keys_keep_the_designed_order_on_disk(realistic_graph: ProvenanceGraph, tmp_path: Path) -> None:
+    payload = json.loads(write_graph(realistic_graph, tmp_path).read_text(encoding="utf-8"))
+
+    assert list(payload) == _TOP_LEVEL_KEYS
+
+
+def test_the_missing_directory_is_created(realistic_graph: ProvenanceGraph, tmp_path: Path) -> None:
+    target = tmp_path / "outputs" / "run_x" / "provenance"
+
+    written = write_graph(realistic_graph, target)
+
+    assert written.parent == target and written.is_file()
+
+
+def test_exactly_one_file_is_left_after_a_write_and_a_rewrite(realistic_graph: ProvenanceGraph, tmp_path: Path) -> None:
+    write_graph(realistic_graph, tmp_path)
+    write_graph(realistic_graph, tmp_path)
+
+    assert _files(tmp_path) == [ARTIFACT_FILENAME]
+
+
+def test_the_temp_file_is_written_in_the_target_directory_and_replaced_atomically(
+    realistic_graph: ProvenanceGraph, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[tuple[str, str]] = []
+    real_replace = os.replace
+
+    def spy(src: Any, dst: Any) -> None:
+        calls.append((str(src), str(dst)))
+        assert Path(src).is_file() and Path(src).parent == Path(dst).parent
+        real_replace(src, dst)
+
+    monkeypatch.setattr(serialization.os, "replace", spy)
+
+    written = write_graph(realistic_graph, tmp_path)
+
+    assert len(calls) == 1
+    assert Path(calls[0][1]) == written and calls[0][0] != calls[0][1]
+    assert _files(tmp_path) == [ARTIFACT_FILENAME]
+
+
+def test_a_failing_replace_leaves_no_temp_file_and_keeps_the_previous_artifact(
+    realistic_graph: ProvenanceGraph, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = write_graph(_small_graph(), tmp_path)
+    before = path.read_bytes()
+
+    def broken(src: Any, dst: Any) -> None:
+        raise OSError("disk on fire")
+
+    monkeypatch.setattr(serialization.os, "replace", broken)
+
+    with pytest.raises(OSError, match="disk on fire"):
+        write_graph(realistic_graph, tmp_path)
+
+    assert _files(tmp_path) == [ARTIFACT_FILENAME]
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+def test_a_non_finite_float_fails_clearly_and_writes_nothing(bad: float, tmp_path: Path) -> None:
+    graph = _graph(_source(**{"x-test-score": {"inner": [1.0, bad]}}), _evidence())
+    target = tmp_path / "prov"
+
+    with pytest.raises(ValueError, match=r"x-test-score.*non-finite|non-finite.*x-test-score"):
+        write_graph(graph, target)
+
+    assert not target.exists()
+
+
+def test_a_non_finite_float_leaves_a_pre_existing_artifact_intact(tmp_path: Path) -> None:
+    good = write_graph(_small_graph(), tmp_path)
+    before = good.read_bytes()
+    bad = _graph(_source(**{"x-test-score": float("nan")}), _evidence())
+
+    with pytest.raises(ValueError, match="non-finite"):
+        write_graph(bad, tmp_path)
+
+    assert _files(tmp_path) == [ARTIFACT_FILENAME]
+    assert good.read_bytes() == before
+    assert read_graph(good) == _small_graph()
+
+
+def test_a_set_in_an_extension_raises_type_error_and_leaves_the_directory_untouched(tmp_path: Path) -> None:
+    good = write_graph(_small_graph(), tmp_path)
+    before = good.read_bytes()
+    bad = _graph(_source(**{"x-test-tags": {"a", "b"}}))
+
+    with pytest.raises(TypeError, match="x-test-tags"):
+        write_graph(bad, tmp_path)
+
+    assert _files(tmp_path) == [ARTIFACT_FILENAME]
+    assert good.read_bytes() == before
+
+
+def test_a_failed_first_write_creates_no_directory(tmp_path: Path) -> None:
+    target = tmp_path / "never"
+
+    with pytest.raises(TypeError):
+        write_graph(_graph(_source(**{"x-test-tags": {"a"}})), target)
+
+    assert not target.exists()
+
+
+def test_write_rejects_a_non_graph(tmp_path: Path) -> None:
+    with pytest.raises(TypeError):
+        write_graph({"nodes": []}, tmp_path)  # type: ignore[arg-type]
+
+    assert _files(tmp_path) == []
+
+
+def test_write_accepts_a_string_directory(tmp_path: Path) -> None:
+    written = write_graph(_small_graph(), str(tmp_path / "s"))  # type: ignore[arg-type]
+
+    assert isinstance(written, Path) and read_graph(written) == _small_graph()
+
+
+def test_reading_a_missing_artifact_raises_file_not_found(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError):
+        read_graph(tmp_path / ARTIFACT_FILENAME)
+    with pytest.raises(FileNotFoundError):
+        read_graph(tmp_path)  # a directory without the artifact
+
+
+@pytest.mark.parametrize("content", [b"", b"{not json", b'{"schema_id": ', b"\xff\xfe\x00bad"])
+def test_unparseable_content_is_a_malformed_artifact_not_a_bare_decode_error(content: bytes, tmp_path: Path) -> None:
+    path = tmp_path / ARTIFACT_FILENAME
+    path.write_bytes(content)
+
+    with pytest.raises(MalformedProvenanceArtifactError) as caught:
+        read_graph(path)
+
+    assert str(path) in str(caught.value)
+
+
+@pytest.mark.parametrize("content", ["[]", "null", '"text"', "3", "true"])
+def test_a_non_object_top_level_is_a_malformed_artifact(content: str, tmp_path: Path) -> None:
+    path = tmp_path / ARTIFACT_FILENAME
+    path.write_text(content, encoding="utf-8")
+
+    with pytest.raises(MalformedProvenanceArtifactError):
+        read_graph(path)
+
+
+def test_a_non_finite_json_constant_is_a_malformed_artifact(tmp_path: Path) -> None:
+    text = json.dumps(graph_to_dict(_graph(_source(**{"x-test-score": 1.0}), _evidence())))
+    path = tmp_path / ARTIFACT_FILENAME
+    path.write_text(text.replace('"x-test-score": 1.0', '"x-test-score": NaN'), encoding="utf-8")
+    assert "NaN" in path.read_text(encoding="utf-8")
+
+    with pytest.raises(MalformedProvenanceArtifactError, match="NaN"):
+        read_graph(path)
+
+
+def test_an_incompatible_major_on_disk_raises_unrecognized_schema_version(tmp_path: Path) -> None:
+    payload = _json_round_trip(graph_to_dict(_small_graph()))
+    payload["schema_version"] = "2.0.0"
+    path = tmp_path / ARTIFACT_FILENAME
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(UnrecognizedSchemaVersionError) as caught:
+        read_graph(path)
+
+    assert caught.value.found_version == "2.0.0"
+
+
+def test_a_malformed_record_on_disk_raises_malformed_artifact(tmp_path: Path) -> None:
+    payload = _json_round_trip(graph_to_dict(_small_graph()))
+    payload["nodes"][0]["kind"] = "not-a-kind"
+    path = tmp_path / ARTIFACT_FILENAME
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(MalformedProvenanceArtifactError):
+        read_graph(path)
+
+
+def test_a_compatible_minor_artifact_on_disk_is_read_with_its_version(tmp_path: Path) -> None:
+    payload = _json_round_trip(graph_to_dict(_small_graph()))
+    payload["schema_version"] = "1.7.0"
+    path = tmp_path / ARTIFACT_FILENAME
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert read_graph(path).schema_version == "1.7.0"
+
+
+def test_the_module_defines_no_export_format_or_query_language() -> None:
+    public = set(serialization.__all__)
+    assert {"write_graph", "read_graph", "ARTIFACT_FILENAME"} <= public
+    banned = ("export", "jsonld", "json_ld", "csv", "rdf", "turtle", "graphml", "cypher", "sparql", "query", "gexf", "dot")
+    offenders = sorted(name for name in dir(serialization) if not name.startswith("_") and any(word in name.lower() for word in banned))
+    assert offenders == []
+
+
+def test_serialization_reads_no_configuration() -> None:
+    source = inspect.getsource(serialization)
+    assert "config_utils" not in source and "resolve_run_output_path" not in source
+    assert "os.environ" not in source and "getenv" not in source
