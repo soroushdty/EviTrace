@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict
 import xml.etree.ElementTree as ET
@@ -139,6 +139,15 @@ class EvidenceBundle:
     evidence_map: dict[str, dict[str, Any]]
     prefilled_fields: dict[int, str]
     index_path: Path
+    # Provenance-only companions (provenance-core 6.4). Neither is part of the
+    # bundle's identity, the evidence cache or any prompt: ``year_provenance`` is
+    # how prefilled field 2 was resolved ("tei_header" | "pdf_metadata" |
+    # "first_page_text" | "filename_pattern" | ""), read from the cache file on a
+    # hit; ``provenance_evidence_nodes`` are the evidence nodes recorded for this
+    # bundle when a recorder was supplied, so claims cite and anchor against the
+    # very nodes that were recorded.
+    year_provenance: str = field(default="", compare=False, repr=False)
+    provenance_evidence_nodes: tuple[EvidenceNode, ...] = field(default=(), compare=False, repr=False)
 
 
 # Section label of the title item minted from the TEI header; excluded from the
@@ -510,6 +519,11 @@ def _select_publication_date(root: ET.Element) -> tuple[str, ET.Element | None]:
 # S/T/F numbering of the evidence index never produces them.
 _HEADER_AUTHOR_ID = "M-first-author"
 _HEADER_DATE_ID = "M-publication-date"
+
+# Public names for the pipeline-side claim emission (provenance-core 6.4), which
+# cites these nodes from the prefilled author and year.
+HEADER_AUTHOR_EVIDENCE_ID = _HEADER_AUTHOR_ID
+HEADER_DATE_EVIDENCE_ID = _HEADER_DATE_ID
 
 
 @dataclass(frozen=True)
@@ -1158,6 +1172,7 @@ def _record_evidence_provenance(
     for finding in findings:
         recorder.record_issue(finding)
     recorder.record_evidence(nodes)
+    bundle.provenance_evidence_nodes = tuple(nodes)
     recorder.mark_stage_complete(_EVIDENCE_STAGE, source_id=source_id)
     logger.debug(
         "evidence provenance for %s: %d nodes, %d invalid-identifier findings",
@@ -1253,6 +1268,7 @@ def _build_or_load_evidence_bundle(qc_context, config: dict) -> EvidenceBundle:
                     evidence_map=evidence_map,
                     prefilled_fields={int(k): str(v) for k, v in prefilled.items()},
                     index_path=idx_path,
+                    year_provenance=str(loaded.get("year_provenance") or ""),
                 )
         except Exception:
             logger.warning("Ignoring corrupted evidence cache for %s", paper_id)
@@ -1323,6 +1339,7 @@ def _build_or_load_evidence_bundle(qc_context, config: dict) -> EvidenceBundle:
         evidence_map=evidence_map,
         prefilled_fields=prefilled,
         index_path=idx_path,
+        year_provenance=str(prefilled_meta.get("year_provenance") or ""),
     )
 
 

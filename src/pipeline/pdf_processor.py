@@ -5,7 +5,8 @@ import asyncio
 import json
 import os
 from pathlib import Path
-from typing import Any, Optional
+from collections.abc import Callable, Mapping
+from typing import TYPE_CHECKING, Any, Optional
 
 from quality_control import QCBundle
 from .evidence_index import (
@@ -34,6 +35,10 @@ from .manifest import save_manifest
 # and _run_parallel_chunks below).
 from .deterministic_merge import deterministic_merge
 from . import token_budget
+from .claim_provenance import DocumentClaims, claim_stages_that_ran
+
+if TYPE_CHECKING:
+    from .document_provenance import DocumentProvenance
 
 logger = get_logger(__name__)
 
@@ -423,6 +428,23 @@ def _gather_field_candidates(
     return candidates
 
 
+def _select_top_candidates(
+    candidates: list[dict],
+    max_candidates: int = _MAX_SYNTHESIS_CANDIDATES,
+) -> list[dict]:
+    """Return the candidates synthesis is shown: the ``max_candidates`` highest-confidence ones.
+
+    Ties keep the original candidate order, so the selection is deterministic.
+    The returned dicts are the same objects as in ``candidates``, which lets the
+    provenance emission tell the candidates synthesis saw from those it did not.
+    """
+    ranked = sorted(
+        enumerate(candidates),
+        key=lambda pair: (-_confidence_rank(pair[1].get("c")), pair[0]),
+    )
+    return [candidate for _, candidate in ranked[:max_candidates]]
+
+
 def _build_conflict_candidate_records(
     field_index: int,
     candidates: list[dict],
@@ -441,11 +463,7 @@ def _build_conflict_candidate_records(
     """
     field_name = field_lookup.get(field_index, {}).get("field_name", "")
 
-    ranked = sorted(
-        enumerate(candidates),
-        key=lambda pair: (-_confidence_rank(pair[1].get("c")), pair[0]),
-    )
-    top = [candidate for _, candidate in ranked[:max_candidates]]
+    top = _select_top_candidates(candidates, max_candidates)
 
     records: list[dict] = []
     for candidate in top:
@@ -489,6 +507,7 @@ class RepairRetryLoop:
         budgets: "dict[str, int] | None" = None,
         evidence_config: "dict | None" = None,
         collector: "Any | None" = None,
+        provenance_sink: "Callable[[str, str, Mapping[str, Any]], None] | None" = None,
     ):
         self.max_repair_attempts = max_repair_attempts
         self.max_log_response_chars = max_log_response_chars
@@ -502,6 +521,47 @@ class RepairRetryLoop:
         # None by default: identical to before telemetry/repair-stage labeling
         # existed (Requirement 6.5).
         self.collector = collector
+        # Optional provenance issue sink (provenance-core 5.4; the per-document
+        # wrapper from ``claim_provenance.claim_issue_sink``). None by default:
+        # identical to before provenance existed. Validation inside the loop
+        # stays strict and sink-less, so an unknown evidence id is still
+        # repaired; the sink is consulted only once an output is accepted (see
+        # ``_report_references``) or the attempts are exhausted.
+        self.provenance_sink = provenance_sink
+
+    def _report_references(
+        self,
+        raw: str,
+        expected_indices: list[int],
+        valid_location_ids: set[str],
+        *,
+        pdf_name: str,
+        chunk_num: int,
+    ) -> "list[dict] | None":
+        """Validate ``raw`` with the provenance sink; return the validated list, or ``None``.
+
+        ``None`` when there is no sink or ``raw`` does not validate even when
+        reference problems are tolerated. Findings are buffered by
+        ``validate_chunk_output`` and delivered only when the whole output
+        validates, so this leaves nothing behind for a rejected output, and
+        calling it on an output that already passed the strict check merely
+        reports its reference problems. It never raises.
+        """
+        if self.provenance_sink is None:
+            return None
+        try:
+            return validate_chunk_output(
+                raw,
+                expected_indices,
+                valid_location_ids=valid_location_ids,
+                issue_sink=self.provenance_sink,
+            )
+        except Exception as exc:  # noqa: BLE001 -- provenance must not change the outcome
+            logger.debug(
+                "%s chunk %d: output not accepted with the provenance sink: %s",
+                pdf_name, chunk_num, str(exc)[:200],
+            )
+            return None
 
     async def extract_with_repair(
         self,
@@ -605,7 +665,6 @@ class RepairRetryLoop:
                 expected_indices,
                 valid_location_ids=valid_location_ids,
             )
-            return validated
         except ValidationError as exc:
             last_error = exc
             # Detect if the ValidationError wraps a JSON parse failure
@@ -615,6 +674,11 @@ class RepairRetryLoop:
         except json.JSONDecodeError as exc:
             last_error = exc
             last_error_type = "parse"
+        else:
+            self._report_references(
+                raw, expected_indices, valid_location_ids, pdf_name=pdf_name, chunk_num=chunk_num,
+            )
+            return validated
 
         # Original chunk prompt size estimate (Requirement 6.2 / Property
         # 14): only computed once we actually know a repair is needed (the
@@ -698,11 +762,6 @@ class RepairRetryLoop:
                     expected_indices,
                     valid_location_ids=valid_location_ids,
                 )
-                logger.info(
-                    "%s chunk %d repair succeeded on attempt %d",
-                    pdf_name, chunk_num, attempt,
-                )
-                return validated
             except ValidationError as exc:
                 last_error = exc
                 last_error_type = (
@@ -711,8 +770,32 @@ class RepairRetryLoop:
             except json.JSONDecodeError as exc:
                 last_error = exc
                 last_error_type = "parse"
+            else:
+                logger.info(
+                    "%s chunk %d repair succeeded on attempt %d",
+                    pdf_name, chunk_num, attempt,
+                )
+                self._report_references(
+                    raw, expected_indices, valid_location_ids, pdf_name=pdf_name, chunk_num=chunk_num,
+                )
+                return validated
 
         # --- Exhaustion ---
+        # With a provenance sink, an output whose only remaining problems are
+        # reference problems is accepted: the claim is retained and its
+        # references are recorded as findings (Requirement 5.4) instead of
+        # failing the document. Without a sink this is skipped entirely.
+        retained = self._report_references(
+            last_raw, expected_indices, valid_location_ids, pdf_name=pdf_name, chunk_num=chunk_num,
+        )
+        if retained is not None:
+            logger.warning(
+                "%s chunk %d: repair exhausted on evidence-reference problems only; "
+                "output retained and the references recorded as provenance findings",
+                pdf_name, chunk_num,
+            )
+            return retained
+
         error_metadata = {
             "status": "failed_validation",
             "chunk": chunk_num,
@@ -1350,12 +1433,26 @@ async def process_pdf(
     manifest_lock: asyncio.Lock,
     openai_config: dict,
     collector: "Any | None" = None,
+    provenance: "DocumentProvenance | None" = None,
 ) -> Optional[list[dict]]:
     """Process one PDF end-to-end. Returns extracted field list on success, None on failure.
 
     ``collector`` is an optional ``agents.openai.telemetry.TelemetryCollector``
     (Requirement 6.5); defaults to ``None``, in which case no telemetry is
     recorded -- identical to before telemetry existed.
+
+    ``provenance`` is the document's ``DocumentProvenance`` (provenance-core
+    6.4); defaults to ``None``, in which case nothing below differs from before
+    provenance existed. With it, the evidence nodes are recorded while the
+    evidence bundle is built, the claims and derivation steps of every claim
+    stage are recorded once the output has been written (so their value digests
+    describe the persisted values), and reference problems in model output are
+    recorded as findings naming their claim. Provenance never changes the
+    return value, the persisted output, the manifest or any prompt; the one
+    behavioural difference is that a chunk whose only remaining problem after
+    the repair attempts is an unknown evidence id is retained (and the
+    reference recorded) instead of failing the document (Requirement 5.4).
+    All emission happens after prompt assembly and response parsing.
     """
     validate_qc_context_input(qc_context)
     pdf_name = qc_context.unified.document_id
@@ -1413,7 +1510,10 @@ async def process_pdf(
         for f in fields
     }
 
-    bundle = build_or_load_evidence_bundle(qc_context, openai_config)
+    claims = DocumentClaims.for_document(provenance, pdf_name)
+    bundle = build_or_load_evidence_bundle(
+        qc_context, openai_config, **(claims.evidence_kwargs() if claims is not None else {})
+    )
     valid_location_ids = set(bundle.evidence_map.keys())
     logger.info("Evidence index ready for %s: %d IDs", pdf_name, len(valid_location_ids))
     logger.debug(
@@ -1504,6 +1604,10 @@ async def process_pdf(
             pdf_name, len(pdf_text), len(paper_source), reduction * 100,
         )
 
+    # Per-document provenance issue sink (None without provenance): wraps the
+    # recorder's sink so each reference problem names its claim (5.4).
+    claim_sink = claims.issue_sink() if claims is not None else None
+
     # One validation-aware repair loop per paper (Requirements 5.1, 5.4):
     # the extraction chunks and the synthesis stage share this instance, so
     # both stages get the same operator-configured attempt limit
@@ -1515,6 +1619,7 @@ async def process_pdf(
         budgets=budgets,
         evidence_config=evidence_config,
         collector=collector,
+        provenance_sink=claim_sink,
     )
 
     # Step 2: run parallel extraction chunks (with optional cache warmup).
@@ -1532,6 +1637,11 @@ async def process_pdf(
         repair_loop=repair_loop,
     )
     if validated_results is None:
+        if claims is not None:
+            claims.mark_failed(
+                "extraction_chunk",
+                "extraction chunk failed: " + str(manifest.get(pdf_name, {}).get("error", "unknown error")),
+            )
         return None
 
     # Step 3: deterministic merge of extraction-chunk results (Requirement 5).
@@ -1576,10 +1686,24 @@ async def process_pdf(
             pdf_name, len(conflicts_filtered), conflicts_filtered,
         )
 
+    chunk_results = list(zip(extraction_chunks, validated_results))
+    if claims is not None:
+        # Which fields have several chunk candidates (a conflict, or an agreement
+        # the merge combined); the final claim of such a field is a later
+        # revision, which the issue sink needs to name it (5.5).
+        shown_by_field = {
+            field_idx: _select_top_candidates(
+                _gather_field_candidates(field_idx, extraction_chunks, validated_results)
+            )
+            for field_idx in conflicts_filtered
+        }
+        claims.plan_candidates(chunk_results, conflicts_filtered, shown_by_field)
+
     prior_context: list[dict] = list(prefilled_fields)
-    prior_context.extend(
-        reconstruct_fields(merged_fields_filtered, field_lookup, bundle.evidence_map)
+    merged_reconstructed = reconstruct_fields(
+        merged_fields_filtered, field_lookup, bundle.evidence_map, issue_sink=claim_sink,
     )
+    prior_context.extend(merged_reconstructed)
     prior_context.sort(key=lambda x: x["field_index"])
     logger.debug(
         "%s prior_context after deterministic merge: %d fields",
@@ -1616,8 +1740,8 @@ async def process_pdf(
         f for f in conflict_field_defs if f["field_index"] not in synthesis_field_indices
     ]
 
+    final_fields: list[dict] = []
     try:
-        final_fields: list[dict] = []
         if effective_synthesis_fields:
             logger.debug(
                 "%s synthesis chunk %d: %d fields (indices=%s), %d conflict field(s)",
@@ -1712,7 +1836,9 @@ async def process_pdf(
                 "%s synthesis validated: %d items",
                 pdf_name, len(final_compact),
             )
-            final_fields = reconstruct_fields(final_compact, field_lookup, bundle.evidence_map)
+            final_fields = reconstruct_fields(
+                final_compact, field_lookup, bundle.evidence_map, issue_sink=claim_sink,
+            )
         else:
             logger.info(
                 "%s: deterministic merge resolved all fields without conflict "
@@ -1726,6 +1852,8 @@ async def process_pdf(
             "%s synthesis exception details",
             pdf_name, exc_info=True,
         )
+        if claims is not None:
+            claims.mark_failed("synthesis", f"{type(exc).__name__}: {exc}")
         # Requirement 5.3: synthesis exhaustion (or any other synthesis-stage
         # error) is recorded in the same failure shape as the chunk stage.
         async with manifest_lock:
@@ -1753,10 +1881,17 @@ async def process_pdf(
     # a record to persist here, and a write error is recorded as
     # ``failed_output_write`` and re-raised so the orchestrator still logs it
     # as an unhandled error (Requirement 1.4: no silent skipped write).
+    claim_stages = (
+        claim_stages_that_ran(prefilled_fields, chunk_results, bool(effective_synthesis_fields))
+        if claims is not None
+        else ()
+    )
     try:
         write_ok, write_failure = _save_pdf_output(pdf_name, all_fields, normalizer=normalizer)
     except Exception as exc:
         logger.error("FAIL  %s -- output write failed: %s", pdf_name, exc)
+        if claims is not None:
+            claims.mark_failed_all(claim_stages, f"output not persisted: {type(exc).__name__}: {exc}")
         async with manifest_lock:
             _record_failure(
                 manifest, pdf_name, status="failed_output_write",
@@ -1771,6 +1906,10 @@ async def process_pdf(
         raise
 
     if not write_ok:
+        if claims is not None:
+            claims.mark_failed_all(
+                claim_stages, "output not persisted: " + str((write_failure or {}).get("last_error", "")),
+            )
         async with manifest_lock:
             _record_failure(
                 manifest, pdf_name, status="failed_schema_validation",
@@ -1784,5 +1923,18 @@ async def process_pdf(
             entry["evidence_coverage"] = evidence_coverage
         manifest[pdf_name] = entry
         save_manifest(manifest)
+    if claims is not None:
+        # After the write: each claim's value digest is that of the persisted value.
+        claims.emit(
+            bundle=bundle,
+            field_lookup=field_lookup,
+            chunk_model=chunk_model,
+            synthesis_model=synthesis_model,
+            candidate_cap=_MAX_SYNTHESIS_CANDIDATES,
+            prefilled=prefilled_fields,
+            chunk_results=chunk_results,
+            merged_fields=merged_reconstructed,
+            synthesized_fields=final_fields if effective_synthesis_fields else None,
+        )
     logger.info(f"DONE  {pdf_name} -- {len(all_fields)} fields extracted")
     return all_fields
