@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import List
+from collections.abc import Mapping
+from typing import Any, List
 
 from .extraction_pipeline import build_qc_bundle
 from utils.config_utils import load_openai_config, load_qc_config
@@ -39,6 +40,7 @@ async def run_pipeline(
     enable_cache_prewarm: bool | None = None,
     export_csv: bool = False,
     csv_output_path: Path | None = None,
+    provenance_config: Mapping[str, Any] | None = None,
 ) -> List[dict]:
     """Process all PDFs with parallel workers.
 
@@ -48,6 +50,8 @@ async def run_pipeline(
         enable_cache_prewarm: Override ENABLE_CACHE_PREWARM from config. None = use config.
         export_csv:          Combine all extracted JSON outputs into one CSV after processing.
         csv_output_path:     Optional destination path for the combined CSV.
+        provenance_config:   The merged ``provenance`` settings block. None = read it from
+                             configs/config.yaml (``run_provenance.load_run_provenance_block``).
 
     Returns:
         List of {"pdf": filename, "fields": [...]} for every successful paper.
@@ -115,30 +119,68 @@ async def run_pipeline(
         len(manifest),
     )
 
-    async def _bounded(pdf_path: Path):
+    # Provenance (provenance-core 6.5). The recorder is constructed once, here, and handed
+    # down explicitly. ``run_provenance`` is imported here rather than at module level only because
+    # test_orchestrator_concurrency.py loads this module with the ``pipeline`` package stubbed, where a
+    # module-level relative import of a non-stubbed sibling cannot resolve (the provenance package itself
+    # is already imported by pdf_processor). ``None`` means "run without provenance" (disabled, nothing to record, or
+    # a start-up failure): every call below is then made exactly as it was before provenance existed.
+    from .run_provenance import (  # noqa: PLC0415
+        finish_run_provenance,
+        load_run_provenance_block,
+        resolve_provenance_settings,
+        start_run_provenance,
+    )
+
+    provenance_settings = resolve_provenance_settings(
+        provenance_config if provenance_config is not None else load_run_provenance_block()
+    )
+    run_provenance = start_run_provenance(
+        pdf_paths,
+        manifest,
+        openai_config=_openai_config,
+        qc_config=_qc_config,
+        settings=provenance_settings,
+    )
+
+    async def _bounded(index: int, pdf_path: Path):
         async with pdf_semaphore:
             pdf_name = pdf_path.stem
             logger.debug("Acquired pdf_semaphore for %s (begin QC pipeline)", pdf_name)
+            document = run_provenance.document(index) if run_provenance is not None else None
+            # The keyword is passed only for a document that has provenance, so every other
+            # call (provenance disabled, resumed, same-stem duplicate) is unchanged.
+            provenance_kwargs = {"provenance": document} if document is not None else {}
             try:
                 qc_context = await asyncio.to_thread(
-                    build_qc_bundle, pdf_path, pdf_name, _qc_config
+                    build_qc_bundle, pdf_path, pdf_name, _qc_config, **provenance_kwargs
                 )
             except Exception as exc:
                 logger.error(f"FAIL  {pdf_name} -- QC pipeline: {exc}")
                 logger.debug("QC pipeline exception for %s", pdf_name, exc_info=True)
+                if run_provenance is not None:
+                    run_provenance.record_document_failure(index, exc)
                 async with manifest_lock:
                     manifest[pdf_name] = {"status": "failed_qc_pipeline", "error": str(exc)}
                     save_manifest(manifest)
                 return None
             logger.debug("QC pipeline complete for %s; entering pdf_processor", pdf_name)
-            return await pdf_processor.process_pdf(
-                qc_context, chunk_fields, field_lookup,
-                api_semaphore, manifest, manifest_lock, runtime_config,
-                collector=collector,
-            )
+            try:
+                return await pdf_processor.process_pdf(
+                    qc_context, chunk_fields, field_lookup,
+                    api_semaphore, manifest, manifest_lock, runtime_config,
+                    collector=collector,
+                    **provenance_kwargs,
+                )
+            except Exception as exc:
+                # An exception escaping process_pdf leaves the claim stages unmarked; mark
+                # them, then re-raise so gather(return_exceptions=True) sees what it always saw.
+                if run_provenance is not None:
+                    run_provenance.record_extraction_failure(index, exc)
+                raise
 
     results = await asyncio.gather(
-        *[_bounded(p) for p in pdf_paths],
+        *[_bounded(i, p) for i, p in enumerate(pdf_paths)],
         return_exceptions=True,
     )
 
@@ -153,6 +195,17 @@ async def run_pipeline(
         "run_pipeline done: %d/%d PDFs produced output",
         len(output), len(pdf_paths),
     )
+
+    # --- Provenance artifact (provenance-core 6.5; Requirements 1.3, 1.4, 2.2, 8.5-8.7) ---
+    # Every extraction output has been written by now. finish_run_provenance never raises
+    # and never changes ``output``; with fail_run_on_severity it logs at ERROR and the
+    # returned summary records the failure, but extraction results are untouched.
+    if run_provenance is not None:
+        try:
+            finish_run_provenance(run_provenance)
+        except Exception as exc:  # finish_run_provenance already degrades; this guards a defect in it
+            logger.warning("Provenance: the run-end routine failed (%s); no artifact written", exc)
+            logger.debug("provenance run-end failure", exc_info=True)
 
     # --- Token telemetry finalization (Requirements 1.7, 10.1) ---
     # Runs after every PDF in this run has finished (the gather() above has
