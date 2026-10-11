@@ -1158,6 +1158,24 @@ def _load_completed_result(pdf_name: str, manifest: dict) -> Optional[list[dict]
     partial write from a previous interrupted run), treats it as absent
     and returns None — triggering re-processing.
     """
+    return _read_completed_result(pdf_name, manifest, log_corrupt=True)
+
+
+def is_resumed(pdf_name: str, manifest: dict) -> bool:
+    """Return True when :func:`process_pdf` would skip this PDF as already complete.
+
+    This is the exact test ``process_pdf`` applies (manifest status ``"complete"``
+    *and* an output file that parses), shared rather than re-implemented so the
+    provenance run scope cannot drift from what is actually skipped. It stays
+    silent about a corrupt output file: ``process_pdf`` logs that itself.
+    """
+    return _read_completed_result(pdf_name, manifest, log_corrupt=False) is not None
+
+
+def _read_completed_result(
+    pdf_name: str, manifest: dict, *, log_corrupt: bool
+) -> Optional[list[dict]]:
+    """Shared body of :func:`_load_completed_result` and :func:`is_resumed`."""
     if manifest.get(pdf_name, {}).get("status") != "complete":
         return None
     out = OUTPUT_DIR / f"{pdf_name}.extracted.json"
@@ -1166,11 +1184,12 @@ def _load_completed_result(pdf_name: str, manifest: dict) -> Optional[list[dict]
             with open(out, encoding="utf-8") as f:
                 return json.load(f)
         except (json.JSONDecodeError, ValueError, OSError) as exc:
-            logger.warning(
-                "Output file for %s exists but failed to parse (%s); "
-                "treating as incomplete — will re-process",
-                pdf_name, exc,
-            )
+            if log_corrupt:
+                logger.warning(
+                    "Output file for %s exists but failed to parse (%s); "
+                    "treating as incomplete — will re-process",
+                    pdf_name, exc,
+                )
             return None
     return None
 

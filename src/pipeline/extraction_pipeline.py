@@ -40,6 +40,8 @@ from quality_control import QCBundle, run_quality_control
 from quality_control.models import Candidate
 from text_processing.base import TextProcessor
 
+from .document_provenance import DocumentProvenance, emit_document_provenance
+
 logger = logging.getLogger("pdf_extractor")
 
 
@@ -569,6 +571,8 @@ def build_qc_bundle(
     pdf_path: Path | str,
     pdf_name: str,
     qc_config: dict,
+    *,
+    provenance: DocumentProvenance | None = None,
 ) -> QCBundle:
     """Run per-page scan detection, route to correct extractors, and run the
     full QC pipeline for one PDF.
@@ -598,6 +602,14 @@ def build_qc_bundle(
         Human-readable name used in log messages and as the document ID.
     qc_config:
         Loaded QC config dict (from ``load_qc_config()``).
+    provenance:
+        Optional provenance emission context (recorder, the document's
+        planned checkpoint identity, run id). When given, the document's
+        source node, QC derivation step and ``document_extraction`` /
+        ``quality_control`` stage marks are recorded after the bundle is
+        built; provenance errors are logged, never raised. ``None`` (the
+        default) leaves behaviour unchanged. The caller passes it only for
+        documents processed in this run, never for a resumed one.
 
     Returns
     -------
@@ -875,6 +887,15 @@ def build_qc_bundle(
         if not isinstance(ctx.unified.content, dict):
             ctx.unified.content = {}
         ctx.unified.content["annotations"] = jsonld
+
+    if provenance is not None:
+        emit_document_provenance(
+            provenance.recorder,
+            ctx,
+            provenance.identity,
+            pdf_name=pdf_name,
+            run_id=provenance.run_id,
+        )
 
     logger.debug("build_qc_bundle complete for %s", pdf_name)
     return ctx
