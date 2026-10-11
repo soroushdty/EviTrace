@@ -40,6 +40,7 @@ Configuration entry points and defaults.
 | `load_openai_config(config_path=None)` | Flat dict with all OpenAI/extraction/concurrency/retry keys, with environment-variable overrides applied. Used by `agents/openai` and `pipeline.orchestrator`. |
 | `load_qc_config(config_path=None)` | `{"quality_control": {...}, "text_processor": {...}}` deep-merged with `_QC_DEFAULTS`. Used by `quality_control.run_quality_control` and `pipeline.extraction_pipeline`. |
 | `load_local_config(config_path=None)` | Validated `pdf_extractor` parser settings deep-merged with `_LOCAL_DEFAULTS`. Resolves `pdfs_path` to an absolute path; rejects unknown top-level keys to catch typos. |
+| `load_provenance_config(config)` | Takes an already-loaded top-level config mapping (reads no file) and returns its `provenance` block deep-merged over `_PROVENANCE_DEFAULTS` (`enabled`, `output_subdir`, `severity_overrides`, `fail_run_on_severity`, `stage_contracts_strict`); inputs and defaults are not mutated. Values are not validated here — `pipeline.run_provenance.resolve_provenance_settings` does that. |
 | `get_qc_config(config)` | Helper that returns `config["quality_control"]`. |
 
 `load_openai_config` returns a flat dict with keys including:
@@ -70,7 +71,7 @@ The set of legitimate top-level keys for the YAML lives in
 Currently registered top-level keys: `openai`, `extraction`, `concurrency`,
 `retry`, `quality_control`, `local`, `text_processor`, `pdfs_path`,
 `output_folder_path`, `extraction_map_path`, `log_file`, `log_level`,
-`len_filter`, `ocr`.
+`len_filter`, `ocr`, `provenance`.
 
 ### `path_utils.py`
 
@@ -84,6 +85,7 @@ Centralised path constants and PDF source resolution.
 | `OUTPUT_DIR` | Per-paper extraction output dir (`outputs/`). |
 | `MANIFEST_FILE` | `manifest.json` at the project root. |
 | `QC_REPORT_FILE` | `outputs/qc_report.csv`. |
+| `PROVENANCE_DIR` | `resolve_run_output_path("provenance")` — the *default* provenance directory under the run folder. Currently unused by code: the effective directory is the validated `provenance.output_subdir`, resolved by `pipeline.run_provenance.artifact_directory`. |
 
 Functions:
 

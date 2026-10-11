@@ -152,7 +152,7 @@ def test_require_declared_stage_returns_the_contract_for_a_declared_stage(stage)
 
 @pytest.mark.parametrize(
     "stage",
-    ["not_a_stage", "", " synthesis", "synthesis ", "Synthesis", "routing_locator"],
+    ["not_a_stage", "", " synthesis", "synthesis ", "Synthesis", "zz_undeclared_probe_stage"],
 )
 def test_stage_absent_from_both_tables_is_rejected_not_silently_accepted(stage):
     assert stage not in STAGE_CONTRACTS and stage not in STAGE_ORDER

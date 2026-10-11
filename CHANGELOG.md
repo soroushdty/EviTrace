@@ -5,6 +5,73 @@ and should never be deleted. Add a brief entry whenever a spec is implemented,
 steering docs change, README files change, or any other significant code change
 occurs.
 
+## [2026-10] — Implement the `provenance-core` spec (`provenance-core`)
+
+A new leaf package, `src/provenance/`, records which source, evidence and derivation steps
+produced every extracted claim, checks the resulting chain, computes completeness at claim,
+document and run level, and writes one run-scoped artifact:
+`outputs/run_<ts>/<provenance.output_subdir>/provenance_graph.json` (default subdirectory
+`provenance`). `pipeline` is the sole integrator; provenance never aborts extraction.
+
+**Behaviour changes operators should know about**
+
+- **Declared prompt-content change.** Evidence-index caption sentences (GROBID
+  `figure/figDesc/div/p/s`, which carry no coordinates of their own) now inherit the enclosing
+  `<figure>`'s `page`/`coords`. These values are serialized into the evidence package embedded in
+  `_shared_paper_prefix`, so the prefix bytes of papers with such captions change (173 items across
+  the three TEI fixtures; ids, order and all other fields unchanged). Evidence caches already on
+  disk keep the old shape until regenerated (the cache key has no version marker), so a cached and
+  a fresh run of the same paper send different prefix bytes. The new post-change goldens are pinned
+  by `tests/src/provenance/test_provenance_prompt_prefix_regression.py`.
+- **One difference with provenance enabled.** When repair retries are exhausted and the only
+  remaining problems are reference-only `loc` problems (unknown, duplicate or ambiguous ids), the
+  output is now retained and a `dangling_reference`/`duplicate_reference`/`ambiguous_reference`
+  finding naming the claim is recorded, instead of failing the document with
+  `RepairExhaustedError`. With `provenance.enabled: false` (or no recordable document) the
+  orchestrator passes no provenance object and behaviour is byte-identical to before.
+- A run in which every document is resumed (or has no usable fingerprint) writes no artifact
+  (INFO log), because no run identity can be built from an empty document set.
+
+**Config**
+
+- New top-level `provenance:` block, registered in `_ALL_KNOWN_TOP_LEVEL_KEYS`, defaults in
+  `_PROVENANCE_DEFAULTS`, read via `config_utils.load_provenance_config(config)`: `enabled`,
+  `output_subdir`, `severity_overrides`, `fail_run_on_severity`, `stage_contracts_strict`.
+  `pipeline.run_provenance` validates the values at run start; an invalid value logs a WARNING and
+  falls back to its default (non-bool `enabled`/`stage_contracts_strict` -> `true`; unusable
+  `output_subdir` -> `provenance`; invalid `fail_run_on_severity` -> none).
+  `fail_run_on_severity` logs at ERROR and sets `ProvenanceRunSummary.failed`; there is no
+  separate run-summary artifact. `utils.path_utils.PROVENANCE_DIR` is only the default constant.
+
+**API and module changes**
+
+- New: `src/provenance/` (models, privacy_carrier, identity, contracts, recorder, graph,
+  validation, completeness, projection, serialization, `adapters/`);
+  `src/pipeline/document_provenance.py` (source nodes, QC derivation steps),
+  `claim_provenance.py` (claim nodes, extraction/synthesis steps, revisions),
+  `run_provenance.py` (settings validation, recorder lifecycle, run-end graph build, validate,
+  completeness and write).
+- `run_pipeline(..., provenance_config=None)`; `process_pdf(..., provenance=None)`;
+  `build_qc_bundle(..., *, provenance=None)`;
+  `build_or_load_evidence_bundle(qc_context, config, *, recorder=None, source_id=None)`;
+  `RepairRetryLoop(..., provenance_sink=None)`; `pdf_processor.is_resumed(pdf_name, manifest)`;
+  `validator.validate_chunk_output` / `reconstruct_fields` accept `issue_sink=None`;
+  `EvidenceBundle` gains `year_provenance` and `provenance_evidence_nodes`;
+  `evidence_index.extract_header_metadata` / `HeaderMetadata` /
+  `HEADER_AUTHOR_EVIDENCE_ID` / `HEADER_DATE_EVIDENCE_ID`.
+- `quality_control`, `agents`, `pdf_extractor` and `text_processing` are untouched.
+
+**Tests**
+
+- About 2,100 new tests: `tests/src/provenance/` (20 modules incl. boundary/import-isolation,
+  Hypothesis property, prompt-prefix and stage-contract drift guards, end-to-end), ten new
+  provenance modules under `tests/src/pipeline/`, `tests/src/utils/test_provenance_config.py`.
+- `tests/test_dependency_directions.py`: 8 new rules (`provenance` must not import `agents`,
+  `pipeline`, `pdf_extractor` or `quality_control`; those four plus `text_processing` must not
+  import `provenance`).
+- Known hazard: `test_pdf_processor_helpers.py` removes `pipeline*` modules from `sys.modules` at
+  import; new orchestrator-level tests load a fresh copy of `orchestrator.py`.
+
 ## [2026-09] — Spec-task traceability test
 
 A mechanical check that every ticked task in an active Kiro spec has a commit behind it, replacing

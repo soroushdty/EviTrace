@@ -45,13 +45,14 @@
 - **Populating** the privacy carrier or defining the label/decision vocabulary — `privacy-core`.
 - **Consulting** the carrier to decide disclosure, and any public/private view — `public-private-provenance`.
 - Changing the model-facing `loc` vocabulary, the chunk-output JSON contract, `_shared_paper_prefix`, or any prompt content — with one declared exception: the caption-sentence location fix in `evidence_index.py` (PipelineIntegration) changes the `page`/`coords` values of the affected items, and those values are serialized into the paper evidence package that `_shared_paper_prefix` embeds. It is a prompt-content change, scoped to those two values on those items.
+- Changing extraction behaviour, with one declared exception that applies **only when provenance is enabled**: when repair retries are exhausted and only reference problems remain (unknown/duplicate/ambiguous `loc` ids, no other schema defect), the output is retained and a finding is recorded (5.4) instead of failing the document with `RepairExhaustedError`. With provenance disabled (`provenance.enabled: false`) the orchestrator passes no provenance object and behaviour is byte-identical to before.
 - Fixing the pre-existing duplication of `_compute_extraction_map_hash` between `manifest.py` and `evidence_index.py`; this spec adds no third computation but does not consolidate the existing two.
 - Changing the raise semantics of `validate_chunk_output` on the existing call path.
 - Any change to `src/quality_control/`, `src/agents/`, `src/pdf_extractor/`, or `src/text_processing/`.
 
 ### Allowed Dependencies
 
-- `src/provenance/` may import **only** `src/utils/` and the Python standard library. It is a leaf package, peer to `text_processing`.
+- `src/provenance/` may import **only** `src/utils/` and the Python standard library (in practice only `utils.logging_utils`). It is a leaf package, peer to `text_processing`.
 - `src/pipeline/` is the sole integration point and may import `provenance`.
 - `quality_control`, `agents`, `pdf_extractor`, and `text_processing` must **not** import `provenance`.
 - No new third-party dependency. No graph library, no crypto library, no RDF library. `hashlib` and `json` from the standard library only.
@@ -137,14 +138,21 @@ graph TB
     Projection --> Models
     Serialization --> Models
     Models --> PrivacyCarrier
-    Identity --> UtilsPackage
-    Serialization --> PathUtils
+    Adapters --> Contracts
+    Adapters --> PrivacyCarrier
+    Adapters --> LoggingUtils
     Recorder --> LoggingUtils
+    GraphBuilder --> LoggingUtils
+    ChainValidator --> LoggingUtils
+    Completeness --> LoggingUtils
+    Serialization --> LoggingUtils
+    Orchestrator --> ConfigUtils
+    Orchestrator --> PathUtils
 ```
 
 **Architecture Integration**
 
-- **Dependency direction** (exhaustive; every module of the package appears exactly once): `utils → provenance.privacy_carrier → provenance.models → provenance.identity → provenance.contracts → provenance.recorder → provenance.graph → provenance.validation → provenance.completeness → provenance.projection → provenance.serialization`, with `provenance.adapters` depending only on `models` and `identity`. Each module imports only from modules to its left. `privacy_carrier` precedes `models` because every node embeds a carrier; `contracts` precedes `completeness` because the completeness diff consumes `STAGE_CONTRACTS`. `pipeline` sits above all of provenance and is the only caller.
+- **Dependency direction** (exhaustive; every module of the package appears exactly once): `utils → provenance.privacy_carrier → provenance.models → provenance.identity → provenance.contracts → provenance.recorder → provenance.graph → provenance.validation → provenance.completeness → provenance.projection → provenance.serialization`, with `provenance.adapters` depending on `models`, `identity` and `privacy_carrier` (plus `contracts` for the derivation adapter, which validates stage names), and importing `utils.logging_utils`. `identity` imports only the standard library; `serialization` does not import `path_utils` (the caller passes the directory). Each module imports only from modules to its left. `privacy_carrier` precedes `models` because every node embeds a carrier; `contracts` precedes `completeness` because the completeness diff consumes `STAGE_CONTRACTS`. `pipeline` sits above all of provenance and is the only caller.
 - **Domain boundaries**: record *definition and identity* (models, identity, privacy_carrier) is separate from record *emission* (recorder, adapters), which is separate from *assembly* (graph), which is separate from *analysis* (validation, completeness, projection), which is separate from *persistence* (serialization). These are the four boundary candidates named in the brief, and they are the parallel-safe task seams.
 - **Existing patterns preserved**: single-module ownership of shared dataclasses (mirrors `quality_control/models.py`); explicit config passing; run-scoped output paths via `resolve_run_output_path`; closed string vocabularies (mirrors `YearResolution.provenance`); AST-enforced dependency direction.
 - **New components rationale**: every module above maps to exactly one requirement group; none exists speculatively.
@@ -215,14 +223,20 @@ One test module per adapter, so the four adapter tasks share no test file. The o
 ### Modified Files
 
 - `src/utils/config_utils.py` — add `_PROVENANCE_DEFAULTS`, register `"provenance"` in `_ALL_KNOWN_TOP_LEVEL_KEYS`, add `load_provenance_config(config)`.
-- `src/utils/path_utils.py` — add `PROVENANCE_DIR = resolve_run_output_path("provenance")`. It is the **default** artifact directory only; the effective directory is resolved by PipelineIntegration from `provenance.output_subdir` (see Configuration).
+- `src/utils/path_utils.py` — add `PROVENANCE_DIR = resolve_run_output_path("provenance")`. It is the **default** artifact directory only and is currently unused by code; the effective directory is the validated `provenance.output_subdir` resolved by `run_provenance.artifact_directory` (see Configuration).
 - `configs/config.yaml` — add the `provenance:` block.
 - `tests/test_dependency_directions.py` — add 8 `FORBIDDEN_PAIRS` entries plus one named test per pair.
 - `src/pipeline/validator.py` — add optional `issue_sink` to `_validate_extraction_item`, `validate_chunk_output`, and `reconstruct_fields`. Default `None` preserves current behavior exactly.
 - `src/pipeline/evidence_index.py` — add optional `recorder` keyword to `build_or_load_evidence_bundle`; emit evidence nodes via `evidence_adapter.evidence_node_from_item` after the bundle is built (both cache-hit and cache-miss paths). Add the pure header helper `extract_header_metadata` (PipelineIntegration), which the author/year prefill also reads. Fix caption-sentence locations (PipelineIntegration).
 - `src/pipeline/extraction_pipeline.py` — emit the source node from the document's `ManifestIdentity` (computed by PipelineIntegration via `manifest.compute_identity`; no production call site computes it today), and convert `unified.content["provenance"]` into derivation steps via `derivation_adapter`.
 - `src/pipeline/pdf_processor.py` — emit claim nodes and per-chunk/synthesis derivation steps; mark prefilled fields 1–2 as non-model origin, citing the header metadata node their value came from; mark claim-scoped stages per document.
-- `src/pipeline/orchestrator.py` — own the recorder lifecycle: construct per run, pass explicitly, then build graph, validate, mark `chain_validation`, compute completeness over a post-validation snapshot, resolve the artifact directory, and write the artifact.
+- `src/pipeline/orchestrator.py` — own the recorder lifecycle: construct per run, pass explicitly, then build graph, validate, mark `chain_validation`, compute completeness over a post-validation snapshot, resolve the artifact directory, and write the artifact. As implemented, the lifecycle code lives in `run_provenance.py` and the orchestrator makes three short calls (`start_run_provenance`, per-document hooks, `finish_run_provenance`).
+- **New pipeline modules** (added during implementation, beside the files above, so none of the existing modules grows by the full emission code):
+  - `src/pipeline/document_provenance.py` — run planning (`plan_run_documents`, `build_run_identity`, `identity_config`) and per-document emission of the source node, the QC `reconcile` derivation step and the `document_extraction` / `quality_control` stage marks (`emit_document_provenance`, `emit_document_failure`, `DocumentProvenance`).
+  - `src/pipeline/claim_provenance.py` — claim nodes, `metadata_prefill` / `extraction_chunk` / `synthesis` derivation steps, revisions, header citations and the per-document wrapped issue sink (`DocumentClaims`, `claim_issue_sink`, `header_citations`, `plan_field_candidates`).
+  - `src/pipeline/run_provenance.py` — validated settings (`resolve_provenance_settings`, `validated_output_subdir`, `artifact_directory`), `start_run_provenance`, `RunProvenance` per-document hooks, `finish_run_provenance`, `ProvenanceRunSummary`.
+- `.kiro/steering/config.md`, `configs/README.md`, `.kiro/steering/testing.md`, `src/pipeline/README.md`, `src/utils/README.md`, `src/provenance/README.md`, `CHANGELOG.md` — documentation of the above.
+- Tests beyond the plan above: `tests/src/provenance/` additionally holds `test_provenance_contracts.py`, `test_provenance_attribution.py`, `test_provenance_properties.py`, `test_provenance_prompt_prefix_regression.py`, `test_provenance_stage_contract_drift.py` and `test_provenance_end_to_end.py`; `tests/src/pipeline/` holds `test_evidence_index_provenance.py`, `test_evidence_index_caption_location.py`, `test_extraction_pipeline_provenance.py`, `test_claim_provenance.py`, `test_process_pdf_provenance.py`, `test_repair_retry_provenance.py`, `test_validator_issue_sink.py`, `test_run_provenance.py`, `test_orchestrator_provenance.py`, `test_provenance_end_to_end.py`; `tests/src/utils/test_provenance_config.py`.
 
 ## System Flows
 
@@ -990,7 +1004,7 @@ SUPPORTED_SCHEMA_MAJORS: tuple[int, ...] = (1,)
 
 **Responsibilities & Constraints**
 - `orchestrator.py` constructs one `ProvenanceRecorder` per run from the resolved config and passes it explicitly down the call chain — no global, no module-level singleton. `enabled` is passed as a real `bool`.
-- **Identity and run scope.** PipelineIntegration computes each document's `ManifestIdentity` itself via `manifest.compute_identity(pdf_path, config)` (no production call site computes it today) and builds `RunIdentity` with `run_identity_from_identities(..., additional_model_ids=(synthesis_model,))` when the synthesis model differs from the chunk model (3.5). Manifest sentinels `"nohash"` / `"no_extraction_map"` are treated as missing fingerprints, never as identities. **Resumed documents** — those `process_pdf` skips because the manifest already marks them complete — are excluded from this run's provenance: they are not in `RunIdentity.document_fingerprints` and get no source node. A run in which every document is resumed is therefore an empty run (`undetermined`). Two PDFs with the same content fingerprint share one source id: the source is recorded once, a WARNING names both labels, and any conflicting record the second produces surfaces as `duplicate_identity` (error).
+- **Identity and run scope.** PipelineIntegration computes each document's `ManifestIdentity` itself via `manifest.compute_identity(pdf_path, config)` (no production call site computes it today) and builds `RunIdentity` with `run_identity_from_identities(..., additional_model_ids=(synthesis_model,))` when the synthesis model differs from the chunk model (3.5). Manifest sentinels `"nohash"` / `"no_extraction_map"` are treated as missing fingerprints, never as identities. **Resumed documents** — those `process_pdf` skips because the manifest already marks them complete — are excluded from this run's provenance: they are not in `RunIdentity.document_fingerprints` and get no source node. A run in which every document is resumed (or has no usable fingerprint) is an empty run: `compute_completeness` would read it `undetermined`, but as implemented no artifact is written for it (INFO log), because `run_identity_from_identities` refuses an empty document set and `start_run_provenance` returns `None` ("run without provenance"). Two PDFs with the same content fingerprint share one source id: the source is recorded once, a WARNING names both labels, and any conflicting record the second produces surfaces as `duplicate_identity` (error).
 - `extraction_pipeline.py` emits the source node from that identity's `to_dict()` (unconsumed keys become `x-manifest-*` extensions via the adapter) and converts `unified.content["provenance"]` into derivation steps. **`quality_control` is not modified**; the conversion happens on the pipeline side.
 - `evidence_index.py` emits evidence nodes on **both** the cache-hit and cache-miss paths, so a cached run is not silently provenance-incomplete. It calls `evidence_node_from_item` per item and turns each `InvalidIdentifierError` into a recorded `invalid_identifier` issue. An item whose `section_path` equals the pipeline's `_METADATA_SECTION` (the TEI title) is converted with evidence kind `metadata` (4.1) — a pipeline-side override on a copy of the item; the evidence-index item format, the evidence cache, and the prompt are unchanged.
 - **Header metadata evidence.** A pure helper in `evidence_index.py`, `extract_header_metadata(tei_xml) -> HeaderMetadata`, parses the TEI header once and returns the first-author value with its element and the publication year with its matched `<date>` element (the element `_extract_publication_year_from_tei` selects). The author prefill and the TEI-header branch of `resolve_publication_year` read their values from this helper, so prefilled values and their citations cannot drift. From `bundle.tei_xml` (present on both cache paths) PipelineIntegration mints one `metadata` evidence item per found element, with reserved local ids `M-first-author` and `M-publication-date` (never produced by the S/T/F numbering), and records them as evidence of stage `evidence_index`. These items exist only in provenance: they are never added to `bundle.evidence_items`, the evidence cache, or any prompt.
@@ -1000,7 +1014,7 @@ SUPPORTED_SCHEMA_MAJORS: tuple[int, ...] = (1,)
 - `validator.py` gains an optional `issue_sink`; when supplied, unknown/duplicate `loc` IDs are recorded as findings and the claim is retained; when omitted, behavior is unchanged byte-for-byte.
 - **The sink must actually be passed at the production call sites** in `pdf_processor.py` (the `validate_chunk_output` and `reconstruct_fields` calls on both the chunk path and the synthesis path). Adding the parameter without wiring it would leave 5.3 and 5.4 satisfied only in tests. The validator has no `source_id`, so `pdf_processor` wraps the sink per document and injects `details["node_id"] = derive_claim_id(source_id, field_index)` and the raw `loc` as `details["reference"]` (issue-sink contract under ProvenanceRecorder).
 - **Run end (orchestrator).** After processing: snapshot, `build_graph`, `validate_chain(graph, severity_overrides=..., recorded_findings=recorded.findings)`, `attach_validation`; then mark `chain_validation` run-wide — `complete`, or `failed` with the incompletion reason when the report is not `completed` — take a **post-validation snapshot**, and call `compute_completeness(validated_graph, post_validation_snapshot, stage_contracts_strict=...)` with the YAML value validated as a `bool`; `attach_completeness`; write. Every provenance exception (`UnknownStageError`, `InvalidIdentifierError`, serialization errors, any other) is caught, logged, and degraded — provenance never aborts extraction.
-- **Artifact directory.** PipelineIntegration resolves `resolve_run_output_path(load_provenance_config(cfg)["output_subdir"])` and passes it to `write_graph`. An `output_subdir` that is empty, absolute, or contains a `..` segment is rejected: a WARNING names the value and the default `"provenance"` is used.
+- **Artifact directory.** PipelineIntegration resolves the directory with `run_provenance.artifact_directory(settings)` (`resolve_run_output_path(<validated output_subdir>)`) and passes it to `write_graph`. An `output_subdir` that is empty/blank, contains NUL, is absolute, contains a `..` segment, names the run folder itself (`.`, `outputs`), or resolves outside the run folder is rejected: a WARNING names the value and the default `"provenance"` is used.
 - **Caption-sentence locations.** In `_build_items_from_tei`, GROBID's `<figDesc>` holds `<div><p><s>`, so the body `div` loop emits caption sentences as `sentence` items whose `<s>`/`<p>` carry no `coords` — `page=None`, `coords=None`, weak `.//s` path, which the anchor rule makes `absent`. Such a sentence inherits the `page` and `coords` of its enclosing `<figure>` when its own and its `<p>`'s coords are absent. Item ids stay stable: no item is added, removed, or renumbered. Existing evidence caches keep the old shape until regenerated (the cache key does not change). `page` and `coords` **are** prompt bytes — `select_paper_evidence` copies both into each selected item and `serialise_evidence_package` emits them into the paper evidence package embedded in `_shared_paper_prefix` — so this is a declared prompt-content change (see Out of Boundary); the prefix stays byte-stable across chunks of one PDF.
 - All emission occurs after prompt assembly and after response parsing. No provenance value may enter `_shared_paper_prefix`.
 - **Out-of-scope pipeline defect (follow-up, not planned here):** fallback author and year prefills are labelled confidence `"h"` (`pdf_processor` sets `"h"` for any non-empty value other than `"nr"`; `resolve_publication_year` also returns `"h"` for PDF-metadata years), overstating confidence for values that cite no evidence.
@@ -1011,9 +1025,21 @@ SUPPORTED_SCHEMA_MAJORS: tuple[int, ...] = (1,)
 **Contracts**: Service [x]
 
 **Implementation Notes**
-- Integration: `provenance.enabled: false` yields a recorder whose methods no-op, so no call site needs a conditional.
+- Integration: when `provenance.enabled` is `false` the orchestrator constructs no recorder and passes `provenance=None` down the call chain, so behaviour is byte-identical to a build without provenance. The recorder's own `enabled=False` no-op mode still exists (every method returns the derived ID) for direct users of `ProvenanceRecorder`.
 - Validation: an end-to-end test with a fabricated `QCBundle` and evidence bundle asserts a graph is produced, validated, and written; a separate regression test asserts `_shared_paper_prefix` output is unchanged by provenance emission (its baseline is taken after the declared caption-location change).
 - Risks: `asyncio` PDF-level concurrency interleaving records — mitigated by the recorder's internal lock and value-only records.
+
+##### Implementation deviations (recorded at validation)
+
+What the code does today, where it differs from or fixes the wording above:
+
+- **Signatures.** `build_or_load_evidence_bundle(qc_context, config, *, recorder=None, source_id=None)` (the caller passes the document's `src:<fingerprint>` id; a missing or malformed one logs a WARNING and emits nothing); `build_qc_bundle(pdf_path, pdf_name, qc_config, *, provenance=None)`; `process_pdf(..., collector=None, provenance=None)`; `RepairRetryLoop(..., provenance_sink=None)`; `run_pipeline(..., provenance_config=None)` (the merged `provenance` block; `None` reads `configs/config.yaml`); `pdf_processor.is_resumed(pdf_name, manifest)` applies the same test `process_pdf` uses to skip a completed document (manifest status `complete` and a parseable output file). `validate_chunk_output` / `reconstruct_fields` take `issue_sink=None`.
+- **Data types.** `EvidenceBundle` gains `year_provenance` and `provenance_evidence_nodes` (both `compare=False, repr=False`). `evidence_index` exposes `HeaderMetadata` (`first_author`, `first_author_element`, `publication_year`, `publication_date_element`), `extract_header_metadata`, `HEADER_AUTHOR_EVIDENCE_ID` (`M-first-author`) and `HEADER_DATE_EVIDENCE_ID` (`M-publication-date`).
+- **Extension key.** The chunk number of an `extraction_chunk` step is carried as the namespaced extension `x-pipeline-chunk` (int) on the derivation step.
+- **Repair loop.** Inside `RepairRetryLoop` validation stays strict and sink-less (so unknown-id repair is unchanged); the sink is applied to the final accepted output and to both production `reconstruct_fields` calls. Exhaustion-retain (see Out of Boundary) applies only with a sink.
+- **Disabled and empty runs.** Disabled, no recordable document, an unbuildable run identity, or any planning failure all mean `provenance=None`: `build_qc_bundle` and `process_pdf` are called with exactly their pre-provenance arguments and no artifact is written. A fully resumed run therefore writes no artifact (INFO log) rather than an artifact reading `undetermined`.
+- **Settings validation** lives in `run_provenance.resolve_provenance_settings`: non-bool `enabled`/`stage_contracts_strict` -> WARNING and `true`; null `severity_overrides` -> `{}` (other non-mapping ignored with a WARNING); `fail_run_on_severity` outside `{null, "critical", "error"}` -> none. The YAML block is read through `config_utils._load_config_yaml` (private) because `load_local_config()` drops it.
+- **Run summary.** `fail_run_on_severity` logs at ERROR and sets `ProvenanceRunSummary.failed`; the "run summary" is that dataclass plus one INFO line.
 
 ## Data Models
 
@@ -1070,9 +1096,9 @@ Registered in `_ALL_KNOWN_TOP_LEVEL_KEYS`, defaults in `_PROVENANCE_DEFAULTS`, r
 | Key | Consumer |
 |---|---|
 | `enabled` | `ProvenanceRecorder` (no-op mode) and PipelineIntegration (artifact production) |
-| `output_subdir` | PipelineIntegration — resolves `resolve_run_output_path(output_subdir)` and passes it to `write_graph`; empty, absolute, or `..`-containing values fall back to `"provenance"` with a WARNING. Serialization reads no config |
+| `output_subdir` | PipelineIntegration — `run_provenance.artifact_directory` resolves `resolve_run_output_path(output_subdir)` and passes it to `write_graph`; empty/blank, NUL, absolute, `..`-containing, run-folder-naming (`.`, `outputs`) or run-folder-escaping values fall back to `"provenance"` with a WARNING. Serialization reads no config |
 | `severity_overrides` | `validate_chain` (per-code severity override) |
-| `fail_run_on_severity` | PipelineIntegration — when set, a run whose findings include that severity or worse is logged at ERROR and the run summary records a provenance failure; extraction output is still written, because provenance never aborts extraction |
+| `fail_run_on_severity` | PipelineIntegration — when set, a run whose findings include that severity or worse is logged at ERROR and `ProvenanceRunSummary.failed` is set (there is no separate run-summary artifact and `run_pipeline`'s return type is unchanged); extraction output is still written, because provenance never aborts extraction |
 | `stage_contracts_strict` | `compute_completeness` (kw-only argument, passed by PipelineIntegration after validating the value is a `bool`) — when true, a stage absent from `STAGE_CONTRACTS` yields `undetermined`; when false, it is ignored |
 
 **Artifact schema (abbreviated)**
@@ -1111,7 +1137,7 @@ Provenance failures must never abort extraction — an unrecoverable provenance 
 | Non-conforming privacy carrier | Wrong field types | `state="rejected"` plus `privacy_carrier_invalid` (error); node retained |
 | Validation cannot run | Node index unavailable | `completed=False` with reason; run reported unvalidated (8.6) |
 | Unknown schema major | Artifact from a future version | `UnrecognizedSchemaVersionError`; no partial materialization (10.6) |
-| Provenance disabled | `provenance.enabled: false` | Recorder no-ops; pipeline behavior otherwise unchanged |
+| Provenance disabled | `provenance.enabled: false` | No recorder is constructed (`provenance=None` is passed down); pipeline behavior is byte-identical |
 
 ### Monitoring
 

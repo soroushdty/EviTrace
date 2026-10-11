@@ -65,13 +65,32 @@ tests/
 │   │   ├── test_text_extractor_schemas.py
 │   │   └── test_w3c_annotation.py
 │   ├── pipeline/                # mirrors src/pipeline/
+│   │   ├── test_claim_provenance.py             # claim_provenance (claim nodes, candidates, sink)
+│   │   ├── test_evidence_index_caption_location.py  # caption sentences inherit the figure's page/coords
+│   │   ├── test_evidence_index_provenance.py    # evidence-node emission + header metadata nodes
 │   │   ├── test_extraction_map_grouping.py
 │   │   ├── test_extraction_report_qc.py
+│   │   ├── test_extraction_pipeline_provenance.py  # document_provenance + build_qc_bundle hook
 │   │   ├── test_manifest_io.py
 │   │   ├── test_orchestrator_concurrency.py
+│   │   ├── test_orchestrator_provenance.py      # run lifecycle through a fresh orchestrator copy
 │   │   ├── test_pdf_processor_helpers.py
 │   │   ├── test_pipeline_evidence_index.py
-│   │   └── test_pipeline_validator_loc.py
+│   │   ├── test_pipeline_validator_loc.py
+│   │   ├── test_process_pdf_provenance.py
+│   │   ├── test_provenance_end_to_end.py        # production run-end path (finish_run_provenance)
+│   │   ├── test_repair_retry_provenance.py
+│   │   ├── test_run_provenance.py               # settings validation, artifact_directory, run end
+│   │   └── test_validator_issue_sink.py
+│   ├── provenance/              # mirrors src/provenance/ (adapters share one test module each)
+│   │   ├── test_provenance_models.py / _privacy_carrier / _identity / _contracts / _recorder
+│   │   ├── test_provenance_graph_builder.py / _attribution / _validation / _completeness
+│   │   ├── test_provenance_projection.py / _serialization / _adapter_{identity,evidence,claim,derivation}
+│   │   ├── test_provenance_import_isolation.py   # source scanners + fresh-subprocess import isolation
+│   │   ├── test_provenance_properties.py         # Hypothesis properties (identity, graph, projection)
+│   │   ├── test_provenance_prompt_prefix_regression.py  # literal goldens of _shared_paper_prefix bytes
+│   │   ├── test_provenance_stage_contract_drift.py      # recorded stages vs STAGE_CONTRACTS / STAGE_ORDER
+│   │   └── test_provenance_end_to_end.py
 │   ├── quality_control/         # mirrors src/quality_control/
 │   │   ├── test_concern_strategies.py
 │   │   ├── test_domain_agnosticism.py
@@ -105,6 +124,7 @@ tests/
 │   │   └── test_deleted_paths.py   # verify ModuleNotFoundError for legacy paths
 │   └── utils/                   # mirrors src/utils/
 │       ├── test_logging_utils.py
+│       ├── test_provenance_config.py
 │       ├── test_quality_control_config.py
 │       ├── test_sentence_processor.py
 │       └── test_source_resolution.py
@@ -191,6 +211,8 @@ for mod_name in list(sys.modules.keys()):
 
 Use `MagicMock` for fitz (PyMuPDF) document/page objects. Never call real GROBID, OpenAI, or PaddleOCR in unit tests.
 
+**Test-isolation hazard (`pipeline*` in `sys.modules`).** `tests/src/pipeline/test_pdf_processor_helpers.py` deletes every `pipeline*` module from `sys.modules` at import, and `test_orchestrator_concurrency.py` leaves a stub-built orchestrator behind. Orchestrator-level provenance tests therefore load a fresh copy of `orchestrator.py` (see `_Env` in `test_orchestrator_provenance.py`). Running `test_pdf_processor_helpers.py` first or alone fails at collection (`ModuleNotFoundError: agents.openai.telemetry`); this predates the provenance work.
+
 ---
 
 ## Dependency Direction Tests
@@ -201,10 +223,13 @@ Enforced rules:
 
 | Source package | Must NOT import |
 |---|---|
-| `src/pdf_extractor` | `quality_control` |
-| `src/quality_control` | `agents`, `pipeline`, `pdf_extractor` |
-| `src/agents` | `quality_control`, `pipeline`, `pdf_extractor` |
-| `src/text_processing` | `quality_control` |
+| `src/pdf_extractor` | `quality_control`, `provenance` |
+| `src/quality_control` | `agents`, `pipeline`, `pdf_extractor`, `provenance` |
+| `src/agents` | `quality_control`, `pipeline`, `pdf_extractor`, `provenance` |
+| `src/text_processing` | `quality_control`, `provenance` |
+| `src/provenance` | `agents`, `pipeline`, `pdf_extractor`, `quality_control` |
+
+`provenance` is a leaf package (imports only `utils` and the standard library); `pipeline` is its sole integrator. The eight `provenance` pairs (four from, four to) were added by the `provenance-core` spec.
 
 These rules are tested individually (one test per pair) and exhaustively (one combined test). Always run this suite after adding new cross-package imports.
 
@@ -261,7 +286,8 @@ commit format is also stated in `.claude/skills/kiro-impl/SKILL.md` step (e); ch
 | `src/pdf_extractor/processing/` | Sentence processor (via `tests/src/utils/test_sentence_processor.py`) |
 | `src/quality_control/` | Pipeline, models, local metrics, rater, IAA calculator, adjudicator, reconciler, concern strategies, `Validator`, `StructureSchemaValidator`, `validate_context`, checks package (separation + integration), verification result, unified record layers |
 | `src/quality_control/checks/` | Source text, semantic source, extractor agreement, task quality scaffold |
-| `src/pipeline/` | Evidence index, manifest I/O, validator loc checks, extraction map grouping, extraction report QC, orchestrator concurrency, pdf_processor helpers |
+| `src/pipeline/` | Evidence index, manifest I/O, validator loc checks, extraction map grouping, extraction report QC, orchestrator concurrency, pdf_processor helpers, provenance integration (`document_provenance`, `claim_provenance`, `run_provenance`) |
+| `src/provenance/` | Models, identity, recorder, graph assembly, chain validation, completeness, projection, serialization, adapters, boundary/import isolation, properties, prompt-prefix and stage-contract drift guards, end-to-end |
 | `src/agents/openai/` | `api_client` (async + cache key), prompts builders, prompts PBT |
 | `src/utils/` | `config_utils`, `logging_utils`, source resolution, sentence processor |
 | `src/text_processing/` | ABC enforcement, normalizers (example + PBT), tokenizers, matchers (example + PBT), embedding (mark slow), import isolation, deleted legacy paths |

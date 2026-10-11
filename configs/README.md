@@ -180,12 +180,20 @@ provenance:
 ```
 
 Settings for the provenance graph. `utils.config_utils.load_provenance_config(config)`
-deep-merges this block over `_PROVENANCE_DEFAULTS`; the artifact directory is
-`utils.path_utils.PROVENANCE_DIR`, i.e. `<main_output_dir>/run_*/provenance/`.
-`enabled: false` turns the recorder into a no-op; `severity_overrides` remaps the
-severity of individual validation finding codes; `fail_run_on_severity` marks the run
-summary as a provenance failure (logged at ERROR) when findings reach that severity,
-without aborting extraction; `stage_contracts_strict` makes completeness
+deep-merges this block over `_PROVENANCE_DEFAULTS`; `pipeline.run_provenance` then
+validates the values at run start (an invalid value logs a WARNING and uses its
+default; it never aborts the run). The artifact is
+`<main_output_dir>/run_*/<output_subdir>/provenance_graph.json`; an `output_subdir`
+that is empty/blank, contains NUL, is absolute, has a `..` segment, names the run
+folder itself (`.`, `outputs`) or resolves outside it falls back to `provenance`
+(`utils.path_utils.PROVENANCE_DIR` is only that default constant and is not used by
+the code). `enabled: false` (must be a real boolean; a non-bool value falls back to
+`true`) disables provenance entirely: no recorder is built and no artifact is written;
+`severity_overrides` remaps the severity of individual validation finding codes
+(`null` -> `{}`); `fail_run_on_severity` (`null`, `"critical"` or `"error"`; anything
+else is ignored) logs at ERROR and sets `ProvenanceRunSummary.failed` when findings
+reach that severity (there is no separate run-summary artifact), without aborting
+extraction; `stage_contracts_strict` (a real boolean, else `true`) makes completeness
 `undetermined` for a stage with no declared contract.
 
 ### Paths

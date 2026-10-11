@@ -82,7 +82,7 @@ Re-exports the public surface:
 Both the standalone `pdf_extractor.py` CLI and the async orchestrator
 delegate to `build_qc_bundle` rather than duplicating routing logic.
 
-`build_qc_bundle(pdf_path, pdf_name, qc_config) -> QCBundle`
+`build_qc_bundle(pdf_path, pdf_name, qc_config, *, provenance=None) -> QCBundle`
 
 Per-page routing:
 - All pages native → GROBID (semantic authority) + pdfplumber (structural
@@ -94,12 +94,19 @@ Per-page routing:
 After QC, projects W3C JSON-LD annotations via `artifact_generation.w3c_annotation`
 and stores them in `ctx.unified.content["annotations"]`.
 
+With `provenance` (a `document_provenance.DocumentProvenance`), the last step
+records the document's source node and QC derivation step and marks the
+`document_extraction` / `quality_control` stages
+(`document_provenance.emit_document_provenance`, which never raises).
+`provenance=None` changes nothing.
+
 ### `orchestrator.py`
 
 The async orchestrator.
 
-`run_pipeline(pdf_paths, *, pdf_concurrency=None, enable_cache_prewarm=None) -> list[dict]`
-— spawns one `asyncio` task per PDF, gated by an `asyncio.Semaphore`
+`run_pipeline(pdf_paths, *, pdf_concurrency=None, enable_cache_prewarm=None, export_csv=False, csv_output_path=None, provenance_config=None) -> list[dict]`
+— `provenance_config` is the merged `provenance` settings block (`None` reads
+it from `configs/config.yaml`); see `run_provenance.py` below. Spawns one `asyncio` task per PDF, gated by an `asyncio.Semaphore`
 for PDF-level concurrency and a global semaphore for total API
 concurrency. CLI overrides flow through arguments (mutating module-level
 globals is intentionally avoided).
@@ -108,7 +115,7 @@ globals is intentionally avoided).
 
 Per-PDF LLM extraction orchestration.
 
-`process_pdf(qc_context, chunk_fields, field_lookup, api_semaphore, manifest, manifest_lock, openai_config) -> list[dict] | None`
+`process_pdf(qc_context, chunk_fields, field_lookup, api_semaphore, manifest, manifest_lock, openai_config, collector=None, provenance=None) -> list[dict] | None`
 
 Steps:
 1. `validate_qc_context_input(qc_context)` — pre-flight guard.
@@ -141,6 +148,16 @@ Steps:
     when the write raised — the exception is then re-raised so the
     orchestrator logs it as an unhandled error (no silent skipped write).
 
+With `provenance` (a `DocumentProvenance`), the evidence nodes are recorded
+while the bundle is built, claims and derivation steps are recorded after the
+output file is written and the manifest saved, and reference problems in model
+output are recorded as findings (`RepairRetryLoop(..., provenance_sink=...)`).
+Repair stays strict; the one behavioural difference is that when repair is
+exhausted and only reference-only `loc` problems remain, the output is retained
+and a finding is recorded instead of raising `RepairExhaustedError`.
+`is_resumed(pdf_name, manifest)` applies the same "already complete" test as
+step 2, so the provenance run scope matches what is actually skipped.
+
 Failure recording (`_record_failure(manifest, pdf_name, *, status, failures)`)
 is the single path for every failure site — extraction-chunk exhaustion
 (`failed_chunks`), synthesis exhaustion or error (`failed_chunk_<n>`),
@@ -153,12 +170,18 @@ exception is recorded with its class name and `attempts: 0`.
 
 GROBID TEI XML → ranked evidence bundle with disk cache.
 
-`build_or_load_evidence_bundle(qc_context, config) -> EvidenceBundle`
+`build_or_load_evidence_bundle(qc_context, config, *, recorder=None, source_id=None) -> EvidenceBundle`
 — parses GROBID TEI XML into a ranked, section-scored index (sentences,
 tables, figure captions). Cached to disk by `{paper_id}_{pdf_hash}`.
 Falls back to sentence-splitting `exact_text` when TEI XML is absent.
 Enriches items with optional addon annotations (grobid-quantities,
-datastet, entity-fishing).
+datastet, entity-fishing). Caption sentences (GROBID `figure/figDesc/div/p/s`)
+that carry no coordinates inherit the enclosing figure's `page`/`coords`.
+With a `recorder` and the document's `source_id` (`src:<fingerprint>`), the
+items (and two header metadata items, `M-first-author` / `M-publication-date`,
+which exist only in provenance) are recorded as evidence nodes on both the
+cache-hit and cache-miss paths. `extract_header_metadata(tei_xml) ->
+HeaderMetadata` is the pure helper behind the author/year prefill.
 
 `build_chunk_evidence_package(bundle, chunk_fields, *, max_items, max_chars) -> str`
 — builds a compact per-chunk evidence package JSON string with
@@ -169,7 +192,8 @@ section-aware ranking and keyword overlap scoring.
 when `crop_figures` or `crop_tables` is enabled.
 
 `EvidenceBundle` dataclass fields: `paper_id`, `tei_xml`,
-`evidence_items`, `evidence_map`, `prefilled_fields`, `index_path`.
+`evidence_items`, `evidence_map`, `prefilled_fields`, `index_path`, plus the
+non-comparing `year_provenance` and `provenance_evidence_nodes`.
 
 ### `extraction_map.py`
 
@@ -191,13 +215,16 @@ Pure-Python validation, independent of the OpenAI structured-output schema.
 - `clean_json_string(raw) -> str` — strips Markdown code fences.
 - `_unwrap_top_level(data) -> list[dict]` — accepts both
   `{"extractions": [...]}` (Responses API) and a top-level list.
-- `validate_chunk_output(raw, expected_indices, *, valid_location_ids=None) -> list[dict]`
+- `validate_chunk_output(raw, expected_indices, *, valid_location_ids=None, issue_sink=None) -> list[dict]`
   — parses the model text, checks shape, key set (`i`, `v`, `loc`, `c`),
   confidence enum, types, exact `field_index` set, and optionally validates
   `loc` IDs against `valid_location_ids`.
-- `reconstruct_fields(compact, field_lookup, evidence_map=None) -> list[dict]`
+- `reconstruct_fields(compact, field_lookup, evidence_map=None, *, issue_sink=None) -> list[dict]`
   — expands compact `{i, v, loc, c}` records into full per-field dicts
   with `evidence`, `location`, `location_metadata`.
+- `issue_sink` (optional `(code, message, details)` callable, both functions):
+  when given, unknown/duplicate/ambiguous `loc` ids are reported as findings
+  and the claim is kept instead of raising; omitted, behaviour is unchanged.
 
 ### `manifest.py`
 
@@ -247,6 +274,45 @@ Post-run reporting:
   (flagged rows with confidence `"l"` or `"nr"`) and prints a summary
   including top-10 fields by `nr` rate.
 
+### `document_provenance.py`
+
+Per-document provenance emission for `extraction_pipeline.py` and run planning
+for the orchestrator. `plan_run_documents(...)` computes each document's
+`ManifestIdentity` (resumed documents and documents with a manifest sentinel
+such as `"nohash"` are left out); `build_run_identity(...)` builds the
+`RunIdentity` (`None` + WARNING when none can be built); `identity_config(...)`
+assembles the config fingerprint from the resolved configs;
+`emit_document_provenance(...)` / `emit_document_failure(...)` record the source
+node, the QC `reconcile` step and the document-scoped stage marks;
+`DocumentProvenance` bundles recorder, identity and run id for one document.
+
+### `claim_provenance.py`
+
+Claim-scoped emission for `process_pdf`: `DocumentClaims` records claim nodes,
+the `metadata_prefill`, `extraction_chunk` (chunk number in the
+`x-pipeline-chunk` extension) and `synthesis` derivation steps, and revisions
+when several chunks produced a field (`plan_field_candidates`, `revisions_of`).
+`claim_issue_sink` wraps the recorder's issue sink for one document (injects the
+claim id; forwards only `dangling_reference`, `duplicate_reference`,
+`ambiguous_reference`); `header_citations` decides which header metadata nodes the
+prefilled author/year cite.
+
+### `run_provenance.py`
+
+Run lifecycle driven by `orchestrator.run_pipeline`.
+`resolve_provenance_settings` / `validated_output_subdir` validate the
+`provenance` block (WARNING + default on an invalid value);
+`start_run_provenance` plans the documents and builds the one recorder, or returns
+`None` ("run without provenance": disabled, nothing to record, or any failure —
+the pipeline then makes exactly its pre-provenance calls);
+`RunProvenance.document(index)` hands out per-document `DocumentProvenance`;
+`finish_run_provenance` builds the graph, validates it, marks `chain_validation`,
+computes completeness and writes `provenance_graph.json` to
+`artifact_directory(settings)` (`<run folder>/<output_subdir>`). Every step
+degrades with a WARNING; the result is a `ProvenanceRunSummary`
+(`fail_run_on_severity` sets its `failed` flag and logs at ERROR). A run with no
+recordable document writes no artifact.
+
 ---
 
 ## Concurrency model
@@ -284,6 +350,7 @@ This package reads everything via
 - `quality_control.grobid_integration.failure_behavior`
 - `quality_control.grobid_integration.crop_figures`, `crop_tables`
 - `quality_control.addons.*`
+- `provenance.*` (`enabled`, `output_subdir`, `severity_overrides`, `fail_run_on_severity`, `stage_contracts_strict`; see [../../configs/README.md](../../configs/README.md))
 
 CLI overrides accepted by `main.py`:
 

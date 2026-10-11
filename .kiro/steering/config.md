@@ -148,17 +148,28 @@ ocr: false                       # enable PaddleOCR for scanned pages
 
 ```yaml
 provenance:
-  enabled: true                 # false -> recorder no-op, no provenance artifact
+  enabled: true                 # false -> no recorder is built, no provenance artifact
   output_subdir: "provenance"   # run-folder subdirectory for the artifact
   severity_overrides: {}        # finding code -> severity
   fail_run_on_severity: null    # null | "critical" | "error"
   stage_contracts_strict: true  # stage missing from STAGE_CONTRACTS -> completeness "undetermined"
 ```
 
-Defaults live in `_PROVENANCE_DEFAULTS` and are read via `load_provenance_config(config)`. The run-scoped
-artifact directory is `utils.path_utils.PROVENANCE_DIR` (`<main_output_dir>/run_*/provenance/`).
-`fail_run_on_severity` logs at ERROR and records a provenance failure in the run summary; it never
-aborts extraction.
+Defaults live in `_PROVENANCE_DEFAULTS` and are read via `load_provenance_config(config)`; the values are
+validated at run start by `pipeline.run_provenance.resolve_provenance_settings` (an invalid value logs a
+WARNING and uses its default, it never aborts the run).
+
+| Key | Validation / fallback |
+|---|---|
+| `enabled`, `stage_contracts_strict` | Must be a real `bool`; anything else (e.g. the string `"false"`) -> WARNING and `true` |
+| `output_subdir` | Effective directory is `<main_output_dir>/run_*/<output_subdir>/provenance_graph.json`. Empty/blank, NUL, absolute, any `..` segment, a value naming the run root (`.`, `outputs`) or one resolving outside the run folder -> WARNING and `provenance` |
+| `severity_overrides` | `null` -> `{}`; any other non-mapping is ignored with a WARNING |
+| `fail_run_on_severity` | Must be `null`, `"critical"` or `"error"`; anything else -> none |
+
+`utils.path_utils.PROVENANCE_DIR` is only the default-directory constant and is not used by the code; the
+effective directory comes from `output_subdir` via `pipeline.run_provenance.artifact_directory`.
+`fail_run_on_severity` logs at ERROR and sets `ProvenanceRunSummary.failed`; there is no separate run-summary
+artifact and `run_pipeline`'s return value is unchanged. It never aborts extraction.
 
 ### `text_processor`
 
