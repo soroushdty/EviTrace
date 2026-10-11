@@ -244,15 +244,23 @@ def _expected_sentence_pages(name: str) -> list[tuple[str, int | None]]:
     """``(text, page)`` for every body ``<s>`` in document order.
 
     ``page`` is the first-box page of the enclosing ``<p>``'s coords (the
-    fixture ``<s>`` elements carry none), or ``None`` when the paragraph has
-    no coords.
+    fixture ``<s>`` elements carry none).  A caption paragraph inside a
+    ``<figure>`` has no coords either and takes the figure's page
+    (provenance-core 6.6); otherwise ``None`` when the paragraph has no coords.
     """
     root = load_tei_root(name)
     body = root.find(f".//{_NS}body")
+    parent = {child: par for par in root.iter() for child in par}
     expected: list[tuple[str, int | None]] = []
     for div in body.findall(f".//{_NS}div"):
         for p in div.findall(f".//{_NS}p"):
             coords = p.get("coords")
+            node = parent.get(p)
+            while not coords and node is not None:
+                if node.tag == f"{_NS}figure":
+                    coords = node.get("coords")
+                    break
+                node = parent.get(node)
             page = int(coords.split(";")[0].split(",")[0]) if coords else None
             for s in p.findall(f".//{_NS}s"):
                 text = " ".join("".join(s.itertext()).split())

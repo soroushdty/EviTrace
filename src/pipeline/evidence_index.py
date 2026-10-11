@@ -252,6 +252,23 @@ def _sentence_coords(
     return None
 
 
+def _enclosing_figure_coords(
+    elem: ET.Element, parent_map: dict[ET.Element, ET.Element]
+) -> str | None:
+    """``coords`` of the nearest enclosing ``<figure>`` of ``elem``, or ``None``.
+
+    GROBID nests a caption as ``<figure><figDesc><div><p><s>`` and gives those
+    inner elements no ``coords`` of their own; the figure carries the caption's
+    location (provenance-core 4.3).
+    """
+    node = parent_map.get(elem)
+    while node is not None:
+        if node.tag == f"{_NS}figure":
+            return node.attrib.get("coords") or None
+        node = parent_map.get(node)
+    return None
+
+
 def _tei_xpath(elem: ET.Element) -> str:
     xml_id = elem.attrib.get("{http://www.w3.org/XML/1998/namespace}id") or elem.attrib.get("xml:id")
     if xml_id:
@@ -550,7 +567,12 @@ def _build_items_from_tei(tei_xml: str, paper_id: str, source_pdf: str) -> tuple
                     continue
                 sid = f"S{sentence_counter:06d}"
                 sentence_counter += 1
-                loc = _parse_coords(_sentence_coords(sent, parent_map))
+                # A caption sentence with neither its own nor its <p>'s coords
+                # takes the enclosing figure's location; ids are unaffected.
+                loc = _parse_coords(
+                    _sentence_coords(sent, parent_map)
+                    or _enclosing_figure_coords(sent, parent_map)
+                )
                 items.append(
                     {
                         "id": sid,
@@ -574,7 +596,9 @@ def _build_items_from_tei(tei_xml: str, paper_id: str, source_pdf: str) -> tuple
                     continue
                 sid = f"S{sentence_counter:06d}"
                 sentence_counter += 1
-                loc = _parse_coords(p.attrib.get("coords", ""))
+                loc = _parse_coords(
+                    p.attrib.get("coords") or _enclosing_figure_coords(p, parent_map)
+                )
                 items.append(
                     {
                         "id": sid,
