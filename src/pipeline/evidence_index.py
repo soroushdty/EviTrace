@@ -7,12 +7,18 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict
 import xml.etree.ElementTree as ET
 
 from pdf_extractor.extraction.GROBID import parse_tei_coords
+from provenance.adapters.evidence_adapter import evidence_node_from_item
+from provenance.identity import InvalidIdentifierError, format_evidence_id
+from provenance.models import DEFAULT_SEVERITIES, EvidenceNode, ValidationFinding
 from utils.logging_utils import get_logger
 from utils.path_utils import EXTRACTION_MAP, OUTPUT_DIR
+
+if TYPE_CHECKING:
+    from provenance.recorder import ProvenanceRecorder
 
 logger = get_logger(__name__)
 
@@ -344,7 +350,7 @@ def _year_from_tei(tei_root: ET.Element | None) -> str:
     """Extract publication year from TEI header metadata."""
     if tei_root is None:
         return ""
-    return _extract_publication_year_from_tei(tei_root)
+    return _header_metadata_from_root(tei_root).publication_year
 
 
 def _year_from_pdf_metadata(pdf_path: Path) -> str:
@@ -458,11 +464,14 @@ def resolve_publication_year(
     return YearResolution(year="nr", confidence="nr", provenance="")
 
 
-def _extract_publication_year_from_tei(root: ET.Element) -> str:
-    """Extract the best publication year candidate from TEI metadata."""
+def _select_publication_date(root: ET.Element) -> tuple[str, ET.Element | None]:
+    """Return the best publication year in the TEI header and the ``<date>`` it came from.
+
+    ``("", None)`` when the header holds no date carrying a year.
+    """
     header = root.find(f".//{_NS}teiHeader")
     if header is None:
-        return ""
+        return "", None
 
     priority_paths = [
         f".//{_NS}fileDesc//{_NS}sourceDesc//{_NS}biblStruct//{_NS}monogr//{_NS}imprint//{_NS}date",
@@ -484,12 +493,66 @@ def _extract_publication_year_from_tei(root: ET.Element) -> str:
         when = elem.attrib.get("when", "")
         year = _extract_year_from_text(when)
         if year:
-            return year
+            return year, elem
         year = _extract_year_from_text("".join(elem.itertext()))
         if year:
-            return year
+            return year, elem
 
-    return ""
+    return "", None
+
+
+# ---------------------------------------------------------------------------
+# Header metadata (provenance-core 6.2): the single reader of the TEI header
+# values behind prefilled fields 1-2.
+# ---------------------------------------------------------------------------
+
+# Reserved local identifiers of the provenance-only header evidence nodes. The
+# S/T/F numbering of the evidence index never produces them.
+_HEADER_AUTHOR_ID = "M-first-author"
+_HEADER_DATE_ID = "M-publication-date"
+
+
+@dataclass(frozen=True)
+class HeaderMetadata:
+    """First-author value and publication year of a TEI header, with their elements.
+
+    ``first_author`` is the whitespace-normalised text of the first ``<surname>``
+    under ``<sourceDesc>``; ``publication_year`` is the year of the ``<date>`` that
+    year resolution selects. A value is ``""`` and its element ``None`` when not
+    found (an author element with empty text counts as not found: the prefill
+    falls back to the paper identifier and cites nothing).
+    """
+
+    first_author: str = ""
+    first_author_element: ET.Element | None = None
+    publication_year: str = ""
+    publication_date_element: ET.Element | None = None
+
+
+def _header_metadata_from_root(root: ET.Element) -> HeaderMetadata:
+    """Element-level core of :func:`extract_header_metadata` (also used by year resolution)."""
+    surname = root.find(f".//{_NS}sourceDesc//{_NS}surname")
+    author = _safe_text("".join(surname.itertext())) if surname is not None else ""
+    year, date_element = _select_publication_date(root)
+    return HeaderMetadata(
+        first_author=author,
+        first_author_element=surname if author else None,
+        publication_year=year,
+        publication_date_element=date_element,
+    )
+
+
+def extract_header_metadata(tei_xml: str) -> HeaderMetadata:
+    """Pure: parse the TEI header once and return what the prefill and year resolution read.
+
+    Never raises: text that is not parseable TEI yields an empty
+    :class:`HeaderMetadata`.
+    """
+    try:
+        root = ET.fromstring(tei_xml)
+    except (ET.ParseError, TypeError, ValueError):
+        return HeaderMetadata()
+    return _header_metadata_from_root(root)
 
 
 def _section_score(path: str) -> int:
@@ -536,8 +599,7 @@ def _build_items_from_tei(tei_xml: str, paper_id: str, source_pdf: str) -> tuple
     figure_counter = 1
 
     title = root.find(f".//{_NS}titleStmt/{_NS}title")
-    first_author = root.find(f".//{_NS}sourceDesc//{_NS}surname")
-    author = _safe_text("".join(first_author.itertext())) if first_author is not None else ""
+    author = _header_metadata_from_root(root).first_author
 
     # Use multi-source year resolver for robust year extraction
     pdf_path = Path(source_pdf) if source_pdf else Path("")
@@ -973,8 +1035,183 @@ def _enrich_with_addons(items: list[dict[str, Any]], cfg: dict) -> None:
                     pass
 
 
-def build_or_load_evidence_bundle(qc_context, config: dict) -> EvidenceBundle:
-    """Build evidence index from GROBID TEI with local cache and enrichment."""
+# ---------------------------------------------------------------------------
+# Provenance emission (provenance-core 6.2). Strictly after the bundle exists:
+# nothing here feeds back into the bundle, the evidence cache or a prompt.
+# ---------------------------------------------------------------------------
+
+_EVIDENCE_STAGE = "evidence_index"
+_TEI_BACKEND = "grobid"
+_FAILURE_REASON_LIMIT = 200
+
+
+def _usable_source_id(source_id: object) -> str | None:
+    """Return ``source_id`` when evidence identities can be formed from it, else ``None``."""
+    if not isinstance(source_id, str):
+        return None
+    try:
+        format_evidence_id(source_id, "probe")
+    except InvalidIdentifierError:
+        return None
+    return source_id
+
+
+def _header_evidence_items(tei_xml: str) -> list[dict[str, Any]]:
+    """One ``metadata`` item per found header element, under the reserved local ids.
+
+    The text of each item is the value the prefill took from the element (the
+    first-author surname; the publication year), so the digest the adapter
+    records is the digest of the prefilled value itself. GROBID header
+    elements carry neither ``coords`` nor an ``xml:id``, so these items have no
+    usable location and the adapter records them with anchor precision
+    ``absent``; no page is assumed.
+    """
+    if not tei_xml.strip():
+        return []
+    header = extract_header_metadata(tei_xml)
+    found = (
+        (_HEADER_AUTHOR_ID, header.first_author_element, header.first_author),
+        (_HEADER_DATE_ID, header.publication_date_element, header.publication_year),
+    )
+    return [
+        {
+            "id": local_id,
+            "type": "metadata",
+            "section_path": _METADATA_SECTION,
+            "page": None,
+            "coords": None,
+            "xpath": _tei_xpath(element),
+            "text": value,
+            "source_pdf": "",
+            "score": 0,
+            "annotations": {},
+        }
+        for local_id, element, value in found
+        if element is not None
+    ]
+
+
+def _short(value: object, limit: int = 80) -> str:
+    text = repr(value)
+    return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
+def _invalid_identifier_finding(
+    source_id: str, position: int, item: object, exc: InvalidIdentifierError
+) -> ValidationFinding:
+    # Identifiers and positions only -- never an item's text.
+    item_id = _short(item.get("id")) if isinstance(item, dict) else "n/a"
+    return ValidationFinding(
+        finding_id=f"finding:invalid_identifier:{source_id}:evidence[{position}]",
+        code="invalid_identifier",
+        severity=DEFAULT_SEVERITIES["invalid_identifier"],
+        node_id=None,
+        edge_id=None,
+        message=f"evidence item {position} of {source_id} has no usable identifier ({item_id}): {exc}",
+        details={"source_id": source_id, "position": position, "item_id": item_id},
+    )
+
+
+def _record_evidence_provenance(
+    bundle: EvidenceBundle, recorder: "ProvenanceRecorder", source_id: str
+) -> None:
+    """Record the bundle's evidence nodes and mark the ``evidence_index`` stage for ``source_id``.
+
+    Every index item goes through ``evidence_node_from_item``; an item without a
+    usable identifier becomes a recorded ``invalid_identifier`` finding. The
+    title item (``section_path == _METADATA_SECTION``) is converted from a copy
+    with ``type="metadata"``. The header items (:func:`_header_evidence_items`)
+    follow the index items. The stage is marked complete even when the document
+    has no evidence items (a TEI parse error): the completeness computation then
+    reports the missing ``evidence`` records, which is the honest outcome.
+    """
+    # The recorder exposes its run identity only through its snapshot.
+    run_id = recorder.snapshot().run.run_id
+    # No TEI means the items came from the exact-text sentence split, not a backend.
+    backend = _TEI_BACKEND if bundle.tei_xml.strip() else None
+
+    nodes: list[EvidenceNode] = []
+    findings: list[ValidationFinding] = []
+    for position, item in enumerate(bundle.evidence_items):
+        if isinstance(item, dict) and item.get("section_path") == _METADATA_SECTION:
+            item = {**item, "type": "metadata"}
+        try:
+            nodes.append(
+                evidence_node_from_item(
+                    item, source_id=source_id, run_id=run_id, producing_backend=backend
+                )
+            )
+        except InvalidIdentifierError as exc:
+            findings.append(_invalid_identifier_finding(source_id, position, item, exc))
+
+    offset = len(bundle.evidence_items)
+    for position, item in enumerate(_header_evidence_items(bundle.tei_xml), start=offset):
+        try:
+            nodes.append(
+                evidence_node_from_item(
+                    item, source_id=source_id, run_id=run_id, producing_backend=backend
+                )
+            )
+        except InvalidIdentifierError as exc:  # cannot happen for the reserved ids
+            findings.append(_invalid_identifier_finding(source_id, position, item, exc))
+
+    for finding in findings:
+        recorder.record_issue(finding)
+    recorder.record_evidence(nodes)
+    recorder.mark_stage_complete(_EVIDENCE_STAGE, source_id=source_id)
+    logger.debug(
+        "evidence provenance for %s: %d nodes, %d invalid-identifier findings",
+        source_id, len(nodes), len(findings),
+    )
+
+
+def _emit_evidence_provenance(
+    bundle: EvidenceBundle, recorder: "ProvenanceRecorder", source_id: object
+) -> None:
+    """Emit evidence provenance; any provenance failure is logged and degraded, never raised."""
+    usable = _usable_source_id(source_id)
+    if usable is None:
+        logger.warning(
+            "Evidence provenance skipped for %s: source_id %s is missing or malformed",
+            bundle.paper_id, _short(source_id),
+        )
+        return
+    try:
+        _record_evidence_provenance(bundle, recorder, usable)
+    except Exception as exc:  # noqa: BLE001 -- provenance never aborts extraction
+        reason = f"{type(exc).__name__}: {exc}"[:_FAILURE_REASON_LIMIT]
+        logger.warning("Evidence provenance failed for %s (%s): %s", bundle.paper_id, usable, reason)
+        try:
+            recorder.mark_stage_failed(_EVIDENCE_STAGE, reason, source_id=usable)
+        except Exception as mark_exc:  # noqa: BLE001
+            logger.warning(
+                "Could not mark %s failed for %s: %s", _EVIDENCE_STAGE, usable, mark_exc
+            )
+
+
+def build_or_load_evidence_bundle(
+    qc_context,
+    config: dict,
+    *,
+    recorder: "ProvenanceRecorder | None" = None,
+    source_id: str | None = None,
+) -> EvidenceBundle:
+    """Build evidence index from GROBID TEI with local cache and enrichment.
+
+    With a ``recorder``, the bundle's evidence is also recorded as provenance
+    evidence nodes (on the cache-hit path as well as the cache-miss path) under
+    the document's ``source_id``, which the caller derives from the document
+    fingerprint. Recording happens after the bundle is built and never changes
+    it; a missing or malformed ``source_id`` or any provenance error is logged
+    and the bundle is returned unchanged. Without a recorder nothing differs.
+    """
+    bundle = _build_or_load_evidence_bundle(qc_context, config)
+    if recorder is not None:
+        _emit_evidence_provenance(bundle, recorder, source_id)
+    return bundle
+
+
+def _build_or_load_evidence_bundle(qc_context, config: dict) -> EvidenceBundle:
     unified = qc_context.unified
     assert unified is not None
     content = unified.content if isinstance(unified.content, dict) else {}
