@@ -5,11 +5,14 @@ import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import jsonschema
 
 from utils.logging_utils import get_logger
+
+if TYPE_CHECKING:  # annotation only: no runtime dependency on the provenance package
+    from provenance.recorder import IssueSink
 
 logger = get_logger(__name__)
 
@@ -117,13 +120,130 @@ def _parse_response_json(raw: str) -> list[dict]:
     return items
 
 
+# ---------------------------------------------------------------------------
+# Evidence-reference issues (provenance-core 5.3, 5.4)
+# ---------------------------------------------------------------------------
+
+_DANGLING_REFERENCE = "dangling_reference"
+_DUPLICATE_REFERENCE = "duplicate_reference"
+_AMBIGUOUS_REFERENCE = "ambiguous_reference"
+"""The only finding codes this module ever passes to an issue sink."""
+
+_EVIDENCE_REFERENCE_KIND = "evidence"
+_REPR_LIMIT = 80
+
+
+def _short_repr(value: object) -> str:
+    text = repr(value)
+    return text if len(text) <= _REPR_LIMIT else text[: _REPR_LIMIT - 3] + "..."
+
+
+def _usable_field_index(value: object) -> bool:
+    # ``bool`` is an ``int`` subclass; a flag is never a field index.
+    return type(value) is int and value >= 0  # type: ignore[operator]
+
+
+def _near_matches(reference: str, known: Any) -> list[str]:
+    """Known ids equal to *reference* up to surrounding whitespace and case (never an exact member)."""
+    if "#" in reference:  # a scoped (full) evidence id: judged by the claim adapter, which knows the source
+        return []
+    folded = reference.strip().casefold()
+    return sorted(k for k in known if isinstance(k, str) and k.strip().casefold() == folded)
+
+
+def _report_reference_issues(
+    issue_sink: "IssueSink",
+    loc: Any,
+    known: Any,
+    *,
+    subject: str,
+    field_index: object,
+) -> None:
+    """Pass one finding per evidence-reference problem in *loc* to *issue_sink*.
+
+    Classification mirrors ``provenance.adapters.claim_adapter`` (pinned by a
+    table-driven test), judged against the local ids in *known*:
+
+    - ``dangling_reference``: not in *known* and no near match;
+    - ``ambiguous_reference``: not in *known*, but equal to a known id after
+      trimming whitespace and ignoring case (``details["candidates"]``);
+    - ``duplicate_reference``: the same raw reference more than once (one
+      finding listing every position). Needs no *known*: when *known* is
+      ``None`` only duplicates can be judged.
+
+    Each distinct reference is classified once, at its first position.
+
+    ``details`` carries ``reference`` (the RAW string: never stripped or
+    casefolded), ``reference_kind="evidence"``, ``position`` / ``positions``
+    and, when the item's ``i`` is a usable index, ``field_index``. The
+    validator does not know the document, so it cannot set ``node_id``: the
+    per-document wrapper at the call site must add
+    ``details["node_id"] = derive_claim_id(source_id, field_index)`` so the
+    finding names the claim.
+
+    The same references are judged again by ``reconstruct_fields`` and by the
+    claim adapter; that double report is intentional and merged downstream by
+    ``validate_chain`` on (code, node_id, reference, reference_kind).
+    """
+    base: dict[str, Any] = {"reference_kind": _EVIDENCE_REFERENCE_KIND}
+    if _usable_field_index(field_index):
+        base["field_index"] = field_index
+
+    positions: dict[object, list[int]] = {}
+    first: dict[object, Any] = {}
+    for position, reference in enumerate(loc):
+        key: object = reference if isinstance(reference, str) else ("non-str", _short_repr(reference))
+        if key in positions:
+            positions[key].append(position)
+            continue
+        positions[key] = [position]
+        first[key] = reference
+        if known is None:
+            continue
+        if isinstance(reference, str) and reference in known:
+            continue
+        candidates = _near_matches(reference, known) if isinstance(reference, str) else []
+        details = {"reference": reference, "position": position, **base}
+        if candidates:
+            issue_sink(
+                _AMBIGUOUS_REFERENCE,
+                f"{subject}: loc reference {_short_repr(reference)} is not an exact evidence ID "
+                f"but may mean {len(candidates)} known evidence ID(s)",
+                {**details, "candidates": candidates},
+            )
+        else:
+            issue_sink(
+                _DANGLING_REFERENCE,
+                f"{subject}: loc reference {_short_repr(reference)} is not a known evidence ID",
+                {**details, "reason": "unknown"},
+            )
+
+    for key, seen in positions.items():
+        if len(seen) > 1:
+            issue_sink(
+                _DUPLICATE_REFERENCE,
+                f"{subject}: loc cites {_short_repr(first[key])} {len(seen)} times",
+                {"reference": first[key], "positions": seen, **base},
+            )
+
+
 def _validate_extraction_item(
     i: int,
     obj: Any,
     actual_indices: list[int],
     valid_location_ids: Optional[set] = None,
+    *,
+    issue_sink: Optional["IssueSink"] = None,
 ) -> None:
-    """Validate a single extraction object and append its index to actual_indices."""
+    """Validate a single extraction object and append its index to actual_indices.
+
+    Without ``issue_sink`` an unknown ``loc`` id raises :class:`ValidationError`
+    and duplicates pass unnoticed (unchanged). With one, ``loc`` problems
+    (unknown, duplicated, ambiguous ids) are passed to the sink as findings
+    and the item is kept; every other validation error still raises. See
+    :func:`_report_reference_issues` for the ``details`` the sink receives and
+    what the per-document wrapper must add (``node_id``).
+    """
     if not isinstance(obj, dict):
         raise ValidationError(f"Item {i} is not a dict: {obj!r}")
 
@@ -158,7 +278,11 @@ def _validate_extraction_item(
     loc = obj["loc"]
     if not isinstance(loc, list) or not all(isinstance(v, str) for v in loc):
         raise ValidationError(f"Item {i}: loc must be a list of strings, got {loc!r}")
-    if valid_location_ids is not None:
+    if issue_sink is not None:
+        _report_reference_issues(
+            issue_sink, loc, valid_location_ids, subject=f"Item {i}", field_index=obj["i"]
+        )
+    elif valid_location_ids is not None:
         unknown = [v for v in loc if v not in valid_location_ids]
         if unknown:
             raise ValidationError(f"Item {i}: loc contains unknown evidence IDs: {unknown}")
@@ -171,6 +295,7 @@ def validate_chunk_output(
     expected_indices: list[int],
     *,
     valid_location_ids: Optional[set] = None,
+    issue_sink: Optional["IssueSink"] = None,
 ) -> list[dict]:
     """
     Parse and validate a subagent's raw text output.
@@ -178,6 +303,15 @@ def validate_chunk_output(
     Args:
         raw:              Raw string returned by the API.
         expected_indices: The field_index values this chunk should contain.
+        valid_location_ids: Local evidence ids ``loc`` may cite, when known.
+        issue_sink:       Optional ``(code, message, details)`` callable (the
+                          recorder's ``issue_sink()``). When given, unknown,
+                          duplicated and ambiguous ``loc`` ids are reported
+                          instead of raising on unknown ones, and the claim is
+                          kept (provenance-core 5.4). Findings are buffered
+                          and delivered only once the whole chunk validates,
+                          so a rejected attempt (repaired or retried) leaves
+                          none behind.
 
     Returns:
         Parsed and validated list of extraction dicts.
@@ -193,9 +327,14 @@ def validate_chunk_output(
             f"Expected field indices: {expected_indices}"
         )
 
+    pending: list[tuple[str, str, Any]] = []
+    buffer = (lambda code, message, details: pending.append((code, message, details))) if issue_sink is not None else None
+
     actual_indices: list[int] = []
     for i, obj in enumerate(data):
-        _validate_extraction_item(i, obj, actual_indices, valid_location_ids=valid_location_ids)
+        _validate_extraction_item(
+            i, obj, actual_indices, valid_location_ids=valid_location_ids, issue_sink=buffer
+        )
 
     if sorted(actual_indices) != sorted(expected_indices):
         raise ValidationError(
@@ -204,6 +343,10 @@ def validate_chunk_output(
             f"  Got:      {sorted(actual_indices)}"
         )
 
+    if issue_sink is not None:
+        for code, message, details in pending:
+            issue_sink(code, message, details)
+
     return data
 
 
@@ -211,12 +354,36 @@ def reconstruct_fields(
     compact: list[dict],
     field_lookup: dict[int, dict],
     evidence_map: dict[str, dict] | None = None,
+    *,
+    issue_sink: Optional["IssueSink"] = None,
 ) -> list[dict]:
-    """Expand compact model output to full extraction dicts using extraction_map metadata."""
+    """Expand compact model output to full extraction dicts using extraction_map metadata.
+
+    Ids missing from ``evidence_map`` are silently left out of ``evidence`` and
+    ``location_metadata`` (they stay in ``location``). With ``issue_sink`` the
+    same unknown / duplicated / ambiguous ids are also reported, judged
+    against the keys of ``evidence_map`` (``None`` means the known set is
+    unknown, so only duplicates are judged; ``{}`` makes every id unknown).
+    The returned dicts are identical with and without a sink.
+
+    ``validate_chunk_output`` reports the same references with the same
+    ``reference`` string and ``reference_kind``; the double report is
+    intentional and merged downstream by ``validate_chain``. The per-document
+    wrapper must add ``details["node_id"]`` (see :func:`_report_reference_issues`).
+    """
+    known = None if evidence_map is None else evidence_map.keys()
     evidence_map = evidence_map or {}
     output: list[dict] = []
     for item in compact:
         loc_ids: list[str] = item.get("loc", [])
+        if issue_sink is not None:
+            _report_reference_issues(
+                issue_sink,
+                loc_ids,
+                known,
+                subject=f"Field {item.get('i')!r}",
+                field_index=item.get("i"),
+            )
         resolved = [evidence_map[eid] for eid in loc_ids if eid in evidence_map]
         evidence_text = "\n".join(x.get("text", "") for x in resolved if x.get("text"))
         output.append(
