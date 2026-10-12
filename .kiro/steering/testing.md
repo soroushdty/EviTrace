@@ -81,7 +81,8 @@ tests/
 │   │   ├── test_provenance_end_to_end.py        # production run-end path (finish_run_provenance)
 │   │   ├── test_repair_retry_provenance.py
 │   │   ├── test_run_provenance.py               # settings validation, artifact_directory, run end
-│   │   └── test_validator_issue_sink.py
+│   │   ├── test_validator_issue_sink.py
+│   │   └── test_xfail_convention_selfcheck.py   # the one permanent strict xfail (convention demonstration)
 │   ├── provenance/              # mirrors src/provenance/ (adapters share one test module each)
 │   │   ├── test_provenance_models.py / _privacy_carrier / _identity / _contracts / _recorder
 │   │   ├── test_provenance_graph_builder.py / _attribution / _validation / _completeness
@@ -166,6 +167,39 @@ pytestmark = pytest.mark.slow
 ```
 
 Heavy optional dependencies (`paddleocr`, `faiss`, `torch`, `sentence-transformers`) must be **mocked** in tests — never require them to be installed for the suite to pass.
+
+---
+
+## Expected Failures for Test-First Sub-Tasks
+
+A spec may split a change into a "write the failing tests" sub-task followed by the sub-task that implements it, and every commit must still leave the full fast suite green. The first sub-task therefore marks each new test that cannot pass yet:
+
+```python
+@pytest.mark.xfail(strict=True, reason="task 3.1")
+def test_new_behaviour():
+    from pipeline.shown_evidence import compute_shown_evidence   # lazy: the name does not exist yet
+    ...
+```
+
+Rules:
+
+- **Always `strict=True`, always `reason="task N.M"`** naming the sub-task that implements the behaviour (the id as written in the spec's `tasks.md`). A non-strict `xfail`, a bare `xfail`, and `skip` are never used for this: a test that starts passing must be noticed.
+- **Reference new names lazily.** Import the not-yet-existing module, function or attribute inside the test body (or a fixture), never at module level, so collection succeeds and only that test is reported as an expected failure. A lazy `ImportError`/`AttributeError` is a legitimate expected failure.
+- **The implementing sub-task removes the marker in the same commit that makes the test pass.** While the marker is present, a test that unexpectedly passes is reported as `[XPASS(strict)]` and fails the suite, so a half-done or wrongly ordered implementation fails loudly instead of leaving a stale marker behind.
+- **No marker outlives its task.** The only permanent `xfail` is the demonstration in `tests/src/pipeline/test_xfail_convention_selfcheck.py`: one strict expected failure asserting something false, which shows the suite stays green (reported as `1 xfailed`) while the convention is in use. `python -m pytest -q -rx` lists every expected failure with its `task N.M` reason.
+- **Never use `xfail` to hide a regression** in an existing test; existing tests are only changed by the task that owns them.
+
+### Class-identity isolation rule
+
+`tests/src/pipeline/test_pdf_processor_helpers.py` deletes every `pipeline*` module from `sys.modules` at import (see the test-isolation hazard under Mocking Conventions), so the same class can exist twice in one session: once from before the purge and once from a later import. Tests of `pipeline` code must therefore:
+
+- obtain the module under test at test time through one shared import path (a resolver helper or a fixture), not through a module-level `from pipeline... import ...` that may bind a stale copy;
+- compare values (codes, messages, dataclass fields, serialised dicts), never class objects, `isinstance` across imports, or `is` on classes or enum members from two different imports;
+- confirm a new test passes alone, in its own module, and in the full-suite order.
+
+### Leaf-module rule
+
+`src/pipeline/validator.py`, `evidence_index.py`, `extraction_report.py` and `extraction_map.py` are loaded by file path (`importlib.util.spec_from_file_location`) in several test modules, bypassing the package; `deterministic_merge.py` is imported as `pipeline.deterministic_merge` by its own tests but follows the same leaf rule. They must stay importable standalone: no relative imports (`from . import x`, `from .x import y`) and no imports of `pipeline.*`. Imports of other top-level packages (`utils`, `provenance`, `pdf_extractor`) and of the standard library are fine. An AST guard test added by task 1.3 of the `extraction-contract-hardening` spec enforces this; the shown-set module is added to its list by task 3.2.
 
 ---
 
