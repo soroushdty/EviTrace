@@ -271,7 +271,11 @@ EviTrace/
 │   ├── extraction_map.py         Load extraction_map.json; group fields by chunk
 │   ├── extraction_report.py      generate_qc_report(); writes qc_report.csv
 │   ├── manifest.py               Idempotent checkpoint read/write
+│   ├── document_provenance.py    Per-document provenance emission (source node, QC derivation steps)
+│   ├── claim_provenance.py       Claim nodes, extraction/synthesis steps, revisions
+│   ├── run_provenance.py         Provenance settings, recorder lifecycle, run-end graph/validate/write
 │   └── validator.py              Local JSON-Schema validation of LLM chunk outputs
+├── provenance/                   Claim-to-source provenance graph (leaf package; pipeline is its sole integrator)
 ├── pdf_extractor/                Standalone PDF text extraction module
 │   ├── pdf_extractor.py          Standalone CLI (no OpenAI key required)
 │   ├── pdf_validator.py          PDF-level structural validation
@@ -305,6 +309,7 @@ EviTrace/
 | `pdf_extractor/extraction/` | Per-page scan-detector routing and backend extractors | [pdf_extractor/extraction/README.md](pdf_extractor/extraction/README.md) |
 | `pdf_extractor/processing/` | Sentence segmentation and full-text assembly | [pdf_extractor/processing/README.md](pdf_extractor/processing/README.md) |
 | `pdf_extractor/utils/` | Text and embedding utilities | [pdf_extractor/utils/README.md](pdf_extractor/utils/README.md) |
+| `provenance/` | Provenance recorder, graph, chain validation, completeness, run artifact | [provenance/README.md](provenance/README.md) |
 | `quality_control/` | Branch adjudication and reconciliation | [quality_control/README.md](quality_control/README.md) |
 | `utils/` | Repo-wide config, logging, and path helpers | [utils/README.md](utils/README.md) |
 | `tests/` | Test suite | [tests/README.md](tests/README.md) |

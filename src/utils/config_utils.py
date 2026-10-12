@@ -255,8 +255,8 @@ _ALL_KNOWN_TOP_LEVEL_KEYS: frozenset[str] = _LOCAL_ALLOWED_TOP_LEVEL_KEYS | froz
 # ============================================================================
 
 _PROVENANCE_DEFAULTS: dict = {
-    # Master switch: when False the recorder runs in no-op mode and no
-    # provenance artifact is produced.
+    # Master switch: when False the orchestrator passes no provenance object
+    # (provenance=None) and no provenance artifact is produced.
     "enabled": True,
     # Subdirectory of the run folder that receives the provenance artifact.
     "output_subdir": "provenance",
@@ -264,8 +264,8 @@ _PROVENANCE_DEFAULTS: dict = {
     # (finding code -> severity).
     "severity_overrides": {},
     # None | "critical" | "error": findings at or above this severity are
-    # logged at ERROR and recorded as a provenance failure in the run summary.
-    # Provenance never aborts extraction.
+    # logged at ERROR and set ProvenanceRunSummary.failed (there is no separate
+    # run-summary artifact). Provenance never aborts extraction.
     "fail_run_on_severity": None,
     # When True, a stage absent from the stage-contract table makes artifact
     # completeness "undetermined"; when False the stage is ignored.

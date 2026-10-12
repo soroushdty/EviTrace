@@ -888,6 +888,8 @@ def build_linkage(view: PublicView, *, dispositions: Mapping[str, DispositionRec
 
 **Responsibilities & Constraints**
 - **Ordering is borrowed, not invented** (6.4): entries follow `project_event_log(graph)` order for `event` subjects, then the covered artifact files, then the public view, the private view, and finally the transaction (8.7).
+
+  > Upstream note (provenance-core, 2026-10-12): `project_event_log(graph)` returns one `ProvenanceEvent(sequence, stage, event_kind, node_id, node_kind, summary)` per graph node (not only per derivation), numbered from 1; the ledger's own `sequence` (starting at 0 here) must be assigned by this spec, not copied from `ProvenanceEvent.sequence`.
 - **Chaining** (6.2): `entry_hash = digest(algorithm_id + str(sequence) + subject_id + content_digest + prev_entry_hash)`, with `prev_entry_hash = ""` for sequence 0. `chain_head` is the last entry's hash. It is named a chain head, never a Merkle root — the shipped scheme is a linear hash chain and offers no inclusion proofs.
 - **Digest reuse** (6.5): artifact-file digests are taken from `provenance-audit-export`'s reproducibility metadata; document, configuration, and schema fingerprints come from core. This module computes a digest only for content that has none — the two views and the transaction.
 - Records `algorithm` and `CANONICALIZATION_ID` on the ledger (6.6).

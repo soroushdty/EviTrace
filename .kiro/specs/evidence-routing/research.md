@@ -21,7 +21,7 @@
   - Each item carries `id`, `type`, `section_path`, `page`, `coords`, `xpath`, `text`, `source_pdf`, `score`, `annotations`. `page` may be `None` when TEI carries no coordinates.
   - `section_path` is sticky: it tracks the last-seen `<head>` and therefore leaks across divs that lack a heading. Routing must treat `section_path` as a hint, not as ground truth.
   - `EvidenceBundle.evidence_map` already provides id-to-item lookup, so identifier validation is O(1) and needs no new structure.
-  - `provenance-core` defines `node_id = f"{source_id}#{local_id}"` with `local_id` the pipeline string verbatim, and exports `format_evidence_id` as the only sanctioned constructor.
+  - `provenance-core` defines `node_id = f"{source_id}#{local_id}"` with `local_id` the pipeline string verbatim, and defines `format_evidence_id` (module `provenance.identity`, not re-exported from the package root) as the only sanctioned constructor.
 - **Implications**: the index builder is a **projection**, not a parser. Paragraph and sentence entries are distinguished by TEI origin rather than by identifier prefix, so the projection must record the originating structure explicitly. All routing-internal references use the bare local identifier; provenance emission wraps it once through `format_evidence_id`.
 
 ### Token budget and pruning ownership
@@ -148,7 +148,7 @@
 - **Regressing the completed token-efficient-extraction behavior** — characterization test pinning current synthesis pruning output before and after the pruner is promoted.
 - **`section_path` stickiness producing wrong section labels in routes** — index entries record whether the section path came from an explicit heading or was inherited, and route QC treats inherited paths as weaker evidence of section identity.
 - **Locator hallucinating identifiers** — every identifier is checked against `EvidenceBundle.evidence_map`; unknown identifiers are dropped individually and recorded as issues rather than failing the route.
-- **Upstream specs not yet implemented** — both `provenance-core` emission and `agreement-statistics` consumption sit behind narrow adapters with documented no-op defaults, so routing runs and is testable without either.
+- **Upstream specs not yet implemented** — both `provenance-core` emission and `agreement-statistics` consumption sit behind narrow adapters with documented no-op defaults, so routing runs and is testable without either. (Update 2026-10-12: `provenance-core` is now implemented; with `provenance.enabled: false` the orchestrator passes no provenance object, i.e. a `None` recorder.)
 
 ## References
 

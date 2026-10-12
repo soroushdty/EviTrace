@@ -120,10 +120,10 @@ cache_diagnostics:
 # (src/utils/config_utils.py) and are read via load_provenance_config().
 # The artifact is written under the run folder: <main_output_dir>/run_*/provenance/.
 provenance:
-  enabled: true                 # false -> recorder no-op, no provenance artifact
+  enabled: true                 # false -> the orchestrator passes no provenance object; no provenance artifact
   output_subdir: "provenance"   # run-folder subdirectory for the artifact
   severity_overrides: {}        # finding code -> severity
-  fail_run_on_severity: null    # null | "critical" | "error"; never aborts extraction
+  fail_run_on_severity: null    # null | "critical" | "error"; findings at/above it log ERROR and set ProvenanceRunSummary.failed; never aborts extraction
   stage_contracts_strict: true  # stage missing from STAGE_CONTRACTS -> completeness "undetermined"
 
 # Paths

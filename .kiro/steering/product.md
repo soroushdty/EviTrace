@@ -52,6 +52,14 @@ main.py  (CLI entry — asyncio.run)
         ├── src/pipeline/evidence_index.py   # GROBID TEI → ranked evidence bundle + local cache
         ├── src/pipeline/validator.py        # local JSON-Schema validation of LLM chunk outputs
         ├── src/pipeline/extraction_report.py # generate_qc_report(); writes qc_report.csv + stdout summary
+        ├── src/pipeline/document_provenance.py # source nodes + QC derivation steps → provenance
+        ├── src/pipeline/claim_provenance.py    # claim nodes, extraction/synthesis steps, revisions
+        ├── src/pipeline/run_provenance.py      # settings validation, recorder lifecycle, run-end graph/validate/write
+        ├── src/provenance/                  # leaf package: append-only recorder, graph builder, chain validation,
+        │     │                              # completeness, run artifact (provenance_graph.json)
+        │     ├── adapters/              # mapping → record conversion (source, evidence, claim, derivation)
+        │     └── ...                    # models, identity, contracts, recorder, graph, validation, completeness,
+        │                                #   projection, serialization, privacy_carrier (see src/provenance/README.md)
         └── src/utils/                       # config_utils, path_utils, logging_utils, grobid_manager
 ```
 
@@ -84,7 +92,7 @@ Configuration lives in `configs/config.yaml` (note: `configs/`, not `config/`). 
 
 **Independently swappable stages** — Each stage (extraction, QC, LLM agent) can be used standalone. `src/pipeline/extraction_pipeline.py::build_qc_bundle()` is the single source of truth for the extraction flow; both `main.py` and the standalone `pdf_extractor.py` CLI delegate to it.
 
-**Dependency direction rule** — `quality_control` must not import from `agents`, `pipeline`, or `pdf_extractor`. `text_processing` must not import from `quality_control`. `validate_qc_context_input` was placed in `src/quality_control/validate_context.py` specifically to respect this boundary.
+**Dependency direction rule** — `quality_control` must not import from `agents`, `pipeline`, or `pdf_extractor`. `text_processing` must not import from `quality_control`. `provenance` must not import from `agents`, `pipeline`, `pdf_extractor`, or `quality_control`, and none of `quality_control`, `agents`, `pdf_extractor`, or `text_processing` may import `provenance` — `pipeline` is its sole integrator. `validate_qc_context_input` was placed in `src/quality_control/validate_context.py` specifically to respect this boundary.
 
 **OOP extensibility via ABCs** — Subclass to inject custom behavior:
 - `QualityMetrics` → per-branch quality checks (`passes_check()`)
@@ -131,6 +139,9 @@ Configuration lives in `configs/config.yaml` (note: `configs/`, not `config/`). 
 | `src/pipeline/pdf_processor.py` | Per-PDF LLM extraction orchestration (evidence bundle → chunks → synthesis → persist) |
 | `src/pipeline/evidence_index.py` | GROBID TEI → ranked evidence bundle; disk cache; addon enrichment |
 | `src/pipeline/manifest.py` | Idempotent checkpoint read/write |
+| `src/pipeline/document_provenance.py` | Per-document provenance emission: source node and QC derivation steps |
+| `src/pipeline/claim_provenance.py` | Claim nodes, extraction/synthesis derivation steps and revisions |
+| `src/pipeline/run_provenance.py` | Validates `provenance` settings, owns the recorder lifecycle, builds/validates/writes the run artifact |
 | `src/pipeline/validator.py` | Local JSON-Schema validation of LLM chunk outputs; `reconstruct_fields` |
 | `src/pipeline/extraction_map.py` | Load `extraction_map.json`; group fields by chunk; build field lookup |
 | `src/pipeline/extraction_report.py` | `generate_qc_report()` — writes `qc_report.csv` and prints pipeline summary |
@@ -152,6 +163,7 @@ Configuration lives in `configs/config.yaml` (note: `configs/`, not `config/`). 
 | `src/agents/openai/api_client.py` | Async OpenAI Responses API client; retry; cache prewarm; `extract_chunk` |
 | `src/agents/openai/prompts.py` | `SYSTEM_PROMPT`; cache-stable `_shared_paper_prefix`; message builders |
 | `src/agents/validator.py` | `AgentSchemaValidator` — sole reader of `configs/agent_schema.json` |
+| `src/provenance/` | Claim-to-source provenance graph: append-only `ProvenanceRecorder`, graph builder, chain validation, completeness, `provenance_graph.json`; leaf package |
 | `src/utils/config_utils.py` | `load_openai_config`, `load_qc_config`, `load_local_config`; QC defaults deep-merge |
 | `src/utils/path_utils.py` | `PROJECT_ROOT`, `PDF_DIR`, `OUTPUT_DIR`, `EXTRACTION_MAP`, `MANIFEST_FILE`, `QC_REPORT_FILE`; PDF source resolution |
 | `src/utils/logging_utils.py` | Shared `evi_trace` root logger; `setup_logging`; `log_cache_usage` |

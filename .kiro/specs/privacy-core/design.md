@@ -611,6 +611,8 @@ def populate_carrier(node_id: str,
 - Postconditions: the returned carrier's `label` equals `classification.label` byte-for-byte and its `decision` equals `decision.decision` byte-for-byte.
 - Invariants: this module never reads a provenance node's other fields and never writes one.
 
+> Upstream note (provenance-core, 2026-10-12): `src/provenance/` now exists (the skip-while-absent guard above no longer applies), and `provenance.privacy_carrier.attach_privacy` returns a `PrivacyCarrier` as designed, but provenance-core defines no path for putting that carrier on a recorded node. Every adapter (`evidence_node_from_item`, `claim_nodes_from_fields`, `derivation_from_stage_event`, `source_node_from_identity`) hard-codes `UNKNOWN_PRIVACY` and takes no privacy argument; nodes are frozen dataclasses; and re-recording a node whose content differs (including its carrier) keeps the first record and appends a `duplicate_identity` finding. The options to be decided before this module is implemented are an adapter parameter, a pre-record hook, or a graph-level attach step; none is chosen here.
+
 **Implementation Notes**
 - Risks: provenance changing its carrier field names — listed as a Revalidation Trigger on both sides.
 

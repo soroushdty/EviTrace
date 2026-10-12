@@ -686,6 +686,8 @@ def derive_sharing_marking(graph: ProvenanceGraph, *,
 - Mapping: validation not completed ⇒ `unvalidated` at run level, dominating everything (7.4); core state `undetermined` ⇒ `undetermined`; core state `incomplete` for every child ⇒ `incomplete`; core state `incomplete` for some children ⇒ `partially_traceable` (7.2); otherwise `complete`.
 - Claim-level entries carry core's `reason` verbatim, which is what keeps missing-anchor and unsupported distinct without re-deriving either (7.3).
 - Stage failures are surfaced as `stage_failures`, naming the stage at which provenance generation failed (7.1).
+
+  > Upstream note (provenance-core, 2026-10-12): the recorder's per-stage failure reasons are not available to this spec as a mapping. Stage status and reasons live only in the in-memory `RecordedRun` and are not serialized (`ProvenanceGraph` and the artifact carry no stage-status field; adding one would be a major schema bump), and per-document failures are multi-valued (every distinct reason per `(source_id, stage)`), so `Mapping[str, str]` cannot hold them. What the graph does carry is (a) `missing_segments` entries with `record_kind == "stage"` — one per failed run-wide stage, or per failed `(stage, source_id)` — whose `reason` text names the stage (and document) and the recorded reasons, and whose `affected_ids` list the source id followed by the stage's derivation-step ids; and (b) the `undetermined` reasons in `CompletenessReport`, plus `ChainValidationReport.completed` / `incompletion_reason`. `stage_failures` must be derived from those (or its shape changed to a multi-valued form); this spec decides which — no redesign is made here.
 - The five reported values are distinct members of a closed vocabulary, so no consumer must infer completeness from an absence (7.7).
 
 **Contracts**: Service [x]
@@ -1033,6 +1035,8 @@ provenance:
 ```
 
 No new top-level key is introduced, so `_ALL_KNOWN_TOP_LEVEL_KEYS` is unchanged. Each key has exactly one consumer:
+
+> Upstream note (provenance-core, 2026-10-12): `provenance` is now a registered top-level key with five core settings (`enabled`, `output_subdir`, `severity_overrides`, `fail_run_on_severity`, `stage_contracts_strict`; defaults in `_PROVENANCE_DEFAULTS`, read by `load_provenance_config`). `pipeline.run_provenance.resolve_provenance_settings` reads only those five and ignores other keys, so the nested `export`, `audit_package` and `sharing` sub-blocks do not conflict, but their defaults must come from this spec's own loader. The graph itself is written to `<run>/<provenance.output_subdir>/provenance_graph.json` (default `provenance`), which is also this spec's `export.output_subdir` default; file names within that directory must not collide. With `provenance.enabled: false` the orchestrator builds no graph at all, and a run in which every document is resumed writes no graph either, so this spec's "no provenance records" case cannot be reached by passing an empty graph in those situations; it must decide what the export does without a graph.
 
 | Key | Consumer |
 |---|---|

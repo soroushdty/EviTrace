@@ -88,7 +88,11 @@ OUTPUT_DIR: Path = resolve_run_output_path(_LOCAL_SETTINGS.get("output_folder_pa
 """Directory where extraction results are written."""
 
 PROVENANCE_DIR: Path = resolve_run_output_path("provenance")
-"""Run-scoped directory where the per-run provenance graph artifact is written."""
+"""Default run-scoped provenance directory (``provenance`` under the run folder).
+
+Only the default constant, currently unused: the effective directory is the validated
+``provenance.output_subdir`` resolved by ``pipeline.run_provenance.artifact_directory``.
+"""
 
 MANIFEST_FILE: Path = BASE_DIR / "manifest.json"
 """Manifest file tracking which PDFs have been processed."""

@@ -49,6 +49,11 @@ main.py  (CLI entry — asyncio.run)
         ├── src/quality_control/             # generic 4-stage QC: rater → IAA → adjudicator → reconciler
         ├── src/agents/openai/                # Responses API client + prompt builders
         ├── src/pipeline/evidence_index.py   # GROBID TEI → ranked evidence bundle + disk cache
+        ├── src/pipeline/document_provenance.py  # source nodes + QC derivation steps → provenance
+        ├── src/pipeline/claim_provenance.py     # claim nodes, extraction/synthesis steps, revisions
+        ├── src/pipeline/run_provenance.py       # settings validation, recorder lifecycle, run-end graph/validate/write
+        ├── src/provenance/                  # append-only provenance recorder, graph builder, chain validation,
+        │                                    # completeness, run artifact; pipeline is its only integrator
         └── src/utils/                       # config_utils, path_utils, logging_utils, grobid_manager
 ```
 
@@ -72,13 +77,14 @@ main.py  (CLI entry — asyncio.run)
 ### Key design principles
 
 - **No global mutation.** Config loaded once (`src/utils/config_utils.py`), passed explicitly. CLI overrides are forwarded as parameters to `run_pipeline()`, never written back to module-level constants.
-- **Dependency direction is enforced by tests** (`tests/test_dependency_directions.py`, AST-based): `pdf_extractor` must not import `quality_control`; `quality_control` must not import `agents`/`pipeline`/`pdf_extractor`; `agents` must not import `quality_control`/`pipeline`/`pdf_extractor`; `text_processing` must not import `quality_control`. Run this suite after adding any cross-package import.
+- **Dependency direction is enforced by tests** (`tests/test_dependency_directions.py`, AST-based): `pdf_extractor` must not import `quality_control`; `quality_control` must not import `agents`/`pipeline`/`pdf_extractor`; `agents` must not import `quality_control`/`pipeline`/`pdf_extractor`; `text_processing` must not import `quality_control`; `provenance` must not import `agents`/`pipeline`/`pdf_extractor`/`quality_control`, and `quality_control`/`agents`/`pdf_extractor`/`text_processing` must not import `provenance`. Run this suite after adding any cross-package import.
 - **Schema validators are singletons with a single owner:** `configs/agent_schema.json` → `src/agents/validator.py::AgentSchemaValidator`; `configs/structure_schema.json` → `src/quality_control/structure_validator.py::StructureSchemaValidator`. Never read these files elsewhere.
 - **All shared QC dataclasses live in `src/quality_control/models.py`** — import from there, never from individual submodules. Concrete default implementations (`QualityReport`, `InterRaterReport`, `AdjudicationDecision`) live in `src/quality_control/builtin_impls/`.
 - **W3C annotations are produced in one place** — `src/artifact_generation/w3c_annotation.py` is the sole producer (`AnnotationRecord`, `project()`, `generate_w3c_jsonld()`). `project(unified)` reads only `unified.semantic`, `unified.alignment` and the scalar `unified.document_id` — never `unified.structural` or `unified.content`.
 - **Prompt cache stability** — `_shared_paper_prefix` (in `src/agents/openai/prompts.py`) must be byte-identical across warmup, extraction chunks, and synthesis for the same PDF. Never inject filenames, timestamps, chunk numbers, or run IDs into the shared prefix; variable material goes after it.
 - **Heavy optional deps are lazy** — `sentence-transformers`, `faiss`, `torch`, `paddleocr` are imported inside function bodies, never at module level. Don't add top-level imports of these.
 - **OOP extensibility via ABCs**: `QualityMetrics`, `InterRaterMetrics`, `AdjudicationRules`, `TextProcessor`/`SentenceSegment` (loaded via fully-qualified class path in config), concern strategies (`TextFidelityConcern`, `SectionVerificationConcern`, `TableFigureMergeConcern`).
+- **Provenance never aborts extraction.** `provenance.enabled: false` makes the orchestrator pass `provenance=None` (byte-identical behaviour, no artifact); otherwise the run writes `provenance_graph.json` under `<run>/<provenance.output_subdir>/`. `provenance` is a registered top-level YAML key (defaults in `_PROVENANCE_DEFAULTS`, read via `load_provenance_config()`).
 - New top-level YAML keys must be registered in `_ALL_KNOWN_TOP_LEVEL_KEYS` in `src/utils/config_utils.py`, or `load_local_config` raises `ValueError`.
 
 ### Config
