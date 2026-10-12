@@ -11,6 +11,7 @@
 - **Commits.** One tick per commit, subject `<type>(extraction-contract-hardening): <task-id> <description>` (`.kiro/steering/testing.md`, "Spec-Task Traceability").
 - **Do not do here.** Anything under `src/provenance/`, `claim_provenance.py`, `document_provenance.py`, `run_provenance.py`; removal of the exhaustion-retain path; selection or serialisation changes; tolerance settings; edits of the normalisers.
 - **Run notes (added during implementation).** 1.1: fast-suite baseline at the start of implementation (HEAD 634995a) is 4047 passed, 2 skipped, 23 deselected (+1 xfailed from the permanent self-check `tests/src/pipeline/test_xfail_convention_selfcheck.py`); the 4043 → 4047 difference is `tests/steering/test_spec_task_traceability.py` being parametrised over active specs (the two new specs add 4 tests). `deterministic_merge.py` is imported as `pipeline.deterministic_merge` by its tests (no test loads it by file path) but follows the same leaf rule; `validator.py`, `evidence_index.py`, `extraction_report.py`, `extraction_map.py` are the ones loaded by `spec_from_file_location`.
+- **Run notes, 1.2.** Helpers live in `tests/helpers/extraction_contract_helpers.py` (existing `tests/helpers` package; tests do `from tests.helpers import extraction_contract_helpers as h`; the root `conftest.py` puts the repo root on `sys.path`); `pipeline.*`/`agents.*` are reached only through `h.resolve_module(name)` at call time (survives the `pipeline*` purge). The oracle (`oracle_verdict`, 24-row `VERDICT_TABLE`) returns a FROZENSET of codes (id checks apply to every kind; `asserted + nr + unshown id` → `{confidence_nr_with_value, evidence_not_shown}`); a confidence outside `h/m/l/nr` raises `ValueError` (structural). `agents.openai.api_client` cannot be imported in tests (needs `OPENAI_API_KEY`), so `ScriptedExtractChunk` is patched in as `sys.modules['agents.openai.api_client'] = SimpleNamespace(extract_chunk=...)`. Both package readers return `()` for an unreadable package (trailing/leading junk, non-JSON whitespace) and accept JSON whitespace padding. testing.md documentation of the helper is owned by 11.4. Baseline after 1.2: 4163 passed, 2 skipped, 23 deselected, 1 xfailed.
 
 - [ ] 1. Foundation: convention, test harness and guards
 
@@ -21,7 +22,7 @@
   - _Requirements: 10.9, 10.10_
   - _Boundary: TestHarness_
 
-- [ ] 1.2 Add the shared contract test helpers and the verdict oracle
+- [x] 1.2 Add the shared contract test helpers and the verdict oracle
   - Provide a builder for evidence package text from a list of ids with the pipeline's envelope, a bundle builder with a matching evidence map, a builder for the model's `{extractions: [...]}` text, and a scripted replacement for the model call that records its arguments and returns scripted responses in order.
   - Provide a function that extracts the evidence ids from a user message built by the real prompt builder by reading between the package markers, a resolver that imports the modules under test at call time through one path, and an independent test-side statement of the verdict table of Requirement 2.10 (value kind, confidence, citation state, absence phrases) returning accept or the rejection codes.
   - Provide a compliance check that asserts a scripted response is accepted by the oracle against a given package and phrase mapping.
